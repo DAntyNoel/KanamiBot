@@ -1,0 +1,12 @@
+.env
+files/napcat_config/onebot11.json
+logs/
+vendor/NapCatQQ/
+vendor/*.zip
+vendor/.napcat-download/
+.venv/
+.uv-cache/
+.ruff_cache/
+__pycache__/
+*.py[cod]
+.DS_Store
