@@ -14,8 +14,10 @@ if not exist "%NAPCAT_LAUNCHER%" (
   exit /b 1
 )
 
-start "NapCat" /D "%NAPCAT_DIR%" /min cmd /c ""%NAPCAT_LAUNCHER%" %* >> "%PROJECT_ROOT%\logs\napcat.log" 2>&1"
+cd /d "%NAPCAT_DIR%" || exit /b 1
 
-echo NapCat backend started in background.
-echo Log: %PROJECT_ROOT%\logs\napcat.log
+echo Starting NapCat backend in foreground...
 echo WebUI: http://127.0.0.1:6099/webui/
+echo Press Ctrl+C to stop.
+call "%NAPCAT_LAUNCHER%" %*
+exit /b %errorlevel%

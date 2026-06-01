@@ -72,12 +72,8 @@ ws://127.0.0.1:8280/onebot/v11/ws
 
 Use the token in `files/napcat_config/onebot11.json`.
 
-The NapCat startup scripts release the current terminal after launching NapCat.
-Runtime logs are written to:
-
-```text
-logs/napcat.log
-```
+The NapCat startup scripts run in the current terminal and print logs directly
+there. Press `Ctrl+C` to stop NapCat.
 
 The KanamiBot / NoneBot backend is started from the project root:
 

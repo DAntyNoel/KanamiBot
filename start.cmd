@@ -4,9 +4,9 @@ setlocal
 set "PROJECT_ROOT=%~dp0"
 cd /d "%PROJECT_ROOT%" || exit /b 1
 
-if not exist "logs" mkdir "logs"
+set "UV_CACHE_DIR=.uv-cache"
 
-start "KanamiBot" /min cmd /c "set UV_CACHE_DIR=.uv-cache&& uv run python bot.py >> logs\kanamibot.log 2>&1"
-
-echo KanamiBot NoneBot backend started in background.
-echo Log: %PROJECT_ROOT%logs\kanamibot.log
+echo Starting KanamiBot NoneBot backend in foreground...
+echo Press Ctrl+C to stop.
+uv run python bot.py
+exit /b %errorlevel%
