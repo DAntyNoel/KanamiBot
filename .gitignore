@@ -2,6 +2,7 @@
 files/napcat_config/onebot11.json
 logs/
 vendor/NapCatQQ/
+vendor/*.app/
 vendor/*.zip
 vendor/.napcat-download/
 .venv/

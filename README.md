@@ -27,6 +27,9 @@ macOS:
 ./vendor/install_napcat_macos.sh
 ```
 
+This downloads and opens the official NapCat.MacOs installer app. Use that app
+to download/update NapCatQQ, select QQ, and start NapCat.
+
 Windows PowerShell:
 
 ```powershell
@@ -59,7 +62,7 @@ This runs in the current terminal. Press `Ctrl+C` to stop it.
 By default, KanamiBot listens on `127.0.0.1:8280`. If you changed `PORT` in
 `.env`, use that port in NapCat's WebSocket Client URL.
 
-Start the NapCat backend after downloading it:
+Start or open NapCat after downloading it:
 
 macOS:
 
@@ -67,17 +70,20 @@ macOS:
 ./vendor/start_kanamibot.sh
 ```
 
+On macOS this opens the NapCat.MacOs installer app.
+
 Windows:
 
 ```cmd
 vendor\start_kanamibot.cmd
 ```
 
-Despite the historical filename, `vendor/start_kanamibot.*` starts NapCat, not
+Despite the historical filename, `vendor/start_kanamibot.*` is for NapCat, not
 the NoneBot backend. NapCat's WebUI normally opens at
-`http://127.0.0.1:6099/webui/`.
+`http://127.0.0.1:6099/webui/` after NapCat starts.
 
-This also runs in the current terminal. Press `Ctrl+C` to stop it.
+The Windows scripts run in the current terminal. Press `Ctrl+C` there to stop
+NapCat. On macOS, use the NapCat.MacOs app to manage the QQ/NapCat process.
 
 ## NapCat Configuration
 
