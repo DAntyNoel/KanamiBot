@@ -9,6 +9,7 @@ $configScript = Join-Path $PSScriptRoot "configure_napcat_windows.ps1"
 
 $logDir = Join-Path $projectRoot "logs"
 $logFile = Join-Path $logDir "napcat.log"
+$pidFile = Join-Path $logDir "napcat.pid"
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 
 if (-not (Test-Path $launcherPath)) {
@@ -19,12 +20,16 @@ $launcherArgs = @($args) -join " "
 & $configScript -ProjectRoot $projectRoot -WorkDir $napcatWorkDir
 $command = "set `"NAPCAT_WORKDIR=$napcatWorkDir`"&& `"$launcherPath`" $launcherArgs >> `"$logFile`" 2>&1"
 
-Start-Process `
+$napcatProcess = Start-Process `
   -FilePath "cmd.exe" `
   -ArgumentList "/c", $command `
   -WorkingDirectory $napcatDir `
-  -WindowStyle Minimized
+  -WindowStyle Minimized `
+  -PassThru
+
+Set-Content -Encoding ASCII -Path $pidFile -Value $napcatProcess.Id
 
 Write-Host "NapCat backend started in background."
+Write-Host "PID: $($napcatProcess.Id)"
 Write-Host "Log: $logFile"
 Write-Host "WebUI: http://127.0.0.1:12705/webui/"

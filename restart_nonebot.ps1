@@ -5,10 +5,8 @@ Set-Location $projectRoot
 
 $logDir = Join-Path $projectRoot "logs"
 $botScript = Join-Path $projectRoot "bot.py"
+$stopScript = Join-Path $projectRoot "stopall.ps1"
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
-
-$napcatInstallScript = Join-Path $projectRoot "vendor\install_napcat_windows.ps1"
-$napcatStartScript = Join-Path $projectRoot "vendor\start_kanamibot.ps1"
 
 function Resolve-UvPath {
   $uvCommand = Get-Command "uv" -ErrorAction SilentlyContinue
@@ -30,13 +28,10 @@ function Resolve-UvPath {
   throw "uv is not installed or not available in PATH. Install it with: python -m pip install --user uv"
 }
 
+& $stopScript -NoneBotOnly
 $uvPath = Resolve-UvPath
 
-& $napcatInstallScript
-& $napcatStartScript @args
-
-Write-Host "KanamiBot NoneBot backend starting in foreground."
-Write-Host "OneBot reverse WebSocket: ws://127.0.0.1:12706/onebot/v11/ws"
+Write-Host "KanamiBot NoneBot backend restarting in foreground."
 $env:UV_CACHE_DIR = ".uv-cache"
 & $uvPath run python $botScript
 exit $LASTEXITCODE

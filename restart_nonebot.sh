@@ -7,5 +7,7 @@ LOG_DIR="$PROJECT_ROOT/logs"
 cd "$PROJECT_ROOT"
 mkdir -p "$LOG_DIR"
 
-echo "KanamiBot NoneBot backend starting in foreground."
+"$PROJECT_ROOT/stopall.sh" --nonebot-only
+
+echo "KanamiBot NoneBot backend restarting in foreground."
 exec env UV_CACHE_DIR=.uv-cache uv run python "$PROJECT_ROOT/bot.py"
