@@ -3,6 +3,7 @@ files/napcat_config/onebot11.json
 files/napcat_config/webui.json
 files/napcat_runtime/
 logs/
+data/
 vendor/NapCatQQ/
 vendor/NapCat.Shell
 vendor/NapCat.Shell/
