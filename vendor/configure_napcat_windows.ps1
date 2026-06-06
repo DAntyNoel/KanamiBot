@@ -93,6 +93,16 @@ function Read-JsonObjectAsHashtable {
   return $result
 }
 
+function Write-Utf8NoBom {
+  param(
+    [string]$Path,
+    [string]$Content
+  )
+
+  $encoding = New-Object System.Text.UTF8Encoding($false)
+  [System.IO.File]::WriteAllText($Path, $Content + [Environment]::NewLine, $encoding)
+}
+
 $envFile = Join-Path $ProjectRoot ".env"
 $settings = Read-DotEnv -Path $envFile
 
@@ -121,7 +131,7 @@ if (-not $webuiConfig.Contains("loginRate")) {
   $webuiConfig["loginRate"] = 10
 }
 $webuiConfig["autoLoginAccount"] = $quickAccount
-$webuiConfig | ConvertTo-Json -Depth 30 | Set-Content -Encoding UTF8 -Path $webuiConfigPath
+Write-Utf8NoBom -Path $webuiConfigPath -Content ($webuiConfig | ConvertTo-Json -Depth 30)
 
 $onebotConfig = [ordered]@{
   network = [ordered]@{
@@ -160,7 +170,7 @@ Get-ChildItem -Path $configDir -Filter "onebot11_*.json" -ErrorAction SilentlyCo
 
 $onebotTargets |
   Select-Object -Unique |
-  ForEach-Object { $onebotJson | Set-Content -Encoding UTF8 -Path $_ }
+  ForEach-Object { Write-Utf8NoBom -Path $_ -Content $onebotJson }
 
 Write-Host "NapCat config prepared."
 Write-Host "Work dir: $WorkDir"
