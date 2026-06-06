@@ -80,7 +80,7 @@ if (-not $Download) {
     }
 
     New-ShellDirectoryLink -SourceDir $ShellSourceDir -LinkDir $installDir
-    Write-Host "NapCat WebUI normally listens on http://127.0.0.1:6099/webui/ after NapCat starts."
+    Write-Host "Project startup config sets NapCat WebUI to http://127.0.0.1:12705/webui/."
     exit 0
   }
 }
@@ -119,4 +119,4 @@ Expand-Archive -Path $archive -DestinationPath $installDir -Force
 Write-Host "NapCat $($release.tag_name) installed."
 Write-Host "Windows asset: $AssetName"
 Write-Host "Install dir: $installDir"
-Write-Host "NapCat WebUI normally listens on http://127.0.0.1:6099/webui/ after NapCat starts."
+Write-Host "Project startup config sets NapCat WebUI to http://127.0.0.1:12705/webui/."

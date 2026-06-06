@@ -9,31 +9,23 @@ NapCat connects to this bot through reverse WebSocket.
 - uv
 - NoneBot2
 - nonebot-adapter-onebot
-- NapCat / OneBot v11
+- NapCat Shell / OneBot v11
 
 ## Setup
 
 Install Python dependencies:
 
-```bash
-UV_CACHE_DIR=.uv-cache uv sync
+```powershell
+$env:UV_CACHE_DIR=".uv-cache"; uv sync
 ```
 
-Download NapCat from GitHub Releases.
-
-macOS:
-
-```bash
-./vendor/install_napcat_macos.sh
-```
-
-Windows PowerShell:
+Link or install NapCat Shell:
 
 ```powershell
 .\vendor\install_napcat_windows.ps1
 ```
 
-Windows Command Prompt:
+Command Prompt wrapper:
 
 ```cmd
 vendor\install_napcat_windows.cmd
@@ -41,57 +33,51 @@ vendor\install_napcat_windows.cmd
 
 Create local configuration:
 
-```bash
-cp .env.example .env
+```powershell
+Copy-Item .env.example .env
 ```
 
-Edit `.env` and set a private `ONEBOT_ACCESS_TOKEN`. Use the same value in
-NapCat's WebSocket Client `token`.
+The prepared local ports are:
 
-Start the KanamiBot / NoneBot backend:
+- NapCat WebUI: `http://127.0.0.1:12705/webui/`
+- NoneBot OneBot reverse WebSocket: `ws://127.0.0.1:12706/onebot/v11/ws`
 
-```bash
-./start.sh
+Set a private `ONEBOT_ACCESS_TOKEN` in `.env`. The startup script writes the
+same token into NapCat's generated OneBot config before launching NapCat.
+
+## Start
+
+Use one root script to start both NapCat Shell and the NoneBot backend:
+
+```powershell
+.\start.ps1
 ```
 
-By default, KanamiBot listens on `127.0.0.1:8280`. If you changed `PORT` in
-`.env`, use that port in NapCat's WebSocket Client URL.
-
-Start the NapCat backend after downloading it:
-
-macOS:
-
-```bash
-./vendor/start_kanamibot.sh
-```
-
-Windows:
+or:
 
 ```cmd
-vendor\start_kanamibot.cmd
+start.cmd
 ```
 
-Despite the historical filename, `vendor/start_kanamibot.*` starts NapCat, not
-the NoneBot backend. NapCat's WebUI normally opens at
-`http://127.0.0.1:6099/webui/`.
+NapCat uses `files/napcat_runtime/` as its isolated work directory through
+`NAPCAT_WORKDIR`, so this project does not reuse the installed Shell directory's
+existing runtime config. Runtime logs are written to `logs/napcat.log` and
+`logs/kanamibot.log`.
+
+The historical `vendor/start_kanamibot.*` scripts start only NapCat Shell. Use
+the root `start.*` scripts for one-click startup.
 
 ## NapCat Configuration
 
-Local config files have been prepared:
+The startup scripts generate NapCat config from `.env`:
 
-- NoneBot env: `.env`
-- NapCat OneBot config: `files/napcat_config/onebot11.json`
+- WebUI config: `files/napcat_runtime/config/webui.json`
+- OneBot config: `files/napcat_runtime/config/onebot11.json`
 
-In NapCat WebUI, add a network configuration:
+Reference templates live in:
 
-- Type: WebSocket Client
-- URL: `ws://127.0.0.1:8280/onebot/v11/ws`
-- Token: same as `ONEBOT_ACCESS_TOKEN`
-- Message format: array
-
-You can also use `files/napcat_config/onebot11.json.example` as a reference.
-NapCat's management WebUI is a separate service; after NapCat starts it normally
-opens at `http://127.0.0.1:6099/webui/`.
+- `files/napcat_config/webui.json.example`
+- `files/napcat_config/onebot11.json.example`
 
 ## Smoke Test
 
@@ -125,12 +111,12 @@ hello
 
 Compile-check local code:
 
-```bash
-UV_CACHE_DIR=.uv-cache uv run python -m compileall bot.py src
+```powershell
+$env:UV_CACHE_DIR=".uv-cache"; uv run python -m compileall bot.py src
 ```
 
 Run linting:
 
-```bash
-UV_CACHE_DIR=.uv-cache uv run ruff check .
+```powershell
+$env:UV_CACHE_DIR=".uv-cache"; uv run ruff check .
 ```

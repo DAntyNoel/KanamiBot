@@ -8,7 +8,7 @@
       {
         "enable": true,
         "name": "kanamibot",
-        "url": "ws://127.0.0.1:8280/onebot/v11/ws",
+        "url": "ws://127.0.0.1:12706/onebot/v11/ws",
         "reportSelfMessage": false,
         "messagePostFormat": "array",
         "token": "change-me",

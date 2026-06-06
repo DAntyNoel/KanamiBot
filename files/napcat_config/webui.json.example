@@ -1,0 +1,7 @@
+{
+  "host": "127.0.0.1",
+  "port": 12705,
+  "token": "change-me",
+  "loginRate": 10,
+  "autoLoginAccount": ""
+}

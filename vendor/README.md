@@ -1,18 +1,11 @@
 # Vendor Startup
 
-## Install NapCat
+## Install NapCat Shell
 
-NapCat is not tracked as a git submodule.
-
-macOS downloads the cross-platform shell asset:
-
-```bash
-./vendor/install_napcat_macos.sh
-```
-
-Windows uses NapCat Shell under `vendor/NapCat.Shell/`. By default, the
-installer links the local shell directory from `D:\DAntyNoel\NapCat.Shell` when
-it exists, or from `NAPCAT_SHELL_DIR` / `-ShellSourceDir` when provided:
+NapCat Shell is not tracked as a git submodule. Windows uses NapCat Shell under
+`vendor/NapCat.Shell/`. By default, the installer links the local shell
+directory from `D:\DAntyNoel\NapCat.Shell` when it exists, or from
+`NAPCAT_SHELL_DIR` / `-ShellSourceDir` when provided:
 
 ```powershell
 .\vendor\install_napcat_windows.ps1
@@ -32,32 +25,40 @@ Download a Shell release directly into `vendor/NapCat.Shell/` if needed:
 
 Set a specific release tag if needed while downloading:
 
-```bash
-NAPCAT_VERSION=v4.18.4 ./vendor/install_napcat_macos.sh
-```
-
 ```powershell
 .\vendor\install_napcat_windows.ps1 -Download -Version v4.18.4
 ```
 
-NapCat WebUI normally listens on:
+## Configure NapCat
+
+NapCat uses a project-local work directory:
 
 ```text
-http://127.0.0.1:6099/webui/
+files/napcat_runtime/
 ```
 
-KanamiBot's OneBot reverse WebSocket endpoint is separate from the WebUI.
+Run the config sync manually if needed:
+
+```powershell
+.\vendor\configure_napcat_windows.ps1
+```
+
+It reads `.env` and writes:
+
+- `files/napcat_runtime/config/webui.json`
+- `files/napcat_runtime/config/onebot11.json`
+
+Default local endpoints:
+
+```text
+http://127.0.0.1:12705/webui/
+ws://127.0.0.1:12706/onebot/v11/ws
+```
 
 ## Start NapCat
 
-These scripts live under `vendor/` and start the NapCat backend. The filename is
-historical; they do not start the KanamiBot / NoneBot process.
-
-Start NapCat on macOS:
-
-```bash
-./vendor/start_kanamibot.sh
-```
+These scripts live under `vendor/` and start only the NapCat backend. The
+filename is historical; they do not start the KanamiBot / NoneBot process.
 
 Start NapCat on Windows Command Prompt:
 
@@ -71,23 +72,5 @@ Start NapCat on Windows PowerShell:
 .\vendor\start_kanamibot.ps1
 ```
 
-NapCat WebSocket Client:
-
-```text
-ws://127.0.0.1:8280/onebot/v11/ws
-```
-
-Use the token in `files/napcat_config/onebot11.json`.
-
-The NapCat startup scripts release the current terminal after launching NapCat.
-Runtime logs are written to:
-
-```text
-logs/napcat.log
-```
-
-The KanamiBot / NoneBot backend is started from the project root:
-
-```bash
-./start.sh
-```
+Use the root `start.cmd` or `start.ps1` scripts to start both NapCat and
+NoneBot in one step.
