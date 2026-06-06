@@ -7,7 +7,7 @@ from typing import Any
 
 from nonebot.log import logger
 
-from .media_storage import DATA_ROOT, AdvancedMediaStorageSystem
+from .media_storage import DATA_ROOT, AdvancedMediaStorageSystem, rebuild_global_index
 
 # ================= 实例管理 (Factory Pattern) =================
 
@@ -96,6 +96,7 @@ def init_folder(
         image_list.append({
             'id': f['id'],                   # [修改] 纯 UUID
             'filename': f['stored_filename'], # [修改] 带后缀的物理文件名
+            'thumbnail': f.get('thumbnail_filename'),
             'original_name': f.get('original_name'),
             'contributor': contributor,
             'tags': f.get('tags', []),
@@ -114,6 +115,31 @@ def get_folder_list() -> list[str]:
     if not DATA_ROOT.exists():
         return []
     return [d.name for d in DATA_ROOT.iterdir() if d.is_dir()]
+
+def get_image_file_path(id: str, folder: str) -> Path | None:
+    '''获取图库图片的本地文件路径'''
+    try:
+        system = _get_system(folder)
+        f = system[id]
+    except KeyError:
+        return None
+    return system.files_dir / f['stored_filename']
+
+def rebuild_image_indexes(
+    folder_name: str | None = None,
+    *,
+    force_thumbnails: bool = False,
+) -> dict[str, Any]:
+    '''重建单个图库或全部图库的缩略图索引'''
+    folders = [folder_name] if folder_name else get_folder_list()
+    folder_indexes: dict[str, Any] = {}
+    for folder in folders:
+        if not folder:
+            continue
+        system = _get_system(folder)
+        folder_indexes[folder] = system.rebuild_index(force_thumbnails=force_thumbnails)
+    global_index = rebuild_global_index()
+    return {"folders": folder_indexes, "global": global_index}
 
 def get_folder_name(alias: str, create_new: bool = False) -> str | None:
     '''通过别名或者图库名获取图库文件夹名'''
@@ -155,6 +181,7 @@ def get_all_tags_with_imagedict(
                     img_info = {
                         'id': f['id'],                    # [修改] UUID
                         'filename': f['stored_filename'],  # [修改] 物理文件名
+                        'thumbnail': f.get('thumbnail_filename'),
                         'folder': folder,
                         'tags': f.get('tags', []),
                         'description': f.get('description', ''),
@@ -205,6 +232,7 @@ def save_image(
     return {
         'id': result['id'],                     # [修改] UUID
         'filename': result['stored_filename'],   # [修改] 物理文件名
+        'status': result.get('status', 'created'),
         'contributor': contributor,
         'tags': image_tags,
         'description': description,
@@ -225,6 +253,7 @@ def similar_images(image_bytes: bytes, folder: str, threshold: float = 0.95) -> 
         {
             'id': m['id'],                      # [修改] UUID
             'filename': m['stored_filename'],    # [修改] 物理文件名
+            'thumbnail': m.get('thumbnail_filename'),
             'folder': folder,
             'tags': m.get('tags', []),
             'description': m.get('description', '')
@@ -254,6 +283,7 @@ def get_imagedata(id: str, folder: str) -> dict | None:
         return {
             'id': f['id'],                      # [修改] UUID
             'filename': f['stored_filename'],    # [修改] 物理文件名
+            'thumbnail': f.get('thumbnail_filename'),
             'folder': folder,
             'tags': f.get('tags', []),
             'description': f.get('description', ''),

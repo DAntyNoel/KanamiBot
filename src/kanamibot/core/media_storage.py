@@ -9,7 +9,7 @@ import shutil
 import uuid
 from io import BytesIO
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from nonebot.log import logger
 
@@ -17,7 +17,7 @@ from .paths import DATA_DIR, DEFAULT_FONT_PATH
 
 # 尝试导入 PIL
 try:
-    from PIL import Image, ImageDraw, ImageFont
+    from PIL import Image, ImageDraw, ImageFont, ImageOps
 
     PIL_AVAILABLE = True
 except ImportError:
@@ -26,6 +26,69 @@ except ImportError:
 
 DATA_ROOT = DATA_DIR / "advanced_media"
 FONT_PATH = DEFAULT_FONT_PATH
+FOLDER_INDEX_NAME = "index.json"
+GLOBAL_INDEX_PATH = DATA_ROOT / FOLDER_INDEX_NAME
+THUMB_SIZE = (320, 320)
+
+
+def _atomic_write_json(path: Path, data: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_file = path.with_suffix(f".tmp.{uuid.uuid4()}")
+    try:
+        with temp_file.open("w", encoding="utf-8") as file:
+            json.dump(data, file, ensure_ascii=False, indent=2)
+        os.replace(temp_file, path)
+    except Exception:
+        temp_file.unlink(missing_ok=True)
+        raise
+
+
+def _normalize_extension(ext: str | None) -> str:
+    if not ext:
+        return ".bin"
+    normalized = ext.lower()
+    if not normalized.startswith("."):
+        normalized = f".{normalized}"
+    if normalized == ".jpeg":
+        return ".jpg"
+    return normalized
+
+
+def _metadata_sort_key(meta: dict[str, Any]) -> str:
+    return str(meta.get("created_at", ""))
+
+
+def rebuild_global_index() -> dict[str, Any]:
+    DATA_ROOT.mkdir(parents=True, exist_ok=True)
+    folders: dict[str, Any] = {}
+
+    for folder_path in sorted(DATA_ROOT.iterdir(), key=lambda path: path.name):
+        if not folder_path.is_dir():
+            continue
+        folder_index_path = folder_path / FOLDER_INDEX_NAME
+        if not folder_index_path.exists():
+            continue
+        try:
+            with folder_index_path.open(encoding="utf-8") as file:
+                folder_index = json.load(file)
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning("Failed to load image index %s: %s", folder_path.name, exc)
+            continue
+        folders[folder_path.name] = folder_index
+
+    payload = {
+        "version": 1,
+        "generated_at": datetime.datetime.now().isoformat(),
+        "folder_count": len(folders),
+        "image_count": sum(
+            int(folder.get("image_count", 0))
+            for folder in folders.values()
+            if isinstance(folder, dict)
+        ),
+        "folders": folders,
+    }
+    _atomic_write_json(GLOBAL_INDEX_PATH, payload)
+    return payload
 
 
 class AdvancedMediaStorageSystem:
@@ -39,7 +102,9 @@ class AdvancedMediaStorageSystem:
     def __init__(self, name: str = "gallery"):
         self.storage_root = DATA_ROOT / name
         self.files_dir = self.storage_root / "files"
+        self.thumbs_dir = self.storage_root / "thumbs"
         self.metadata_path = self.storage_root / "metadata.json"
+        self.index_path = self.storage_root / FOLDER_INDEX_NAME
         
         self._initialize_storage()
         self.metadata_registry = self._load_metadata()
@@ -47,9 +112,10 @@ class AdvancedMediaStorageSystem:
     def _initialize_storage(self):
         if not self.files_dir.exists():
             self.files_dir.mkdir(parents=True, exist_ok=True)
+        if not self.thumbs_dir.exists():
+            self.thumbs_dir.mkdir(parents=True, exist_ok=True)
         if not self.metadata_path.exists():
-            with open(self.metadata_path, 'w', encoding='utf-8') as f:
-                json.dump({}, f)
+            _atomic_write_json(self.metadata_path, {})
 
     def _load_metadata(self) -> dict:
         try:
@@ -59,8 +125,7 @@ class AdvancedMediaStorageSystem:
             return {}
 
     def _save_metadata(self):
-        with open(self.metadata_path, 'w', encoding='utf-8') as f:
-            json.dump(self.metadata_registry, f, ensure_ascii=False, indent=2)
+        _atomic_write_json(self.metadata_path, self.metadata_registry)
 
     def _calculate_hash_from_bytes(self, data: bytes) -> str:
         sha256 = hashlib.sha256()
@@ -73,6 +138,115 @@ class AdvancedMediaStorageSystem:
             for chunk in iter(lambda: f.read(4096), b""):
                 sha256.update(chunk)
         return sha256.hexdigest()
+
+    def _select_file_id(self, file_hash: str) -> str:
+        for length in (16, 20, 24, 32, 40, 64):
+            candidate = file_hash[:length]
+            existing = self.metadata_registry.get(candidate)
+            if existing is None or existing.get("hash") == file_hash:
+                return candidate
+        return file_hash
+
+    def _find_existing_by_hash(self, file_hash: str | None) -> tuple[str, dict] | None:
+        if not file_hash:
+            return None
+        for file_id, meta in self.metadata_registry.items():
+            if meta.get("hash") == file_hash:
+                return file_id, meta
+        return None
+
+    def _media_path_for(self, meta: dict, *, prefer_thumb: bool = False) -> Path:
+        if prefer_thumb:
+            thumb_name = meta.get("thumbnail_filename") or f"{meta.get('id')}.webp"
+            thumb_path = self.thumbs_dir / str(thumb_name)
+            if thumb_path.exists():
+                return thumb_path
+        return self.files_dir / meta["stored_filename"]
+
+    def _ensure_thumbnail(self, meta: dict, *, force: bool = False) -> str | None:
+        if not PIL_AVAILABLE:
+            return None
+        ext = _normalize_extension(meta.get("file_type", "")).lower()
+        if ext not in self.IMAGE_EXTENSIONS:
+            return None
+
+        file_id = str(meta.get("id") or "")
+        if not file_id:
+            return None
+        thumb_name = f"{file_id}.webp"
+        thumb_path = self.thumbs_dir / thumb_name
+        if thumb_path.exists() and not force:
+            return thumb_name
+
+        source_path = self.files_dir / meta["stored_filename"]
+        if not source_path.exists():
+            return None
+
+        try:
+            with Image.open(source_path) as image:
+                try:
+                    image.seek(0)
+                except EOFError:
+                    pass
+                image = ImageOps.exif_transpose(image)
+                if image.mode not in {"RGB", "RGBA"}:
+                    image = image.convert("RGBA")
+                image.thumbnail(THUMB_SIZE, Image.Resampling.LANCZOS)
+                thumb_path.parent.mkdir(parents=True, exist_ok=True)
+                image.save(thumb_path, format="WEBP", quality=82, method=4)
+        except Exception as exc:
+            logger.warning("Failed to create thumbnail for %s: %s", source_path, exc)
+            return None
+        return thumb_name
+
+    def _index_entry(self, meta: dict) -> dict[str, Any]:
+        thumb_name = meta.get("thumbnail_filename")
+        return {
+            "id": meta.get("id"),
+            "filename": meta.get("stored_filename"),
+            "file": f"files/{meta.get('stored_filename')}",
+            "thumbnail": f"thumbs/{thumb_name}" if thumb_name else None,
+            "file_size": meta.get("file_size", 0),
+            "file_type": meta.get("file_type", "unknown"),
+            "hash": meta.get("hash"),
+            "created_at": meta.get("created_at"),
+            "tags": meta.get("tags", []),
+            "description": meta.get("description", ""),
+            "visibility": meta.get("visibility", False),
+            "group": meta.get("group", 0),
+            "qq": meta.get("qq", 0),
+            "original_name": meta.get("original_name"),
+            "legacy_id": meta.get("legacy_id"),
+            "legacy_filename": meta.get("legacy_filename"),
+        }
+
+    def rebuild_index(self, *, force_thumbnails: bool = False) -> dict[str, Any]:
+        changed = False
+        entries: list[dict[str, Any]] = []
+
+        for meta in sorted(self.metadata_registry.values(), key=_metadata_sort_key, reverse=True):
+            thumb_name = self._ensure_thumbnail(meta, force=force_thumbnails)
+            if thumb_name and meta.get("thumbnail_filename") != thumb_name:
+                meta["thumbnail_filename"] = thumb_name
+                changed = True
+            entries.append(self._index_entry(meta))
+
+        if changed:
+            self._save_metadata()
+
+        payload = {
+            "version": 1,
+            "folder": self.storage_root.name,
+            "generated_at": datetime.datetime.now().isoformat(),
+            "image_count": len(entries),
+            "images": entries,
+        }
+        _atomic_write_json(self.index_path, payload)
+        return payload
+
+    def _refresh_indexes(self, *, force_thumbnails: bool = False) -> None:
+        self.rebuild_index(force_thumbnails=force_thumbnails)
+        rebuild_global_index()
 
     # --- 核心功能：下标访问 ---
     def __getitem__(self, key: str | int | slice) -> dict | list[dict]:
@@ -124,7 +298,7 @@ class AdvancedMediaStorageSystem:
             font = ImageFont.load_default()
 
         for i, meta in enumerate(image_metas):
-            file_path = self.files_dir / meta['stored_filename']
+            file_path = self._media_path_for(meta, prefer_thumb=True)
             row_idx, col_idx = i // cols, i % cols
             cell_x = padding + col_idx * (cell_w + padding)
             cell_y = padding + row_idx * (cell_h + padding)
@@ -228,20 +402,17 @@ class AdvancedMediaStorageSystem:
             raise TypeError(f"Unsupported source type: {type(source)}")
 
         # 确保 ext 有点号
-        if ext and not ext.startswith('.'):
-            ext = '.' + ext
+        ext = _normalize_extension(ext)
 
         # 2. Hash 去重检查
-        for file_id, meta in self.metadata_registry.items():
-            if meta.get('hash') == file_hash:
-                # 即使文件存在，可能用户想更新这次上传带来的 tags 或 description
-                # 这里我们仅返回旧文件ID，如果需要修改元数据，请外层调用 update
-                return {**meta, "status": "exists", "file_id": file_id}
+        existing = self._find_existing_by_hash(file_hash)
+        if existing:
+            file_id, meta = existing
+            return {**meta, "status": "exists", "file_id": file_id}
 
         # 3. 写入存储
-        unique_id = str(uuid.uuid4())
-        yymmdd = datetime.datetime.now().strftime('%Y%m%d')
-        stored_filename = f"{yymmdd}_{unique_id}{ext}"
+        unique_id = self._select_file_id(file_hash or str(uuid.uuid4()))
+        stored_filename = f"{unique_id}{ext}"
         destination_path = self.files_dir / stored_filename
 
         if file_path_to_copy:
@@ -264,6 +435,7 @@ class AdvancedMediaStorageSystem:
         }
         self.metadata_registry[unique_id] = metadata
         self._save_metadata()
+        self._refresh_indexes()
         return {**metadata, "status": "created", "file_id": unique_id}
 
     def delete(self, file_id: str) -> bool:
@@ -274,14 +446,18 @@ class AdvancedMediaStorageSystem:
         file_path = self.files_dir / meta['stored_filename']
         if file_path.exists():
             os.remove(file_path)
+        thumb_name = meta.get("thumbnail_filename") or f"{file_id}.webp"
+        (self.thumbs_dir / str(thumb_name)).unlink(missing_ok=True)
         del self.metadata_registry[file_id]
         self._save_metadata()
+        self._refresh_indexes()
         return True
     
     def update(self, file_id: str, **kwargs):
         if file_id in self.metadata_registry:
             self.metadata_registry[file_id].update(kwargs)
             self._save_metadata()
+            self._refresh_indexes()
 
     def list_files(self, 
                    return_type: Literal['dict', 'image'] = 'image', 
