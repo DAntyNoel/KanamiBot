@@ -2,7 +2,7 @@
 setlocal
 
 set "PROJECT_ROOT=%~dp0.."
-set "NAPCAT_DIR=%PROJECT_ROOT%\vendor\NapCatQQ"
+set "NAPCAT_DIR=%PROJECT_ROOT%\vendor\NapCat.Shell"
 if "%NAPCAT_WINDOWS_LAUNCHER%"=="" set "NAPCAT_WINDOWS_LAUNCHER=launcher-user.bat"
 set "NAPCAT_LAUNCHER=%NAPCAT_DIR%\%NAPCAT_WINDOWS_LAUNCHER%"
 

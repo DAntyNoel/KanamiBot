@@ -1,7 +1,7 @@
 $ErrorActionPreference = "Stop"
 
 $projectRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
-$napcatDir = Join-Path $projectRoot "vendor\NapCatQQ"
+$napcatDir = Join-Path $projectRoot "vendor\NapCat.Shell"
 $launcher = if ($env:NAPCAT_WINDOWS_LAUNCHER) { $env:NAPCAT_WINDOWS_LAUNCHER } else { "launcher-user.bat" }
 $launcherPath = Join-Path $napcatDir $launcher
 

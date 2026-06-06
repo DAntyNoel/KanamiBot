@@ -1,9 +1,8 @@
 # Vendor Startup
 
-## Download NapCat
+## Install NapCat
 
-NapCat is downloaded from GitHub Releases and is not tracked as a git submodule.
-Downloaded files are installed into `vendor/NapCatQQ/`.
+NapCat is not tracked as a git submodule.
 
 macOS downloads the cross-platform shell asset:
 
@@ -11,7 +10,9 @@ macOS downloads the cross-platform shell asset:
 ./vendor/install_napcat_macos.sh
 ```
 
-Windows downloads the Windows Node asset:
+Windows uses NapCat Shell under `vendor/NapCat.Shell/`. By default, the
+installer links the local shell directory from `D:\DAntyNoel\NapCat.Shell` when
+it exists, or from `NAPCAT_SHELL_DIR` / `-ShellSourceDir` when provided:
 
 ```powershell
 .\vendor\install_napcat_windows.ps1
@@ -23,14 +24,20 @@ Command Prompt wrapper:
 vendor\install_napcat_windows.cmd
 ```
 
-Set a specific release tag if needed:
+Download a Shell release directly into `vendor/NapCat.Shell/` if needed:
+
+```powershell
+.\vendor\install_napcat_windows.ps1 -Download
+```
+
+Set a specific release tag if needed while downloading:
 
 ```bash
 NAPCAT_VERSION=v4.18.4 ./vendor/install_napcat_macos.sh
 ```
 
 ```powershell
-.\vendor\install_napcat_windows.ps1 -Version v4.18.4
+.\vendor\install_napcat_windows.ps1 -Download -Version v4.18.4
 ```
 
 NapCat WebUI normally listens on:
