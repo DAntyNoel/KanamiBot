@@ -1,0 +1,9 @@
+#gpt help	Codex GPT 用法
+#gpt status	Codex GPT 状态
+#gpt clear	已新建对话
+#gpt forget	当前没有可忘记
+#gpt model	模型命令
+#gpt system	当前 system prompt
+#image help	图片生成用法
+SKIP	#gpt one hello	依赖本地 CODEX_GPT_API_KEY 和外部模型服务，默认报告跳过
+SKIP	#image a small cat	依赖图片生成模型且耗时较长，默认报告跳过

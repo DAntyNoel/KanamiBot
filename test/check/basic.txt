@@ -1,0 +1,4 @@
+ping	pong
+/ping	pong
+echo hello	hello
+/echo	Please provide text

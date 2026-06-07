@@ -1,0 +1,7 @@
+sub list	本群还未关注任何B站up	group=9910000
+add sub 2	只有管理员可以操作关注	user=987654321 role=member group=9910000
+del sub 999999999999	本群没有关注这个UP主	role=admin group=9910000
+dynamic 2 0	动态序号需要大于 0	role=admin group=9910000
+SKIP	bili_login	需要人工扫码登录，默认报告跳过
+SKIP	更新动态	依赖当前订阅和外部推送状态，默认报告跳过
+SKIP	add sub 2 as admin	会写入订阅配置并依赖 Bilibili 登录态，默认报告跳过

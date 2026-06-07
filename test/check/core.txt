@@ -1,0 +1,6 @@
+help	KanamiBot
+/help ping	Ping
+/list module	本群模块状态	role=admin
+/enable mock_check_module	已在本群启用	role=admin
+/disable mock_check_module	已在本群禁用	role=admin
+/ban user not_a_number	请输入有效的QQ号

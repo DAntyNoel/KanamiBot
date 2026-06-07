@@ -1,0 +1,9 @@
+pick_image missing_gallery	找不到名为
+list_image missing_gallery	图库不存在
+select_image missing_gallery 1	找不到名为
+save_image missing_gallery	该图库不存在	user=987654321 role=member
+delete_image	请回复要删除的图片消息
+image_info	请回复一张由机器人发送的图片
+tag smoke	请回复一张图片进行打标
+untag	请回复要清除标签的图片
+SKIP	save_image with real CQ:image	真实保存图片会下载外部图片并写 data/advanced_media，默认报告跳过

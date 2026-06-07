@@ -2,13 +2,111 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import json
 import logging
+import shlex
+import shutil
 import sys
+import tempfile
+import time
+from dataclasses import dataclass, field
+from html import escape as html_escape
+from pathlib import Path
 from typing import Any
 
 from .config import load_config
 from .service import run_service
+
+DEFAULT_CHECK_DIR = "test/check"
+DEFAULT_REPORT_PATH = "data/check_reports/mock_napcat.html"
+STATE_SNAPSHOT_PATHS = (
+    "data/group_manager.json",
+    "data/plugin_configs/bilibili.json",
+    "data/codex_gpt/sessions.json",
+    "data/advanced_media",
+    "data/majsoul/majsoul.sqlite",
+    "data/majsoul/majsoul.sqlite-wal",
+    "data/majsoul/majsoul.sqlite-shm",
+)
+
+
+@dataclass(slots=True)
+class CheckCase:
+    source: str
+    line_no: int
+    command: str
+    expected: str = ""
+    options: dict[str, Any] = field(default_factory=dict)
+    skip_reason: str = ""
+
+    @property
+    def label(self) -> str:
+        return str(self.options.get("label") or f"{self.source}:{self.line_no}")
+
+
+@dataclass(slots=True)
+class CheckResult:
+    case: CheckCase
+    status: str
+    duration: float = 0.0
+    actual: str = ""
+    error: str = ""
+    response: dict[str, Any] | None = None
+
+
+@dataclass(slots=True)
+class SnapshotItem:
+    target: Path
+    snapshot: Path
+    existed: bool
+    is_dir: bool
+
+
+class StateSnapshot:
+    def __init__(self, project_root: Path) -> None:
+        self.project_root = project_root.resolve()
+        self._temp_dir = tempfile.TemporaryDirectory(prefix="mock-napcat-check-")
+        self.temp_root = Path(self._temp_dir.name)
+        self.items: list[SnapshotItem] = []
+
+    def capture(self) -> None:
+        for index, relative_path in enumerate(STATE_SNAPSHOT_PATHS):
+            target = (self.project_root / relative_path).resolve()
+            if not _is_relative_to(target, self.project_root):
+                raise RuntimeError(f"refusing to snapshot outside project root: {target}")
+
+            snapshot = self.temp_root / str(index)
+            existed = target.exists()
+            is_dir = target.is_dir() if existed else False
+            self.items.append(
+                SnapshotItem(target=target, snapshot=snapshot, existed=existed, is_dir=is_dir)
+            )
+            if not existed:
+                continue
+            if is_dir:
+                shutil.copytree(target, snapshot)
+            else:
+                snapshot.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(target, snapshot)
+
+    def restore(self) -> None:
+        for item in reversed(self.items):
+            if item.target.exists():
+                if item.target.is_dir():
+                    shutil.rmtree(item.target)
+                else:
+                    item.target.unlink()
+            if not item.existed:
+                continue
+            item.target.parent.mkdir(parents=True, exist_ok=True)
+            if item.is_dir:
+                shutil.copytree(item.snapshot, item.target)
+            else:
+                shutil.copy2(item.snapshot, item.target)
+
+    def cleanup(self) -> None:
+        self._temp_dir.cleanup()
 
 
 def add_common_args(parser: argparse.ArgumentParser) -> None:
@@ -39,6 +137,119 @@ async def control_request(
 
 def print_json(payload: Any) -> None:
     print(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+def _is_relative_to(path: Path, parent: Path) -> bool:
+    with contextlib.suppress(ValueError):
+        path.relative_to(parent)
+        return True
+    return False
+
+
+def resolve_project_path(project_root: Path, value: str | Path) -> Path:
+    path = Path(value)
+    return path if path.is_absolute() else project_root / path
+
+
+def parse_bool(value: object) -> bool:
+    text = str(value).strip().lower()
+    return text in {"1", "true", "yes", "on", "enable", "enabled"}
+
+
+def parse_int_list(value: object) -> list[int]:
+    result: list[int] = []
+    for item in str(value).split(","):
+        item = item.strip()
+        if not item:
+            continue
+        try:
+            result.append(int(item))
+        except ValueError:
+            continue
+    return result
+
+
+def parse_str_list(value: object) -> list[str]:
+    return [item.strip() for item in str(value).split(",") if item.strip()]
+
+
+def parse_case_options(raw_options: str) -> dict[str, Any]:
+    options: dict[str, Any] = {}
+    if not raw_options.strip():
+        return options
+
+    for token in shlex.split(raw_options):
+        if "=" not in token:
+            if token.lower() == "private":
+                options["private"] = True
+            continue
+
+        key, value = token.split("=", 1)
+        key = key.strip().lower()
+        value = value.strip()
+        if key in {"user", "group", "reply"}:
+            try:
+                options[key] = int(value)
+            except ValueError:
+                options[key] = value
+        elif key == "wait":
+            try:
+                options[key] = float(value)
+            except ValueError:
+                options[key] = value
+        elif key == "private":
+            options[key] = parse_bool(value)
+        elif key == "at":
+            options.setdefault("at", []).extend(parse_int_list(value))
+        elif key == "image":
+            options.setdefault("image", []).extend(parse_str_list(value))
+        else:
+            options[key] = value
+    return options
+
+
+def parse_check_line(raw_line: str, source: str, line_no: int) -> CheckCase | None:
+    line = raw_line.strip("\ufeff\r\n")
+    if not line.strip() or line.lstrip().startswith("//"):
+        return None
+
+    if "\t" in line:
+        fields = line.split("\t")
+        head = fields[0].strip()
+        if head.upper() == "SKIP":
+            command = fields[1].strip() if len(fields) > 1 else ""
+            reason = fields[2].strip() if len(fields) > 2 else "skipped by check file"
+            return CheckCase(source=source, line_no=line_no, command=command, skip_reason=reason)
+
+        command = head
+        expected = fields[1].strip() if len(fields) > 1 else ""
+        raw_options = " ".join(field.strip() for field in fields[2:] if field.strip())
+        return CheckCase(
+            source=source,
+            line_no=line_no,
+            command=command,
+            expected=expected,
+            options=parse_case_options(raw_options),
+        )
+
+    parts = line.split(maxsplit=1)
+    command = parts[0].strip()
+    expected = parts[1].strip() if len(parts) > 1 else ""
+    return CheckCase(source=source, line_no=line_no, command=command, expected=expected)
+
+
+def load_check_cases(check_dir: Path) -> list[CheckCase]:
+    cases: list[CheckCase] = []
+    if not check_dir.exists():
+        return cases
+
+    for path in sorted(check_dir.glob("*.txt")):
+        source = str(path.relative_to(check_dir.parent))
+        for line_no, raw_line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+            case = parse_check_line(raw_line, source, line_no)
+            if case:
+                cases.append(case)
+    return cases
 
 
 def format_message(item: dict[str, Any]) -> str:
@@ -145,70 +356,298 @@ def replies_contain(response: dict[str, Any], expected: str) -> bool:
     )
 
 
-async def smoke_send(
-    config: Any,
+def joined_reply_text(response: dict[str, Any]) -> str:
+    return "\n".join(
+        str(reply.get("raw_message", ""))
+        for reply in response.get("replies", [])
+    )
+
+
+def compact_json(payload: Any, limit: int = 4000) -> str:
+    text = json.dumps(payload, ensure_ascii=False, indent=2)
+    if len(text) <= limit:
+        return text
+    return f"{text[:limit]}\n... <truncated>"
+
+
+def option_float(options: dict[str, Any], name: str, default: float) -> float:
+    value = options.get(name, default)
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+async def run_check_case(config: Any, case: CheckCase, default_timeout: float) -> CheckResult:
+    if case.skip_reason:
+        return CheckResult(case=case, status="skip", error=case.skip_reason)
+
+    wait_timeout = option_float(case.options, "wait", default_timeout)
+    user_id = case.options.get("user", config.default_user_id)
+    group_id = case.options.get("group", config.default_group_id)
+    message_type = "private" if parse_bool(case.options.get("private", False)) else "group"
+    payload = {
+        "action": "send_message",
+        "message_type": message_type,
+        "group_id": group_id,
+        "user_id": user_id,
+        "role": str(case.options.get("role") or "member"),
+        "nickname": str(case.options.get("nickname") or f"User{user_id}"),
+        "text": case.command,
+        "reply_id": case.options.get("reply"),
+        "at": case.options.get("at") or [],
+        "image_urls": case.options.get("image") or [],
+        "wait_timeout": wait_timeout,
+        "include_api_calls": bool(case.options.get("include_api_calls")),
+    }
+
+    started = time.perf_counter()
+    try:
+        response = await control_request(config, payload, timeout=wait_timeout + 3)
+    except Exception as exc:
+        return CheckResult(
+            case=case,
+            status="fail",
+            duration=time.perf_counter() - started,
+            error=f"{type(exc).__name__}: {exc}",
+        )
+
+    actual = joined_reply_text(response)
+    duration = time.perf_counter() - started
+    if not response.get("ok"):
+        return CheckResult(
+            case=case,
+            status="fail",
+            duration=duration,
+            actual=actual,
+            error=str(response.get("error") or "mock service returned ok=false"),
+            response=response,
+        )
+
+    if case.expected and case.expected not in actual:
+        return CheckResult(
+            case=case,
+            status="fail",
+            duration=duration,
+            actual=actual,
+            error="expected string was not found in bot replies",
+            response=response,
+        )
+
+    return CheckResult(
+        case=case,
+        status="pass",
+        duration=duration,
+        actual=actual,
+        response=response,
+    )
+
+
+def status_counts(results: list[CheckResult]) -> dict[str, int]:
+    counts = {"pass": 0, "fail": 0, "skip": 0}
+    for result in results:
+        counts[result.status] = counts.get(result.status, 0) + 1
+    return counts
+
+
+def status_label(status: str) -> str:
+    return {"pass": "PASS", "fail": "FAIL", "skip": "SKIP"}.get(status, status.upper())
+
+
+def render_result_row(result: CheckResult) -> str:
+    case = result.case
+    response = compact_json(result.response) if result.response is not None else ""
+    return (
+        f"<tr class='{html_escape(result.status)}'>"
+        f"<td>{html_escape(status_label(result.status))}</td>"
+        f"<td>{html_escape(case.label)}</td>"
+        f"<td><code>{html_escape(case.command)}</code></td>"
+        f"<td>{html_escape(case.expected)}</td>"
+        f"<td>{result.duration:.2f}s</td>"
+        f"<td><pre>{html_escape(result.actual)}</pre></td>"
+        f"<td><pre>{html_escape(result.error)}</pre></td>"
+        f"<td><details><summary>JSON</summary><pre>{html_escape(response)}</pre></details></td>"
+        "</tr>"
+    )
+
+
+def write_html_report(
     *,
-    text: str,
-    expected: str | None = None,
-    role: str = "member",
-    wait: float = 5,
-    include_api_calls: bool = False,
-) -> dict[str, Any]:
-    return await control_request(
-        config,
-        {
-            "action": "send_message",
-            "message_type": "group",
-            "group_id": config.default_group_id,
-            "user_id": config.default_user_id,
-            "role": role,
-            "nickname": f"User{config.default_user_id}",
-            "text": text,
-            "wait_timeout": wait,
-            "include_api_calls": include_api_calls,
-        },
-        timeout=wait + 3,
+    report_path: Path,
+    config: Any,
+    check_dir: Path,
+    results: list[CheckResult],
+    started_at: float,
+    connected: bool,
+    note: str = "",
+) -> None:
+    finished_at = time.time()
+    counts = status_counts(results)
+    total = len(results)
+    duration = finished_at - started_at
+    env_rows = {
+        "Project root": str(config.project_root),
+        "Check dir": str(check_dir),
+        "Report": str(report_path),
+        "OneBot URL": config.onebot_url,
+        "Control": f"{config.control_host}:{config.control_port}",
+        "Self ID": str(config.self_id),
+        "Default group": str(config.default_group_id),
+        "Default user": str(config.default_user_id),
+        "Connected": str(connected),
+    }
+    env_table = "\n".join(
+        f"<tr><th>{html_escape(key)}</th><td>{html_escape(value)}</td></tr>"
+        for key, value in env_rows.items()
+    )
+    rows = "\n".join(render_result_row(result) for result in results)
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(
+        f"""<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>Mock NapCat Check Report</title>
+  <style>
+    body {{ font-family: "Segoe UI", Arial, sans-serif; margin: 24px; color: #17202a; }}
+    h1 {{ margin-bottom: 8px; }}
+    .summary {{ display: flex; gap: 12px; flex-wrap: wrap; margin: 16px 0; }}
+    .pill {{ border-radius: 999px; padding: 6px 12px; font-weight: 600; }}
+    .pass .pill, .pill.pass {{ background: #d9f2e3; color: #0b6b36; }}
+    .fail .pill, .pill.fail {{ background: #fde1df; color: #9f1d16; }}
+    .skip .pill, .pill.skip {{ background: #eceff3; color: #4a5568; }}
+    table {{ border-collapse: collapse; width: 100%; margin-top: 16px; }}
+    th, td {{ border: 1px solid #d7dce2; padding: 8px; vertical-align: top; }}
+    th {{ background: #f4f6f8; text-align: left; }}
+    tr.pass td:first-child {{ color: #0b6b36; font-weight: 700; }}
+    tr.fail td:first-child {{ color: #9f1d16; font-weight: 700; }}
+    tr.skip td:first-child {{ color: #4a5568; font-weight: 700; }}
+    code {{ white-space: pre-wrap; }}
+    pre {{ margin: 0; white-space: pre-wrap; word-break: break-word; max-width: 520px; }}
+    details summary {{ cursor: pointer; color: #2f5f9f; }}
+  </style>
+</head>
+<body>
+  <h1>Mock NapCat Check Report</h1>
+  <p>Generated at {html_escape(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(finished_at)))}.
+  Duration: {duration:.2f}s.</p>
+  <div class="summary">
+    <span class="pill">Total {total}</span>
+    <span class="pill pass">Pass {counts.get("pass", 0)}</span>
+    <span class="pill fail">Fail {counts.get("fail", 0)}</span>
+    <span class="pill skip">Skip {counts.get("skip", 0)}</span>
+  </div>
+  <h2>Environment</h2>
+  <table>{env_table}</table>
+  {f"<h2>Note</h2><p>{html_escape(note)}</p>" if note else ""}
+  <h2>Cases</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Status</th><th>Case</th><th>Command</th><th>Expected</th>
+        <th>Time</th><th>Actual replies</th><th>Error / reason</th><th>Raw response</th>
+      </tr>
+    </thead>
+    <tbody>{rows}</tbody>
+  </table>
+</body>
+</html>
+""",
+        encoding="utf-8",
+    )
+
+
+def connection_failure_result(message: str) -> CheckResult:
+    return CheckResult(
+        case=CheckCase(source="connection", line_no=0, command="connect", expected="connected"),
+        status="fail",
+        error=message,
     )
 
 
 async def run_smoke_command(args: argparse.Namespace) -> int:
     config = load_config(args)
-    if not await wait_for_connected(config, args.connect_timeout):
-        print(
+    project_root = Path(config.project_root)
+    check_dir = resolve_project_path(project_root, args.check_dir).resolve()
+    report_path = resolve_project_path(project_root, args.report).resolve()
+    started_at = time.time()
+    cases = load_check_cases(check_dir)
+
+    connected = await wait_for_connected(config, args.connect_timeout)
+    if not connected:
+        note = (
             "Mock service is not connected to the OneBot backend. "
-            "Start KanamiBot and mock-napcat service first.",
-            file=sys.stderr,
+            "Start KanamiBot and mock-napcat service first."
         )
+        results = [connection_failure_result(note)]
+        results.extend(
+            CheckResult(case=case, status="skip", error="connection was not available")
+            for case in cases
+        )
+        write_html_report(
+            report_path=report_path,
+            config=config,
+            check_dir=check_dir,
+            results=results,
+            started_at=started_at,
+            connected=False,
+            note=note,
+        )
+        print(note, file=sys.stderr)
+        print(f"Report: {report_path}", file=sys.stderr)
         return 1
 
-    await control_request(config, {"action": "reset"})
-    checks = [
-        ("/ping", "pong", "ping"),
-        ("/echo hello", "hello", "echo"),
-        ("/help ping", "Ping", "help"),
-    ]
+    if not cases:
+        note = f"No check cases found in {check_dir}"
+        results = [connection_failure_result(note)]
+        write_html_report(
+            report_path=report_path,
+            config=config,
+            check_dir=check_dir,
+            results=results,
+            started_at=started_at,
+            connected=True,
+            note=note,
+        )
+        print(note, file=sys.stderr)
+        print(f"Report: {report_path}", file=sys.stderr)
+        return 1
 
-    for command, expected, label in checks:
-        response = await smoke_send(config, text=command, expected=expected)
-        if not response.get("ok") or not replies_contain(response, expected):
-            print(f"Smoke check failed: {label}", file=sys.stderr)
-            print_json(response)
-            return 1
-        print(f"ok: {label}")
+    snapshot = StateSnapshot(project_root)
+    snapshot.capture()
+    results: list[CheckResult] = []
+    try:
+        await control_request(config, {"action": "reset"})
+        for case in cases:
+            result = await run_check_case(config, case, args.case_timeout)
+            results.append(result)
+            print(f"{status_label(result.status).lower()}: {case.label} {case.command}")
+            if result.status == "fail":
+                print(f"  expected: {case.expected}", file=sys.stderr)
+                print(f"  actual: {result.actual}", file=sys.stderr)
+                print(f"  error: {result.error}", file=sys.stderr)
+        await control_request(config, {"action": "reset"})
+    finally:
+        snapshot.restore()
+        snapshot.cleanup()
 
-    admin_response = await smoke_send(
-        config,
-        text=f"/poke {config.default_user_id}",
-        role="admin",
-        include_api_calls=True,
+    write_html_report(
+        report_path=report_path,
+        config=config,
+        check_dir=check_dir,
+        results=results,
+        started_at=started_at,
+        connected=True,
     )
-    api_actions = {item.get("action") for item in admin_response.get("api_calls", [])}
-    if not admin_response.get("ok") or "group_poke" not in api_actions:
-        print("Smoke check failed: group manager API call", file=sys.stderr)
-        print_json(admin_response)
-        return 1
-    print("ok: group manager API call")
-    return 0
+    counts = status_counts(results)
+    print(
+        "Summary: "
+        f"pass={counts.get('pass', 0)} "
+        f"fail={counts.get('fail', 0)} "
+        f"skip={counts.get('skip', 0)}"
+    )
+    print(f"Report: {report_path}")
+    return 1 if counts.get("fail", 0) else 0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -268,6 +707,22 @@ def build_parser() -> argparse.ArgumentParser:
     smoke_parser = subparsers.add_parser("smoke", help="Run end-to-end validation.")
     add_common_args(smoke_parser)
     smoke_parser.add_argument("--connect-timeout", type=float, default=10.0)
+    smoke_parser.add_argument(
+        "--check-dir",
+        default=DEFAULT_CHECK_DIR,
+        help=f"Directory containing check .txt files. Defaults to {DEFAULT_CHECK_DIR}.",
+    )
+    smoke_parser.add_argument(
+        "--report",
+        default=DEFAULT_REPORT_PATH,
+        help=f"HTML report path. Defaults to {DEFAULT_REPORT_PATH}.",
+    )
+    smoke_parser.add_argument(
+        "--case-timeout",
+        type=float,
+        default=6.0,
+        help="Seconds to wait for bot replies for each case unless overridden.",
+    )
     smoke_parser.set_defaults(func=run_smoke_command)
 
     history_parser = subparsers.add_parser("history", help="Show captured bot messages.")
