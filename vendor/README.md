@@ -74,3 +74,67 @@ Start NapCat on Windows PowerShell:
 
 Use the root `start.cmd` or `start.ps1` scripts to start both NapCat and
 NoneBot in one step.
+
+## Mock NapCat Backend
+
+`vendor/mock_napcat/` is an independent cross-platform OneBot v11 mock service.
+It can replace NapCat for local backend validation before production rollout.
+It does not log in to QQ and does not import NoneBot; it only connects to the
+backend reverse WebSocket and answers common OneBot API calls.
+
+Start KanamiBot first:
+
+```powershell
+uv run python bot.py
+```
+
+Start the mock service in another terminal:
+
+```powershell
+uv run --project vendor/mock_napcat mock-napcat service
+```
+
+Or use the wrapper scripts:
+
+```powershell
+.\vendor\start_mock_napcat.ps1
+```
+
+```cmd
+vendor\start_mock_napcat.cmd
+```
+
+```sh
+sh vendor/start_mock_napcat.sh
+```
+
+Send a test group message:
+
+```powershell
+uv run --project vendor/mock_napcat mock-napcat send --group 10000 --user 123456789 "ping"
+```
+
+Run end-to-end smoke checks while KanamiBot and the mock service are running:
+
+```powershell
+uv run --project vendor/mock_napcat mock-napcat smoke
+```
+
+Wrapper scripts are also available:
+
+```powershell
+.\vendor\check_mock_napcat.ps1
+```
+
+```cmd
+vendor\check_mock_napcat.cmd
+```
+
+```sh
+sh vendor/check_mock_napcat.sh
+```
+
+The mock service reads defaults from `.env.example`, overrides them with `.env`
+from the project root, then applies process environment variables. Its local
+control socket binds to `127.0.0.1:12716` by default and is intended only for
+local validation.
