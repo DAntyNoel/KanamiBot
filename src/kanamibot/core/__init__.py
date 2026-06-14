@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from nonebot import get_driver
 
+from .chat_history import *  # noqa: F403
 from .check_perm import *  # noqa: F403
 from .config_storage import ConfigManager as ConfigManager
 from .group_manager import *  # noqa: F403

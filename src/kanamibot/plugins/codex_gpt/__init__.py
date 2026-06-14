@@ -6,7 +6,6 @@ import imghdr
 import os
 import random
 import re
-import sqlite3
 import time
 from collections import deque
 
@@ -18,8 +17,8 @@ from nonebot.message import event_preprocessor
 from nonebot.permission import SUPERUSER
 from nonebot.plugin import PluginMetadata
 
+from kanamibot.core.chat_history import load_recent_group_history
 from kanamibot.core.group_manager import ModuleRule, group_config
-from kanamibot.core.paths import DATA_DIR
 from kanamibot.core.utils.image import download_all_images_from_event
 
 from .client import CodexGPTClient, CodexGPTError
@@ -89,7 +88,6 @@ _active_memories: dict[int, deque[tuple[float, int, str, str]]] = {}
 _active_locks: dict[int, asyncio.Lock] = {}
 _active_reply_times: dict[int, deque[float]] = {}
 _active_reply_tasks: set[asyncio.Task[None]] = set()
-_GROUP_HISTORY_DB = DATA_DIR / "daily_report" / "chat_logs.db"
 
 codex_gpt = on_regex(
     CMD_PATTERN.pattern,
@@ -882,35 +880,21 @@ def _pruned_active_reply_times(group_id: int) -> deque[float]:
 
 
 def _load_group_history(group_id: int, limit: int) -> list[tuple[str, int, str]]:
-    if limit <= 0 or not _GROUP_HISTORY_DB.exists():
+    if limit <= 0:
         return []
 
     try:
-        with sqlite3.connect(_GROUP_HISTORY_DB) as conn:
-            rows = conn.execute(
-                """
-                SELECT timestamp, user_id, content
-                FROM chat_logs
-                WHERE group_id = ? AND content != ''
-                ORDER BY timestamp DESC
-                LIMIT ?
-                """,
-                (str(group_id), limit),
-            ).fetchall()
-    except sqlite3.Error as exc:
+        rows = load_recent_group_history(group_id, limit)
+    except Exception as exc:
         debug.log("active.history_load_error", group_id=group_id, error=_safe_error(exc))
         return []
 
     history: list[tuple[str, int, str]] = []
-    for timestamp_text, user_id, content in reversed(rows):
+    for timestamp_text, user_id, content in rows:
         text = _shorten(str(content or "").strip(), 700)
         if not text:
             continue
-        try:
-            user_id_int = int(user_id)
-        except (TypeError, ValueError):
-            user_id_int = 0
-        history.append((str(timestamp_text), user_id_int, text))
+        history.append((str(timestamp_text), int(user_id), text))
     return history
 
 

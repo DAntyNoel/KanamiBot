@@ -22,6 +22,7 @@ else:
     from kanamibot.core.commands import __plugin_meta__ as __plugin_meta__
 
 _ALIASES = (
+    "chat_history",
     "check_perm",
     "config_storage",
     "group_manager",
