@@ -1,0 +1,26 @@
+群管	群管命令
+头衔 自动化测试	设置好了	role=owner
+删头衔	头衔已清空	role=owner
+mute 987654321 10m	已禁言	role=admin
+unmute 987654321	已解除	role=admin
+kick 987654321	已踢出	role=admin
+踢黑 987654321	拒绝再次加群	role=admin
+改名片 987654321 自动化名片	自动化名片	role=admin
+清名片 987654321	已清空	role=admin
+群名 自动化测试群	自动化测试群	role=admin
+全员禁言 on	全员禁言已开启	role=admin
+全员解禁	全员禁言已关闭	role=admin
+设管理 987654321	设为管理员	role=owner
+撤管理 987654321	取消管理员	role=owner
+管理员 987654321 on	设为管理员	role=owner
+撤回 1	消息已撤回	role=admin
+设精华 1	已设为精华	role=admin
+取消精华 1	已取消精华	role=admin
+poke 987654321	戳了
+贴表情 1 66	已处理消息表情
+取消贴表情 1 66	已处理消息表情
+群管说 mock-napcat-check	mock-napcat-check	role=admin
+发视频	请输入视频	role=admin
+上传群文件	请输入	role=admin
+群公告 自动化公告	群公告已发送	role=admin
+退群	退群 确认
