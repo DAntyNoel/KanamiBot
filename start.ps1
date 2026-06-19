@@ -33,7 +33,7 @@ function Resolve-UvPath {
 $uvPath = Resolve-UvPath
 
 & $napcatInstallScript
-& $napcatStartScript @args
+& $napcatStartScript -NewTerminal @args
 
 Write-Host "KanamiBot NoneBot backend starting in foreground."
 Write-Host "OneBot reverse WebSocket: ws://127.0.0.1:12706/onebot/v11/ws"

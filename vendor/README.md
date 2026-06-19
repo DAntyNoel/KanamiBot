@@ -72,6 +72,11 @@ Start NapCat on Windows PowerShell:
 .\vendor\start_kanamibot.ps1
 ```
 
+By default the NapCat launcher is bound to the current terminal. Closing that
+terminal stops the NapCat backend. The root `start.cmd` / `start.ps1` scripts
+open a separate visible NapCat terminal, then keep NoneBot in the original
+terminal.
+
 Use the root `start.cmd` or `start.ps1` scripts to start both NapCat and
 NoneBot in one step.
 

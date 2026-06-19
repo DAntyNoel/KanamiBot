@@ -7,6 +7,7 @@ $ErrorActionPreference = "Stop"
 $projectRoot = (Resolve-Path $PSScriptRoot).Path
 $logDir = Join-Path $projectRoot "logs"
 $botScript = Join-Path $projectRoot "bot.py"
+$napcatStartScript = Join-Path $projectRoot "vendor\start_kanamibot.ps1"
 $nonebotLogFile = Join-Path $logDir "kanamibot.log"
 $napcatLogFile = Join-Path $logDir "napcat.log"
 $napcatWorkDir = Join-Path $projectRoot "files\napcat_runtime"
@@ -263,7 +264,8 @@ $napcatValidator = {
   param([AllowNull()][string]$CommandLine)
 
   return (Test-CommandLineContains $CommandLine $napcatWorkDir) -or
-    (Test-CommandLineContains $CommandLine $napcatLogFile)
+    (Test-CommandLineContains $CommandLine $napcatLogFile) -or
+    (Test-CommandLineContains $CommandLine $napcatStartScript)
 }
 
 $napcatPredicate = {
@@ -271,7 +273,8 @@ $napcatPredicate = {
 
   $commandLine = $Process.CommandLine
   return (Test-CommandLineContains $commandLine $napcatWorkDir) -or
-    (Test-CommandLineContains $commandLine $napcatLogFile)
+    (Test-CommandLineContains $commandLine $napcatLogFile) -or
+    (Test-CommandLineContains $commandLine $napcatStartScript)
 }
 
 Stop-MatchedProcesses `
