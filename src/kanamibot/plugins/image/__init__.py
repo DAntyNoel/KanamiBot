@@ -125,6 +125,15 @@ def _format_image_info(image: dict[str, Any]) -> str:
     )
 
 
+def _image_sequence_sort_key(image: dict[str, Any]) -> tuple[int, int | str, str]:
+    image_id = str(image.get("id") or "")
+    filename_stem = Path(str(image.get("filename") or "")).stem
+    sequence_text = image_id if image_id.isdigit() else filename_stem
+    if sequence_text.isdigit():
+        return (0, int(sequence_text), filename_stem)
+    return (1, image.get("created_at", ""), filename_stem)
+
+
 save_parser = ArgumentParser()
 save_parser.add_argument("folder", type=str, help="文件夹名称/别名")
 save_parser.add_argument("tags", nargs="*", default=[], help="图片标签")
@@ -407,7 +416,7 @@ async def select_image_handler(
         folder = get_folder_name(alias)
         if not folder:
             await matcher.finish(f"找不到名为 {alias} 的图库。")
-        images = init_folder(folder)["images"]
+        images = sorted(init_folder(folder)["images"], key=_image_sequence_sort_key)
         total = len(images)
         if total == 0:
             await matcher.finish("这个图库里没有图片呢。")
