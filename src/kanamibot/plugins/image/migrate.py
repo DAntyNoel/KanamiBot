@@ -6,7 +6,7 @@ import json
 import shutil
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from nonebot.log import logger
 
@@ -19,6 +19,7 @@ from kanamibot.core.media_storage import (
 )
 
 DEFAULT_OLD_MEDIA_ROOT = Path(r"D:\DAntyNoel\Kanami-NB\data\advanced_media")
+NamingStrategy = Literal["hash", "sequential"]
 
 
 def _load_json(path: Path, default: Any) -> Any:
@@ -46,6 +47,19 @@ def _select_file_id(file_hash: str, metadata: dict[str, Any]) -> str:
     return file_hash
 
 
+def _select_sequential_id(sequence: int, width: int, metadata: dict[str, Any]) -> str:
+    candidate = f"{sequence:0{width}d}"
+    if candidate not in metadata:
+        return candidate
+
+    next_sequence = sequence + 1
+    while True:
+        candidate = f"{next_sequence:0{width}d}"
+        if candidate not in metadata:
+            return candidate
+        next_sequence += 1
+
+
 def _find_existing_by_hash(
     file_hash: str,
     metadata: dict[str, Any],
@@ -64,6 +78,31 @@ def _folder_names(source_root: Path, folders: Iterable[str] | None) -> list[str]
     return [path.name for path in sorted(source_root.iterdir(), key=lambda item: item.name)]
 
 
+def _safe_remove_tree(path: Path, root: Path) -> None:
+    resolved_path = path.resolve()
+    resolved_root = root.resolve()
+    if resolved_path == resolved_root or resolved_root not in resolved_path.parents:
+        raise ValueError(f"refusing to remove path outside target root: {path}")
+    if resolved_path.exists():
+        shutil.rmtree(resolved_path)
+
+
+def _source_items(source_metadata: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+    items = [
+        (str(key), value)
+        for key, value in source_metadata.items()
+        if isinstance(value, dict)
+    ]
+    return sorted(
+        items,
+        key=lambda item: (
+            str(item[1].get("created_at", "")),
+            str(item[1].get("stored_filename", "")),
+            item[0],
+        ),
+    )
+
+
 def _source_file_for(folder_path: Path, meta: dict[str, Any]) -> Path | None:
     filename = meta.get("stored_filename") or meta.get("filename") or meta.get("file")
     if not filename:
@@ -78,15 +117,22 @@ def migrate(
     dry_run: bool = True,
     overwrite: bool = False,
     rebuild_thumbnails: bool = True,
+    naming_strategy: NamingStrategy = "hash",
+    replace_target: bool = False,
 ) -> dict[str, Any]:
-    """Migrate old advanced_media folders into the new content-addressed layout.
+    """Migrate old advanced_media folders into the new layout.
 
     The old repository is only read. Runtime image data remains under this repo's
     ``data/advanced_media`` and is ignored by Git.
     """
+    if naming_strategy not in {"hash", "sequential"}:
+        raise ValueError("naming_strategy must be 'hash' or 'sequential'")
+
     source_root = Path(source_root)
     report: dict[str, Any] = {
         "dry_run": dry_run,
+        "naming_strategy": naming_strategy,
+        "replace_target": replace_target,
         "source_root": str(source_root),
         "target_root": str(DATA_ROOT),
         "folders": {},
@@ -112,12 +158,18 @@ def migrate(
         target_config_path = target_folder / "config.json"
 
         source_metadata = _load_json(source_folder / "metadata.json", {})
-        target_metadata = _load_json(target_metadata_path, {})
         if not isinstance(source_metadata, dict):
             source_metadata = {}
+
+        if replace_target and not dry_run:
+            _safe_remove_tree(target_folder, DATA_ROOT)
+
+        target_metadata = {} if replace_target and dry_run else _load_json(target_metadata_path, {})
         if not isinstance(target_metadata, dict):
             target_metadata = {}
 
+        source_items = _source_items(source_metadata)
+        sequence_width = max(4, len(str(len(source_items))))
         folder_report = {
             "created": 0,
             "skipped": 0,
@@ -126,7 +178,7 @@ def migrate(
             "config_copied": False,
         }
 
-        for legacy_key, raw_meta in source_metadata.items():
+        for sequence, (legacy_key, raw_meta) in enumerate(source_items, start=1):
             if not isinstance(raw_meta, dict):
                 folder_report["errors"].append(f"invalid metadata entry: {legacy_key}")
                 continue
@@ -143,7 +195,15 @@ def migrate(
                     folder_report["skipped"] += 1
                     continue
 
-                image_id = existing[0] if existing else _select_file_id(file_hash, target_metadata)
+                if naming_strategy == "sequential":
+                    image_id = _select_sequential_id(sequence, sequence_width, target_metadata)
+                else:
+                    image_id = (
+                        existing[0]
+                        if existing
+                        else _select_file_id(file_hash, target_metadata)
+                    )
+
                 ext = _normalize_extension(source_file.suffix or raw_meta.get("file_type"))
                 stored_filename = f"{image_id}{ext}"
                 file_size = source_file.stat().st_size
@@ -160,6 +220,7 @@ def migrate(
                     or datetime.datetime.fromtimestamp(source_file.stat().st_mtime).isoformat(),
                     "legacy_id": legacy_id,
                     "legacy_filename": raw_meta.get("stored_filename"),
+                    "sequence": sequence if naming_strategy == "sequential" else None,
                     "migrated_at": datetime.datetime.now().isoformat(),
                 }
 

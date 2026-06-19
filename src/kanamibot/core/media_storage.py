@@ -139,13 +139,21 @@ class AdvancedMediaStorageSystem:
                 sha256.update(chunk)
         return sha256.hexdigest()
 
-    def _select_file_id(self, file_hash: str) -> str:
-        for length in (16, 20, 24, 32, 40, 64):
-            candidate = file_hash[:length]
-            existing = self.metadata_registry.get(candidate)
-            if existing is None or existing.get("hash") == file_hash:
+    def _select_file_id(self, _file_hash: str) -> str:
+        numeric_ids = [
+            int(file_id)
+            for file_id in self.metadata_registry
+            if str(file_id).isdigit()
+        ]
+        next_number = max(numeric_ids, default=0) + 1
+        width = max(4, len(str(next_number)))
+
+        while True:
+            candidate = f"{next_number:0{width}d}"
+            if candidate not in self.metadata_registry:
                 return candidate
-        return file_hash
+            next_number += 1
+            width = max(4, len(str(next_number)))
 
     def _find_existing_by_hash(self, file_hash: str | None) -> tuple[str, dict] | None:
         if not file_hash:
