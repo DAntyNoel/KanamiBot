@@ -35,8 +35,15 @@ def _dynamic_url(dynamic_id: str | int) -> str:
     return f"https://t.bilibili.com/{dynamic_id}"
 
 
-def _strip_protocol(url: str) -> str:
-    return url.removeprefix("//")
+def _display_url(url: str) -> str:
+    url = url.strip()
+    if not url:
+        return url
+    if url.startswith("//"):
+        return f"https:{url}"
+    if "://" in url:
+        return url
+    return f"https://{url}"
 
 
 def parse_raw_dynamic(item: dict[str, Any]) -> ParsedDynamic | None:
@@ -135,7 +142,7 @@ def _render_forward(msg: Message, dynamic_data: ParsedDynamic, *, manual: bool) 
         origin = parse_raw_dynamic(raw_origin)
 
     if origin:
-        msg += MessageSegment.text(f"( 源动态{_strip_protocol(origin['url'])} )\n\n")
+        msg += MessageSegment.text(f"( 源动态{_display_url(origin['url'])} )\n\n")
     else:
         msg += MessageSegment.text("( 源动态已失效 )\n\n")
 
@@ -204,7 +211,7 @@ def _render_draw_or_article(
     ]
 
     if USE_FORWARD and pictures:
-        msg += MessageSegment.text(f"\n==> {_strip_protocol(dynamic_data['url'])} <==")
+        msg += MessageSegment.text(f"\n==> {_display_url(dynamic_data['url'])} <==")
         return [Message(msg), *[Message(MessageSegment.image(file=url)) for url in pictures]]
 
     for url in pictures:
@@ -274,8 +281,8 @@ def parse_dynamic(dynamic_data: ParsedDynamic, *, manual: bool = False) -> Dynam
     if rendered is None:
         return None
 
-    if isinstance(rendered, list):
+    if isinstance(rendered, Message):
+        rendered += MessageSegment.text(f"\n==> {_display_url(dynamic_data['url'])} <==")
         return rendered
 
-    rendered += MessageSegment.text(f"\n==> {_strip_protocol(dynamic_data['url'])} <==")
     return rendered
