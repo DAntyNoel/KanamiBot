@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Annotated
 from urllib.parse import urlparse
 
-from nonebot import on_command
+from nonebot import on_command as _nonebot_on_command
 from nonebot.adapters.onebot.v11 import (
     GROUP_OWNER,
     Bot,
@@ -32,27 +32,80 @@ MAX_GROUP_NAME_LENGTH = 60
 DEFAULT_MUTE_SECONDS = 10 * 60
 MAX_MUTE_SECONDS = 30 * 24 * 60 * 60
 
+ENABLED_GROUP_MANAGER_COMMANDS = frozenset(
+    {
+        "设置头衔",
+        "头衔",
+        "删头衔",
+        "清空头衔",
+        "清头衔",
+        "删除头衔",
+        "禁言",
+        "mute",
+        "解禁",
+        "解除禁言",
+        "unmute",
+        "修改群名片",
+        "改昵称",
+        "改名片",
+        "清名片",
+        "删除名片",
+        "清空名片",
+    }
+)
+
 VIDEO_ROOT = FILES_DIR / "group_manager" / "videos"
 UPLOAD_ROOT = FILES_DIR / "group_manager" / "uploads"
-VIDEO_ROOT.mkdir(parents=True, exist_ok=True)
-UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
 
 CommandArgs = Annotated[Message, CommandArg()]
+
+
+class _DisabledCommand:
+    def handle(self, *args: object, **kwargs: object):
+        def decorator(func):
+            return func
+
+        return decorator
+
+    async def finish(self, *args: object, **kwargs: object) -> None:
+        raise RuntimeError("disabled group-manager command was called")
+
+
+_DISABLED_COMMAND = _DisabledCommand()
+
+
+def _command_name(command: str | tuple[str, ...]) -> str:
+    return " ".join(command) if isinstance(command, tuple) else command
+
+
+def on_command(
+    command: str | tuple[str, ...],
+    *args: object,
+    aliases: set[str | tuple[str, ...]] | None = None,
+    **kwargs: object,
+) -> type[Matcher] | _DisabledCommand:
+    command_name = _command_name(command)
+    if command_name not in ENABLED_GROUP_MANAGER_COMMANDS:
+        return _DISABLED_COMMAND
+
+    if aliases is not None:
+        kwargs["aliases"] = {
+            alias
+            for alias in aliases
+            if _command_name(alias) in ENABLED_GROUP_MANAGER_COMMANDS
+        }
+
+    return _nonebot_on_command(command, *args, **kwargs)
 
 __plugin_meta__ = PluginMetadata(
     name="GroupManager",
     description="群管理与 NapCat 群互动命令。",
     usage=(
-        "群管\n"
-        "头衔 [@用户|QQ] <内容> / 删头衔 [@用户|QQ]\n"
-        "禁言 @用户 [10m] / 解禁 @用户 / 踢 @用户 [拒绝]\n"
-        "改名片 @用户 <名片> / 群名 <名称> / 全员禁言 on|off\n"
-        "设管理 @用户 / 撤管理 @用户 / 撤回 [回复|消息ID]\n"
-        "设精华 [回复|消息ID] / 取消精华 [回复|消息ID]\n"
-        "戳 [@用户|QQ] / 贴表情 [回复] <emoji_id>\n"
-        "群管说 <文字> / 发视频 <URL或files/group_manager/videos下文件>\n"
-        "上传群文件 <files/group_manager/uploads下文件> [显示名]\n"
-        "群公告 <内容> / 退群 确认"
+        "头衔|设置头衔 [@用户|QQ] <内容>\n"
+        "删头衔|清头衔|清空头衔|删除头衔 [@用户|QQ]\n"
+        "禁言|mute @用户 [10m] / 解禁|解除禁言|unmute @用户\n"
+        "改名片|修改群名片|改昵称 @用户 <名片>\n"
+        "清名片|删除名片|清空名片 @用户"
     ),
 )
 
@@ -61,18 +114,7 @@ HELP_TEXT = """群管命令：
 头衔 [@用户|QQ] <内容>：设置专属头衔，不填目标则设置自己
 删头衔 [@用户|QQ]：清空专属头衔
 禁言 @用户 [10m] / 解禁 @用户：禁言或解除禁言，时长支持 s/m/h/d、秒/分/小时/天
-踢 @用户 [拒绝]：踢出成员，带“拒绝/拉黑/黑”会拒绝再次加群
 改名片 @用户 <名片> / 清名片 @用户：设置或清空群名片
-群名 <名称>：修改群名称
-全员禁言 on|off / 全员解禁：开关全员禁言
-设管理 @用户 / 撤管理 @用户：设置或取消群管理员
-撤回 [回复|消息ID]：撤回消息
-设精华 [回复|消息ID] / 取消精华 [回复|消息ID]：管理精华消息
-戳 [@用户|QQ]：群内戳一戳
-贴表情 [回复] <emoji_id> / 取消贴表情 [回复] <emoji_id>：给消息贴或取消表情
-群管说 <文字> / 发视频 <URL或视频文件> / 上传群文件 <文件> [显示名]
-群公告 <内容>：发送群公告
-退群 确认：让 Bot 退出当前群，仅超管可用
 """
 
 DURATION_RE = re.compile(
