@@ -1,3 +1,10 @@
+param(
+  [Alias("NoNapCat")]
+  [switch]$NoneBotOnly,
+  [Parameter(ValueFromRemainingArguments = $true)]
+  [string[]]$NapCatArgs
+)
+
 $ErrorActionPreference = "Stop"
 
 $projectRoot = (Resolve-Path $PSScriptRoot).Path
@@ -5,6 +12,7 @@ Set-Location $projectRoot
 
 $logDir = Join-Path $projectRoot "logs"
 $botScript = Join-Path $projectRoot "bot.py"
+$napcatPidFile = Join-Path $logDir "napcat.pid"
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 
 $napcatInstallScript = Join-Path $projectRoot "vendor\install_napcat_windows.ps1"
@@ -30,10 +38,49 @@ function Resolve-UvPath {
   throw "uv is not installed or not available in PATH. Install it with: python -m pip install --user uv"
 }
 
+function Test-PidFileProcessRunning {
+  param([string]$Path)
+
+  if (-not (Test-Path -LiteralPath $Path)) {
+    return $false
+  }
+
+  $rawPid = Get-Content -LiteralPath $Path -ErrorAction SilentlyContinue | Select-Object -First 1
+  $pidValue = 0
+  if (-not [int]::TryParse($rawPid, [ref]$pidValue)) {
+    return $false
+  }
+
+  $process = Get-Process -Id $pidValue -ErrorAction SilentlyContinue
+  if (-not $process) {
+    return $false
+  }
+
+  try {
+    $snapshot = Get-CimInstance Win32_Process -Filter "ProcessId = $pidValue" -ErrorAction Stop
+    $commandLine = $snapshot.CommandLine
+    if ($commandLine) {
+      return ($commandLine.IndexOf($projectRoot, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) -or
+        ($commandLine.IndexOf("KanamiBot NapCat", [System.StringComparison]::OrdinalIgnoreCase) -ge 0)
+    }
+  } catch {
+    return $true
+  }
+
+  return $true
+}
+
 $uvPath = Resolve-UvPath
 
-& $napcatInstallScript
-& $napcatStartScript -NewTerminal @args
+if ($NoneBotOnly) {
+  Write-Host "Skipping NapCat startup because NoneBot-only mode was requested."
+} elseif (Test-PidFileProcessRunning -Path $napcatPidFile) {
+  Write-Host "NapCat backend already appears to be running from logs\napcat.pid."
+  Write-Host "Skipping NapCat startup; starting NoneBot only."
+} else {
+  & $napcatInstallScript
+  & $napcatStartScript -NewTerminal @NapCatArgs
+}
 
 Write-Host "KanamiBot NoneBot backend starting in foreground."
 Write-Host "OneBot reverse WebSocket: ws://127.0.0.1:12706/onebot/v11/ws"

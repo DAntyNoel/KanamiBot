@@ -80,6 +80,18 @@ terminal.
 Use the root `start.cmd` or `start.ps1` scripts to start both NapCat and
 NoneBot in one step.
 
+If NapCat is already running, the root startup scripts skip launching another
+NapCat backend and start only NoneBot. To explicitly restart only NoneBot from
+the project root:
+
+```cmd
+start.cmd --nonebot-only
+```
+
+```powershell
+.\start.ps1 -NoneBotOnly
+```
+
 ## Mock NapCat Backend
 
 `vendor/mock_napcat/` is an independent cross-platform OneBot v11 mock service.
