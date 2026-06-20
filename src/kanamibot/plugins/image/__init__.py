@@ -242,11 +242,11 @@ async def pick_image_handler(matcher: Matcher, args: ShellArgs) -> None:
     alias = args.folder
     folder = get_folder_name(alias)
     if not folder:
-        await matcher.finish(f"找不到名为 {alias} 的图库。")
+        await matcher.finish()
 
     images = init_folder(folder)["images"]
     if not images:
-        await matcher.finish("这个图库里没有图片呢。")
+        await matcher.finish()
 
     await _send_stored_image(pick_image_matcher, folder, random.choice(images))
 
