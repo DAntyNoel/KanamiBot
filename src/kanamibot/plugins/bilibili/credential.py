@@ -49,7 +49,7 @@ async def get_credential() -> Credential | None:
         if await credential.check_valid():
             return credential
     except Exception as exc:
-        logger.warning("[Bilibili] Credential validation failed: %s", exc)
+        logger.warning("[Bilibili] Credential validation failed: {}", exc)
     return None
 
 

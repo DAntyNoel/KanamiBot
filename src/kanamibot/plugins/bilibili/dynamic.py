@@ -41,7 +41,7 @@ async def get_dynamic_by_uids(
                 if parsed:
                     result.append(parsed)
         except Exception as exc:
-            logger.warning("[Bilibili] Failed to fetch dynamics for uid %s: %s", uid, exc)
+            logger.warning("[Bilibili] Failed to fetch dynamics for uid {}: {}", uid, exc)
             if "352" in str(exc):
                 await asyncio.sleep(1)
 

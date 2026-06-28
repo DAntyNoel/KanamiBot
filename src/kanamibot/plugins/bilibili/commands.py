@@ -46,7 +46,7 @@ async def perform_login(bot: Bot) -> None:
     try:
         image_obj, qr_obj = await qrlogin_get_qrcode()
     except Exception as exc:
-        logger.warning("[Bilibili] Failed to get login QR code: %s", exc)
+        logger.warning("[Bilibili] Failed to get login QR code: {}", exc)
         return
 
     try:
@@ -60,7 +60,7 @@ async def perform_login(bot: Bot) -> None:
             ),
         )
     except Exception as exc:
-        logger.warning("[Bilibili] Failed to send login QR code to %s: %s", superuser_id, exc)
+        logger.warning("[Bilibili] Failed to send login QR code to {}: {}", superuser_id, exc)
         return
 
     try:
@@ -106,7 +106,7 @@ async def resolve_uid(target: str) -> int | None:
     try:
         result = await name2uid(target)
     except Exception as exc:
-        logger.warning("[Bilibili] Failed to resolve uid by name %s: %s", target, exc)
+        logger.warning("[Bilibili] Failed to resolve uid by name {}: {}", target, exc)
         return None
 
     uid_list = result.get("uid_list") if isinstance(result, dict) else None
@@ -184,7 +184,7 @@ async def handle_add_sub(bot: Bot, event: GroupMessageEvent) -> None:
             name = dynamics[0]["name"] or name
             last_dynamic_id = int(dynamics[0]["id"])
     except Exception as exc:
-        logger.warning("[Bilibili] UID validation failed for %s: %s", uid, exc)
+        logger.warning("[Bilibili] UID validation failed for {}: {}", uid, exc)
         await add_sub.finish("UID 有效性检查失败")
 
     added = add_group_subscription(
@@ -249,7 +249,7 @@ async def handle_manual_check() -> None:
     from .jobs import check_bili_update
 
     logger.info("[Bilibili] Manual dynamic update requested.")
-    await check_bili_update()
+    await check_bili_update(suppress_initial=False)
     await manual_check_matcher.finish("动态更新检查完成。")
 
 

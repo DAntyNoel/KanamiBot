@@ -55,7 +55,7 @@ def parse_raw_dynamic(item: dict[str, Any]) -> ParsedDynamic | None:
         dynamic_id = item.get("id_str") or item.get("id")
 
         if not dynamic_id:
-            logger.warning("[Bilibili] Dynamic item missing id: %s", item)
+            logger.warning("[Bilibili] Dynamic item missing id: {}", item)
             return None
 
         parsed: ParsedDynamic = {
@@ -85,7 +85,7 @@ def parse_raw_dynamic(item: dict[str, Any]) -> ParsedDynamic | None:
 
         return parsed
     except Exception as exc:
-        logger.warning("[Bilibili] Failed to parse raw dynamic: %s", exc)
+        logger.warning("[Bilibili] Failed to parse raw dynamic: {}", exc)
         return None
 
 
@@ -256,7 +256,7 @@ RENDERERS: dict[str, Callable[[Message, ParsedDynamic], DynamicMessage | None]] 
 def parse_dynamic(dynamic_data: ParsedDynamic, *, manual: bool = False) -> DynamicMessage | None:
     dtype = dynamic_data.get("type")
     if dtype not in ACTIONS:
-        logger.debug("[Bilibili] Unsupported dynamic type: %s", dtype)
+        logger.debug("[Bilibili] Unsupported dynamic type: {}", dtype)
         return None
 
     if not dynamic_data.get("url"):

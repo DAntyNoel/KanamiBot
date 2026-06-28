@@ -79,8 +79,9 @@ async def _send_group_message(bot: Bot, group_ids: list[int], message: Message) 
     max_instances=1,
     coalesce=True,
 )
-async def check_bili_update() -> None:
+async def check_bili_update(*, suppress_initial: bool | None = None) -> None:
     global FIRST_DYNAMIC_CHECK
+    is_initial_check = FIRST_DYNAMIC_CHECK if suppress_initial is None else suppress_initial
 
     credential = await get_credential()
     if not credential:
@@ -108,7 +109,7 @@ async def check_bili_update() -> None:
                 update_baselines=[info["dynamic"]],
             )
         except Exception as exc:
-            logger.warning("[Bilibili] Dynamic check error for uid %s: %s", uid, exc)
+            logger.warning("[Bilibili] Dynamic check error for uid {}: {}", uid, exc)
             continue
 
         if not dynamics:
@@ -120,9 +121,9 @@ async def check_bili_update() -> None:
         set_subscription(str_uid, current_info)
 
         for dynamic_data in reversed(dynamics):
-            if FIRST_DYNAMIC_CHECK:
+            if is_initial_check:
                 logger.info(
-                    "[Bilibili] Initial dynamic for %s: %s",
+                    "[Bilibili] Initial dynamic for {}: {}",
                     uid,
                     dynamic_data["id"],
                 )
@@ -195,12 +196,12 @@ async def check_live_update() -> None:
     except LiveQueryError as exc:
         delay = LIVE_BACKOFF.fail(base_minutes=LIVE_INTERVAL_MINUTES)
         level = logger.warning if exc.rate_limited else logger.info
-        level("[Bilibili] Live polling backed off for %.1f minutes: %s", delay, exc)
+        level("[Bilibili] Live polling backed off for {:.1f} minutes: {}", delay, exc)
         return
     except Exception as exc:
         delay = LIVE_BACKOFF.fail(base_minutes=LIVE_INTERVAL_MINUTES)
         logger.warning(
-            "[Bilibili] Live polling failed; backed off for %.1f minutes: %s",
+            "[Bilibili] Live polling failed; backed off for {:.1f} minutes: {}",
             delay,
             exc,
         )
