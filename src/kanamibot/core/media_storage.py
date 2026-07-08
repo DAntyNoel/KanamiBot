@@ -58,6 +58,31 @@ def _metadata_sort_key(meta: dict[str, Any]) -> str:
     return str(meta.get("created_at", ""))
 
 
+def _same_file_content(
+    existing_path: Path,
+    incoming_data: bytes | None,
+    incoming_path: Path | None,
+) -> bool:
+    try:
+        if incoming_data is not None:
+            return existing_path.read_bytes() == incoming_data
+        if incoming_path is not None:
+            if existing_path.stat().st_size != incoming_path.stat().st_size:
+                return False
+            with (
+                existing_path.open("rb") as existing_file,
+                incoming_path.open("rb") as incoming_file,
+            ):
+                for existing_chunk in iter(lambda: existing_file.read(1024 * 1024), b""):
+                    incoming_chunk = incoming_file.read(1024 * 1024)
+                    if existing_chunk != incoming_chunk:
+                        return False
+                return incoming_file.read(1) == b""
+    except OSError:
+        return False
+    return False
+
+
 def rebuild_global_index() -> dict[str, Any]:
     DATA_ROOT.mkdir(parents=True, exist_ok=True)
     folders: dict[str, Any] = {}
@@ -99,8 +124,16 @@ class AdvancedMediaStorageSystem:
     IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp'}
     ALLOWED_EXTENSIONS = IMAGE_EXTENSIONS | {'.mp3', '.mp4', '.wav', '.ogg'}
     
-    def __init__(self, name: str = "gallery"):
-        self.storage_root = DATA_ROOT / name
+    def __init__(
+        self,
+        name: str = "gallery",
+        *,
+        data_root: Path | None = None,
+        refresh_global_index: bool = True,
+    ):
+        self.data_root = data_root or DATA_ROOT
+        self.refresh_global_index = refresh_global_index
+        self.storage_root = self.data_root / name
         self.files_dir = self.storage_root / "files"
         self.thumbs_dir = self.storage_root / "thumbs"
         self.metadata_path = self.storage_root / "metadata.json"
@@ -160,6 +193,23 @@ class AdvancedMediaStorageSystem:
             return None
         for file_id, meta in self.metadata_registry.items():
             if meta.get("hash") == file_hash:
+                return file_id, meta
+        return None
+
+    def _find_existing_by_hash_with_content(
+        self,
+        file_hash: str | None,
+        incoming_data: bytes | None,
+        incoming_path: Path | None,
+    ) -> tuple[str, dict] | None:
+        if not file_hash:
+            return None
+
+        for file_id, meta in self.metadata_registry.items():
+            if meta.get("hash") != file_hash:
+                continue
+            existing_path = self._media_path_for(meta)
+            if _same_file_content(existing_path, incoming_data, incoming_path):
                 return file_id, meta
         return None
 
@@ -226,6 +276,9 @@ class AdvancedMediaStorageSystem:
             "original_name": meta.get("original_name"),
             "legacy_id": meta.get("legacy_id"),
             "legacy_filename": meta.get("legacy_filename"),
+            "media_source": meta.get("media_source"),
+            "session_id": meta.get("session_id"),
+            "model": meta.get("model"),
         }
 
     def rebuild_index(self, *, force_thumbnails: bool = False) -> dict[str, Any]:
@@ -254,7 +307,8 @@ class AdvancedMediaStorageSystem:
 
     def _refresh_indexes(self, *, force_thumbnails: bool = False) -> None:
         self.rebuild_index(force_thumbnails=force_thumbnails)
-        rebuild_global_index()
+        if self.refresh_global_index:
+            rebuild_global_index()
 
     # --- 核心功能：下标访问 ---
     def __getitem__(self, key: str | int | slice) -> dict | list[dict]:
@@ -347,6 +401,7 @@ class AdvancedMediaStorageSystem:
                source: str | Path | bytes | BytesIO | Image.Image,
                ext: str | None = None,
                original_name: str | None = None,
+               verify_hash_collision: bool = False,
                **kwargs) -> dict:
         """
         :param source: 文件路径、bytes数据、BytesIO流或PIL Image对象
@@ -413,7 +468,14 @@ class AdvancedMediaStorageSystem:
         ext = _normalize_extension(ext)
 
         # 2. Hash 去重检查
-        existing = self._find_existing_by_hash(file_hash)
+        if verify_hash_collision:
+            existing = self._find_existing_by_hash_with_content(
+                file_hash,
+                data_to_write,
+                file_path_to_copy,
+            )
+        else:
+            existing = self._find_existing_by_hash(file_hash)
         if existing:
             file_id, meta = existing
             return {**meta, "status": "exists", "file_id": file_id}

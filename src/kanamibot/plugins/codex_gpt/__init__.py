@@ -19,6 +19,8 @@ from nonebot.plugin import PluginMetadata
 
 from kanamibot.core.chat_history import load_recent_group_history
 from kanamibot.core.group_manager import ModuleRule, group_config
+from kanamibot.core.media_storage import AdvancedMediaStorageSystem
+from kanamibot.core.paths import DATA_DIR
 from kanamibot.core.utils.image import download_all_images_from_event
 
 from .client import CodexGPTClient, CodexGPTError, CodexGPTImageTextResponse
@@ -81,6 +83,11 @@ else:
     )
 client = CodexGPTClient(config, debug=debug)
 store = SessionStore(config)
+image_storage = AdvancedMediaStorageSystem(
+    "gptimage2",
+    data_root=DATA_DIR / "codex_gpt" / "images",
+    refresh_global_index=False,
+)
 _model_cache: list[str] = []
 _model_cache_at = 0.0
 _MODEL_CACHE_TTL = 300.0
@@ -337,6 +344,21 @@ async def _run_image(
         debug.log("image.status_message_failed", session_id=session_id, error=_safe_error(exc))
 
     try:
+        input_records = _store_codex_image_assets(
+            source="qq",
+            images=input_images,
+            session_id=session_id,
+            prompt=prompt,
+            event=event,
+            verify_hash_collision=True,
+        )
+        if input_records:
+            debug.log(
+                "image.inputs_stored",
+                session_id=session_id,
+                count=len(input_records),
+                statuses=[record.get("status") for record in input_records],
+            )
         debug.log(
             "image.start",
             session_id=session_id,
@@ -350,6 +372,17 @@ async def _run_image(
 
         if status_message_id is not None:
             await _delete_message(bot, status_message_id)
+        output_record = _store_codex_image_asset(
+            source="openai",
+            image_data=image.data,
+            session_id=session_id,
+            prompt=prompt,
+            event=event,
+            model=config.image_model,
+            mime_type=image.mime_type,
+            revised_prompt=image.revised_prompt,
+            text=image.text,
+        )
         await codex_image.send(_reply(event) + MessageSegment.image(image.data))
         if image.text:
             await _send_long_reply(event, image.text, bot=bot)
@@ -359,6 +392,8 @@ async def _run_image(
             model=config.image_model,
             bytes=len(image.data),
             text_chars=len(image.text or ""),
+            stored_file_id=output_record.get("file_id") if output_record else None,
+            stored_status=output_record.get("status") if output_record else None,
         )
     except CodexGPTImageTextResponse as exc:
         if status_message_id is not None:
@@ -1025,6 +1060,108 @@ async def _download_event_images(
             bytes=sum(len(image) for image in images),
         )
     return images
+
+
+def _store_codex_image_assets(
+    *,
+    source: str,
+    images: list[bytes],
+    session_id: str,
+    prompt: str,
+    event: MessageEvent,
+    verify_hash_collision: bool = False,
+) -> list[dict[str, object]]:
+    records: list[dict[str, object]] = []
+    for index, image_data in enumerate(images):
+        record = _store_codex_image_asset(
+            source=source,
+            image_data=image_data,
+            session_id=session_id,
+            prompt=prompt,
+            event=event,
+            input_index=index,
+            verify_hash_collision=verify_hash_collision,
+        )
+        if record:
+            records.append(record)
+    return records
+
+
+def _store_codex_image_asset(
+    *,
+    source: str,
+    image_data: bytes,
+    session_id: str,
+    prompt: str,
+    event: MessageEvent,
+    input_index: int | None = None,
+    model: str | None = None,
+    mime_type: str | None = None,
+    revised_prompt: str | None = None,
+    text: str | None = None,
+    verify_hash_collision: bool = False,
+) -> dict[str, object] | None:
+    try:
+        detected_mime = mime_type or _guess_image_mime(image_data)
+        ext = _extension_from_mime(detected_mime)
+        original_name = _codex_image_original_name(source, input_index, ext)
+        metadata: dict[str, object] = {
+            "media_source": source,
+            "session_id": session_id,
+            "prompt": prompt,
+            "model": model or config.image_model,
+            "visibility": False,
+            "group": getattr(event, "group_id", 0) or 0,
+            "qq": getattr(event, "user_id", 0) or 0,
+            "tags": ["codex_gpt", "gptimage2", source],
+        }
+        if input_index is not None:
+            metadata["input_index"] = input_index
+        if revised_prompt:
+            metadata["revised_prompt"] = revised_prompt
+        if text:
+            metadata["text"] = text
+
+        record = image_storage.upload(
+            image_data,
+            ext=ext,
+            original_name=original_name,
+            verify_hash_collision=verify_hash_collision,
+            **metadata,
+        )
+        debug.log(
+            "image.asset_stored",
+            session_id=session_id,
+            source=source,
+            file_id=record.get("file_id"),
+            status=record.get("status"),
+        )
+        return record
+    except Exception as exc:
+        logger.warning("[codex_gpt] failed to store %s image: %s", source, exc)
+        debug.log(
+            "image.asset_store_failed",
+            session_id=session_id,
+            source=source,
+            error=_safe_error(exc),
+        )
+        return None
+
+
+def _extension_from_mime(mime_type: str) -> str:
+    normalized = mime_type.split(";", 1)[0].strip().lower()
+    if normalized == "image/jpeg":
+        return ".jpg"
+    if normalized.startswith("image/"):
+        return "." + normalized.removeprefix("image/")
+    return ".png"
+
+
+def _codex_image_original_name(source: str, input_index: int | None, ext: str) -> str:
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    if input_index is None:
+        return f"{source}_{timestamp}{ext}"
+    return f"{source}_{timestamp}_{input_index + 1:02d}{ext}"
 
 
 def _is_image_model(model: str) -> bool:
