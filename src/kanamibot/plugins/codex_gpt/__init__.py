@@ -21,7 +21,7 @@ from kanamibot.core.chat_history import load_recent_group_history
 from kanamibot.core.group_manager import ModuleRule, group_config
 from kanamibot.core.utils.image import download_all_images_from_event
 
-from .client import CodexGPTClient, CodexGPTError
+from .client import CodexGPTClient, CodexGPTError, CodexGPTImageTextResponse
 from .config import load_config
 from .diagnostics import CodexGPTDebugLogger
 from .session import SessionStore
@@ -351,9 +351,26 @@ async def _run_image(
         if status_message_id is not None:
             await _delete_message(bot, status_message_id)
         await codex_image.send(_reply(event) + MessageSegment.image(image.data))
+        if image.text:
+            await _send_long_reply(event, image.text, bot=bot)
         debug.log(
-            "image.success", session_id=session_id, model=config.image_model, bytes=len(image.data)
+            "image.success",
+            session_id=session_id,
+            model=config.image_model,
+            bytes=len(image.data),
+            text_chars=len(image.text or ""),
         )
+    except CodexGPTImageTextResponse as exc:
+        if status_message_id is not None:
+            await _delete_message(bot, status_message_id)
+        text = exc.text.strip()
+        debug.log(
+            "image.text_response",
+            session_id=session_id,
+            model=config.image_model,
+            chars=len(text),
+        )
+        await _send_long_reply(event, text, bot=bot)
     except (CodexGPTError, httpx.HTTPError) as exc:
         if status_message_id is not None:
             await _delete_message(bot, status_message_id)

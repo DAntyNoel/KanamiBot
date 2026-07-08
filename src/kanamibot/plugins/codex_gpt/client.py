@@ -15,11 +15,18 @@ class CodexGPTError(Exception):
     pass
 
 
+class CodexGPTImageTextResponse(Exception):
+    def __init__(self, text: str):
+        self.text = text
+        super().__init__(text)
+
+
 @dataclass(frozen=True)
 class GeneratedImage:
     data: bytes
     mime_type: str = "image/png"
     revised_prompt: str | None = None
+    text: str | None = None
 
 
 def _content_to_text(content: Any) -> str:
@@ -38,6 +45,104 @@ def _content_to_text(content: Any) -> str:
                     parts.append(text)
         return "".join(parts)
     return str(content)
+
+
+def _extract_text_response(data: Any) -> str:
+    candidates: list[str] = []
+
+    if not isinstance(data, dict):
+        return ""
+
+    output_text = data.get("output_text")
+    if isinstance(output_text, str) and output_text.strip():
+        candidates.append(output_text.strip())
+
+    for item in _as_dicts(data.get("output")):
+        item_type = item.get("type")
+        if item_type in {"output_text", "text"}:
+            text = item.get("text")
+            if isinstance(text, str) and text.strip():
+                candidates.append(text.strip())
+            continue
+        if item_type != "message":
+            continue
+        text = _final_content_text(item.get("content"))
+        if text:
+            candidates.append(text)
+
+    for item in _as_dicts(data.get("data")):
+        item_type = item.get("type")
+        if item_type in {"output_text", "text"}:
+            text = item.get("text")
+            if isinstance(text, str) and text.strip():
+                candidates.append(text.strip())
+            continue
+        if item_type in {"reasoning", "input_text"}:
+            continue
+        output_text = item.get("output_text")
+        if isinstance(output_text, str) and output_text.strip():
+            candidates.append(output_text.strip())
+        text = _final_content_text(item.get("content"))
+        if text:
+            candidates.append(text)
+        message = item.get("message")
+        if isinstance(message, dict):
+            text = _final_content_text(message.get("content"))
+            if text:
+                candidates.append(text)
+
+    for choice in _as_dicts(data.get("choices")):
+        message = choice.get("message")
+        if isinstance(message, dict):
+            text = _final_content_text(message.get("content"))
+            if text:
+                candidates.append(text)
+
+    return candidates[-1] if candidates else ""
+
+
+def _as_dicts(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
+
+
+def _first_image_item(items: list[Any]) -> dict[str, Any] | None:
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        b64_json = item.get("b64_json")
+        url = item.get("url")
+        if (isinstance(b64_json, str) and b64_json) or (isinstance(url, str) and url):
+            return item
+    return None
+
+
+def _final_content_text(content: Any) -> str:
+    if isinstance(content, str):
+        return content.strip()
+    if not isinstance(content, list):
+        return ""
+
+    parts: list[str] = []
+    for item in content:
+        if isinstance(item, str):
+            text = item.strip()
+            if text:
+                parts.append(text)
+            continue
+        if not isinstance(item, dict):
+            continue
+        item_type = item.get("type")
+        if item_type in {"reasoning", "input_text"}:
+            continue
+        if item_type not in {None, "output_text", "text"}:
+            continue
+        text = item.get("text")
+        if isinstance(text, str) and text.strip():
+            parts.append(text.strip())
+
+    return "\n".join(parts).strip()
 
 
 class CodexGPTClient:
@@ -327,10 +432,15 @@ class CodexGPTClient:
 
         items = data.get("data") or []
         if not items or not isinstance(items[0], dict):
+            fallback_text = _extract_text_response(data)
+            if fallback_text:
+                self._debug("image.text_response", source="empty_data", chars=len(fallback_text))
+                raise CodexGPTImageTextResponse(fallback_text)
             self._debug("image.empty_data", body=_shorten(response.text, 1000))
             raise CodexGPTError("图片接口没有返回图片数据。")
 
-        item = items[0]
+        item = _first_image_item(items) or items[0]
+        text_response = _extract_text_response(data) or None
         revised_prompt = (
             item.get("revised_prompt") if isinstance(item.get("revised_prompt"), str) else None
         )
@@ -345,7 +455,12 @@ class CodexGPTClient:
             self._debug(
                 "image.parsed", source="b64_json", bytes=len(image_bytes), mime_type=mime_type
             )
-            return GeneratedImage(image_bytes, mime_type=mime_type, revised_prompt=revised_prompt)
+            return GeneratedImage(
+                image_bytes,
+                mime_type=mime_type,
+                revised_prompt=revised_prompt,
+                text=text_response,
+            )
 
         url = item.get("url")
         if isinstance(url, str) and url:
@@ -361,7 +476,17 @@ class CodexGPTClient:
             image_bytes = image_response.content
             mime_type = image_response.headers.get("content-type") or _guess_image_mime(image_bytes)
             self._debug("image.parsed", source="url", bytes=len(image_bytes), mime_type=mime_type)
-            return GeneratedImage(image_bytes, mime_type=mime_type, revised_prompt=revised_prompt)
+            return GeneratedImage(
+                image_bytes,
+                mime_type=mime_type,
+                revised_prompt=revised_prompt,
+                text=text_response,
+            )
+
+        fallback_text = _extract_text_response(data)
+        if fallback_text:
+            self._debug("image.text_response", source="missing_payload", chars=len(fallback_text))
+            raise CodexGPTImageTextResponse(fallback_text)
 
         self._debug("image.missing_payload", body=_shorten(response.text, 1000))
         raise CodexGPTError("图片接口未返回 b64_json 或 url。")
