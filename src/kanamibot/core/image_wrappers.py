@@ -27,6 +27,55 @@ def _get_folder_config_path(folder: str) -> Path:
     """获取图库配置文件的路径"""
     return DATA_ROOT / folder / "config.json"
 
+def _image_sequence_sort_key(image: dict[str, Any]) -> tuple[int, int | str, str]:
+    image_id = str(image.get("id") or "")
+    filename = str(image.get("stored_filename") or image.get("filename") or "")
+    filename_stem = Path(filename).stem
+    sequence_text = image_id if image_id.isdigit() else filename_stem
+    if sequence_text.isdigit():
+        return (0, int(sequence_text), filename_stem)
+    return (1, image.get("created_at", ""), filename_stem)
+
+def _is_visible_to_group(image: dict[str, Any], folder_visible: bool, group_id: int) -> bool:
+    return (
+        bool(folder_visible)
+        or bool(image.get("visibility", False))
+        or int(image.get("group", 0)) == group_id
+    )
+
+def _image_info_from_metadata(folder: str, image: dict[str, Any]) -> dict[str, Any]:
+    contributor = (image.get("group", 0), image.get("qq", 0))
+    return {
+        "id": image["id"],
+        "filename": image["stored_filename"],
+        "thumbnail": image.get("thumbnail_filename"),
+        "folder": folder,
+        "original_name": image.get("original_name"),
+        "contributor": contributor,
+        "tags": image.get("tags", []),
+        "description": image.get("description", ""),
+        "visibility": image.get("visibility", False),
+    }
+
+def _visible_image_metadata(
+    folder: str,
+    group_id: int,
+    *,
+    limit: int | None = None,
+) -> list[dict[str, Any]]:
+    system = _get_system(folder)
+    folder_config = _manage_folder_config(folder, mode="read")
+    folder_visible = bool(folder_config.get("visibility", False))
+    visible_images = [
+        image
+        for image in system.list_files(return_type="dict")
+        if _is_visible_to_group(image, folder_visible, int(group_id))
+    ]
+    visible_images.sort(key=_image_sequence_sort_key)
+    if limit is not None and limit > 0:
+        return visible_images[:limit]
+    return visible_images
+
 def _manage_folder_config(
     folder: str,
     alias: list[str] | None = None,
@@ -109,6 +158,18 @@ def init_folder(
         'visibility': config.get('visibility', False),
         'images': image_list
     }
+
+def get_visible_images(
+    folder: str,
+    group_id: int,
+    *,
+    limit: int | None = None,
+) -> list[dict[str, Any]]:
+    '''获取指定群可见图片，顺序与图库预览图编号一致'''
+    return [
+        _image_info_from_metadata(folder, image)
+        for image in _visible_image_metadata(folder, group_id, limit=limit)
+    ]
 
 def get_folder_list() -> list[str]:
     '''获取图库列表'''
@@ -309,22 +370,7 @@ def update_imagedata(
 def create_image_gallery(folder, groupid, images_per_row=5, limit=None) -> bytes|None: 
     '''创建预览图'''
     system = _get_system(folder)
-    
-    config = _manage_folder_config(folder, mode='read')
-    folder_visible = config.get('visibility', False)
-    
-    all_files = system.list_files(return_type='dict')
-    
-    valid_files = []
-    for f in all_files:
-        img_visible = f.get('visibility', False)
-        src_group = f.get('group', 0)
-        
-        if folder_visible or img_visible or src_group == int(groupid):
-            valid_files.append(f)
-            
-    if limit:
-        valid_files = valid_files[:limit]
+    valid_files = _visible_image_metadata(folder, int(groupid), limit=limit)
         
     if not valid_files:
         return None

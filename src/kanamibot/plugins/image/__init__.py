@@ -25,7 +25,7 @@ from kanamibot.core.image_wrappers import (
     get_folder_name,
     get_image_file_path,
     get_imagedata,
-    init_folder,
+    get_visible_images,
     save_image,
     similar_images,
     update_imagedata,
@@ -123,15 +123,6 @@ def _format_image_info(image: dict[str, Any]) -> str:
         f"贡献者: {contributor[1]} / 群 {contributor[0]}\n"
         f"描述: {image.get('description') or '无'}"
     )
-
-
-def _image_sequence_sort_key(image: dict[str, Any]) -> tuple[int, int | str, str]:
-    image_id = str(image.get("id") or "")
-    filename_stem = Path(str(image.get("filename") or "")).stem
-    sequence_text = image_id if image_id.isdigit() else filename_stem
-    if sequence_text.isdigit():
-        return (0, int(sequence_text), filename_stem)
-    return (1, image.get("created_at", ""), filename_stem)
 
 
 save_parser = ArgumentParser()
@@ -416,7 +407,7 @@ async def select_image_handler(
         folder = get_folder_name(alias)
         if not folder:
             await matcher.finish(f"找不到名为 {alias} 的图库。")
-        images = sorted(init_folder(folder)["images"], key=_image_sequence_sort_key)
+        images = get_visible_images(folder, event.group_id)
         total = len(images)
         if total == 0:
             await matcher.finish("这个图库里没有图片呢。")
