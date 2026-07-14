@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 import json
 import os
 from argparse import Namespace
 from collections.abc import Iterable, Sequence
+from pathlib import Path
 from typing import Annotated, Any
-from urllib.parse import quote
 
-import httpx
 from nonebot import on_shell_command
 from nonebot.adapters.onebot.v11 import Bot, MessageEvent, MessageSegment
 from nonebot.internal.matcher import Matcher
@@ -17,102 +17,139 @@ from nonebot.plugin import PluginMetadata
 from nonebot.rule import ArgumentParser
 
 from kanamibot.core import ModuleRule
+from kanamibot.core.paths import DATA_DIR
 from kanamibot.core.utils.image import download_all_images_from_event
 
 MODULE_NAME = "memes"
 GROUP_RULE = ModuleRule(MODULE_NAME)
-BASE_URL_ENV = "MEME_GENERATOR_BASE_URL"
-DEFAULT_BASE_URL = "http://127.0.0.1:2233"
-REQUEST_TIMEOUT = 60
+MEME_HOME_ENV = "MEME_HOME"
+DEFAULT_MEME_HOME = DATA_DIR / "memes"
+os.environ.setdefault(MEME_HOME_ENV, str(DEFAULT_MEME_HOME))
+MEME_ENGINE = importlib.import_module("meme_generator")
+MEME_RESOURCES = importlib.import_module("meme_generator.resources")
+MEME_HOME = Path(os.environ[MEME_HOME_ENV])
+RESOURCE_IMAGES_DIR = MEME_HOME / "resources" / "images"
+RESOURCE_UPDATE_LOCK = asyncio.Lock()
 LIST_LIMIT = 20
-INFO_CONCURRENCY = 8
 ShellArgs = Annotated[Namespace, ShellCommandArgs()]
 
 __plugin_meta__ = PluginMetadata(
     name="Memes",
-    description="通过 MemeCrafters/meme-generator API 生成表情包。",
+    description="通过 MemeCrafters/meme-generator 生成表情包。",
     usage=(
         "meme <模板key> [文本...] [-t 文本]... [-a key=value] [--args-json JSON]\n"
         "meme_info <模板key>\n"
         "meme_list [关键词]\n"
-        "图片输入支持当前消息、回复消息和合并转发中的图片。\n"
-        f"API 地址由 {BASE_URL_ENV} 配置，默认 {DEFAULT_BASE_URL}。"
+        "meme_update\n"
+        "图片输入支持当前消息、回复消息和合并转发中的图片。"
     ),
 )
 
 
-class MemeApiError(RuntimeError):
+class MemeError(RuntimeError):
     pass
 
 
-def _base_url() -> str:
-    return (os.getenv(BASE_URL_ENV) or DEFAULT_BASE_URL).strip().rstrip("/")
+def _normalise_meme_info(info: Any) -> dict[str, Any]:
+    params = _field(info, "params", {})
+    shortcuts = []
+    for shortcut in _field(info, "shortcuts", []) or []:
+        display = _field(shortcut, "humanized") or _field(shortcut, "pattern", "")
+        if display:
+            shortcuts.append({"key": str(display)})
+    return {
+        "key": str(_field(info, "key", "")),
+        "params_type": {
+            "min_images": _get_count(params, "min_images"),
+            "max_images": _get_count(params, "max_images"),
+            "min_texts": _get_count(params, "min_texts"),
+            "max_texts": _get_count(params, "max_texts"),
+            "default_texts": _as_text_list(_field(params, "default_texts", [])),
+        },
+        "keywords": _as_text_list(_field(info, "keywords", [])),
+        "shortcuts": shortcuts,
+        "tags": set(_field(info, "tags", set()) or set()),
+    }
 
 
-def _client() -> httpx.AsyncClient:
-    return httpx.AsyncClient(base_url=_base_url(), timeout=REQUEST_TIMEOUT)
+def _get_meme(key: str) -> Any:
+    meme = MEME_ENGINE.get_meme(key)
+    if meme is None:
+        raise MemeError(f"表情模板 {key!r} 不存在，请使用 meme_list 搜索。")
+    return meme
 
 
-def _api_error_message(resp: httpx.Response) -> str:
-    detail = ""
-    try:
-        payload = resp.json()
-    except ValueError:
-        detail = resp.text.strip()
-    else:
-        raw_detail = payload.get("detail") if isinstance(payload, dict) else payload
-        if isinstance(raw_detail, str):
-            detail = raw_detail
-        elif raw_detail is not None:
-            detail = json.dumps(raw_detail, ensure_ascii=False)
-    detail = detail[:300] if detail else resp.reason_phrase
-    return f"meme-generator API 返回 {resp.status_code}：{detail}"
+def _engine_error_message(result: Any) -> str:
+    error_type = type(result).__name__
+    if error_type == "ImageDecodeError":
+        return f"图片解码失败：{_field(result, 'error', '')}"
+    if error_type == "ImageEncodeError":
+        return f"图片编码失败：{_field(result, 'error', '')}"
+    if error_type == "ImageAssetMissing":
+        path = _field(result, "path", "未知素材")
+        return f"表情素材缺失：{path}。请稍后重试，或发送 meme_update 重新同步素材。"
+    if error_type == "DeserializeError":
+        return f"模板参数解析失败：{_field(result, 'error', '')}"
+    if error_type == "ImageNumberMismatch":
+        return (
+            "图片数量不符："
+            f"需要 {_count_range_text(_field(result, 'min', 0), _field(result, 'max', 0))} 张，"
+            f"实际 {_field(result, 'actual', 0)} 张。"
+        )
+    if error_type == "TextNumberMismatch":
+        return (
+            "文本数量不符："
+            f"需要 {_count_range_text(_field(result, 'min', 0), _field(result, 'max', 0))} 段，"
+            f"实际 {_field(result, 'actual', 0)} 段。"
+        )
+    if error_type == "TextOverLength":
+        return f"文本过长：{_field(result, 'text', '')}"
+    if error_type == "MemeFeedback":
+        return str(_field(result, "feedback", "表情生成失败。"))
+    return f"表情生成失败：{result!r}"
 
 
-def _network_error_message(exc: httpx.HTTPError) -> str:
-    return f"无法连接 meme-generator API（{BASE_URL_ENV}={_base_url()}）：{exc}"
+async def _update_resources() -> None:
+    async with RESOURCE_UPDATE_LOCK:
+        try:
+            await asyncio.to_thread(MEME_RESOURCES.check_resources)
+        except Exception as exc:
+            raise MemeError(f"表情素材同步失败：{exc}") from exc
 
 
-async def _request_json(client: httpx.AsyncClient, path: str) -> Any:
-    try:
-        resp = await client.get(path)
-    except httpx.HTTPError as exc:
-        raise MemeApiError(_network_error_message(exc)) from exc
-    if resp.status_code >= 400:
-        raise MemeApiError(_api_error_message(resp))
-    return resp.json()
+def _resource_count() -> int:
+    if not RESOURCE_IMAGES_DIR.is_dir():
+        return 0
+    return sum(1 for path in RESOURCE_IMAGES_DIR.rglob("*") if path.is_file())
 
 
 async def _get_meme_info(key: str) -> dict[str, Any]:
-    async with _client() as client:
-        payload = await _request_json(client, f"/memes/{quote(key, safe='')}/info")
-    if not isinstance(payload, dict):
-        raise MemeApiError("meme-generator API 返回了无法识别的模板信息。")
-    return payload
+    return _normalise_meme_info(_get_meme(key).info)
 
 
 async def _get_meme_keys() -> list[str]:
-    async with _client() as client:
-        payload = await _request_json(client, "/memes/keys")
-    if not isinstance(payload, list):
-        raise MemeApiError("meme-generator API 返回了无法识别的模板列表。")
-    return [str(key) for key in payload]
+    return [str(key) for key in MEME_ENGINE.get_meme_keys()]
 
 
 async def _get_infos(keys: Sequence[str]) -> list[dict[str, Any]]:
-    semaphore = asyncio.Semaphore(INFO_CONCURRENCY)
+    infos = []
+    for key in keys:
+        meme = MEME_ENGINE.get_meme(key)
+        if meme is not None:
+            infos.append(_normalise_meme_info(meme.info))
+    return infos
 
-    async with _client() as client:
-        async def fetch(key: str) -> dict[str, Any] | None:
-            async with semaphore:
-                try:
-                    payload = await _request_json(client, f"/memes/{quote(key, safe='')}/info")
-                except MemeApiError:
-                    return None
-                return payload if isinstance(payload, dict) else None
 
-        results = await asyncio.gather(*(fetch(key) for key in keys))
-    return [info for info in results if info]
+def _generate_once(
+    key: str,
+    images: Sequence[bytes],
+    texts: Sequence[str],
+    args: dict[str, Any],
+    image_name: str,
+) -> Any:
+    meme = _get_meme(key)
+    meme_images = [MEME_ENGINE.Image(image_name, image) for image in images]
+    return meme.generate(meme_images, list(texts), args)
 
 
 async def _generate_meme(
@@ -120,28 +157,25 @@ async def _generate_meme(
     images: Sequence[bytes],
     texts: Sequence[str],
     args: dict[str, Any],
+    image_name: str,
 ) -> bytes:
-    form_data: dict[str, Any] = {"args": json.dumps(args, ensure_ascii=False)}
-    if texts:
-        form_data["texts"] = list(texts)
-    files = [
-        ("images", (f"image{index}.png", image, "application/octet-stream"))
-        for index, image in enumerate(images)
-    ]
+    try:
+        result = await asyncio.to_thread(_generate_once, key, images, texts, args, image_name)
+    except (TypeError, ValueError, RuntimeError) as exc:
+        raise MemeError(f"表情生成失败：{exc}") from exc
+    if isinstance(result, bytes):
+        return result
 
-    async with _client() as client:
+    if type(result).__name__ == "ImageAssetMissing":
+        await _update_resources()
         try:
-            resp = await client.post(
-                f"/memes/{quote(key, safe='')}/",
-                data=form_data,
-                files=files or None,
-            )
-        except httpx.HTTPError as exc:
-            raise MemeApiError(_network_error_message(exc)) from exc
+            result = await asyncio.to_thread(_generate_once, key, images, texts, args, image_name)
+        except (TypeError, ValueError, RuntimeError) as exc:
+            raise MemeError(f"表情生成失败：{exc}") from exc
+        if isinstance(result, bytes):
+            return result
 
-    if resp.status_code >= 400:
-        raise MemeApiError(_api_error_message(resp))
-    return resp.content
+    raise MemeError(_engine_error_message(result))
 
 
 def _field(obj: Any, name: str, default: Any = None) -> Any:
@@ -267,6 +301,14 @@ def _parse_extra_args(raw_items: Sequence[str], raw_json: str | None) -> dict[st
         if not key:
             raise ValueError(f"参数 {raw_item!r} 的 key 不能为空")
         parsed[key] = _parse_arg_value(value)
+
+    invalid_keys = [
+        key
+        for key, value in parsed.items()
+        if not isinstance(value, (bool, str, int, float))
+    ]
+    if invalid_keys:
+        raise ValueError(f"模板参数只支持布尔、字符串或数字：{', '.join(invalid_keys)}")
     return parsed
 
 
@@ -277,12 +319,6 @@ def _sender_name(event: MessageEvent) -> str:
         if value:
             return str(value)
     return str(event.user_id)
-
-
-def _build_meme_args(event: MessageEvent, extra_args: dict[str, Any]) -> dict[str, Any]:
-    payload = dict(extra_args)
-    payload.setdefault("user_infos", [{"name": _sender_name(event), "gender": "unknown"}])
-    return payload
 
 
 def _texts_from_args(
@@ -388,7 +424,7 @@ async def handle_meme(
 ) -> None:
     try:
         meme_info = await _get_meme_info(args.key)
-    except MemeApiError as exc:
+    except MemeError as exc:
         await matcher.finish(str(exc))
 
     try:
@@ -401,10 +437,18 @@ async def handle_meme(
     if message := _validate_counts(meme_info, images, texts):
         await matcher.finish(message)
 
-    meme_args = _build_meme_args(event, extra_args)
+    if not RESOURCE_IMAGES_DIR.is_dir():
+        await matcher.send("首次使用需要同步约 400 MB 表情素材，正在下载，请稍候。")
+
     try:
-        result = await _generate_meme(args.key, images=images, texts=texts, args=meme_args)
-    except MemeApiError as exc:
+        result = await _generate_meme(
+            args.key,
+            images=images,
+            texts=texts,
+            args=extra_args,
+            image_name=_sender_name(event),
+        )
+    except MemeError as exc:
         await matcher.finish(str(exc))
 
     await matcher.finish(MessageSegment.image(result))
@@ -427,7 +471,7 @@ meme_info_matcher = on_shell_command(
 async def handle_meme_info(matcher: Matcher, args: ShellArgs) -> None:
     try:
         meme_info = await _get_meme_info(args.key)
-    except MemeApiError as exc:
+    except MemeError as exc:
         await matcher.finish(str(exc))
     await matcher.finish(_format_meme_info(meme_info))
 
@@ -449,7 +493,7 @@ meme_list_matcher = on_shell_command(
 async def handle_meme_list(matcher: Matcher, args: ShellArgs) -> None:
     try:
         keys = await _get_meme_keys()
-    except MemeApiError as exc:
+    except MemeError as exc:
         await matcher.finish(str(exc))
 
     query = " ".join(args.query).strip().casefold()
@@ -477,3 +521,27 @@ async def handle_meme_list(matcher: Matcher, args: ShellArgs) -> None:
     if len(matched_infos) > LIST_LIMIT:
         lines.append(f"... 还有 {len(matched_infos) - LIST_LIMIT} 个结果，请加关键词缩小范围。")
     await matcher.finish("可用表情模板：\n" + "\n".join(lines))
+
+
+meme_update_matcher = on_shell_command(
+    "meme_update",
+    aliases={"更新表情素材", "同步表情素材"},
+    priority=10,
+    block=True,
+    rule=GROUP_RULE,
+)
+
+
+@meme_update_matcher.handle()
+async def handle_meme_update(matcher: Matcher) -> None:
+    before = await asyncio.to_thread(_resource_count)
+    await matcher.send("正在检查并同步表情素材，首次下载约 400 MB，请稍候。")
+    try:
+        await _update_resources()
+    except MemeError as exc:
+        await matcher.finish(str(exc))
+    after = await asyncio.to_thread(_resource_count)
+    if after == 0:
+        await matcher.finish("表情素材同步失败，请检查网络后重试。")
+    added = max(after - before, 0)
+    await matcher.finish(f"表情素材已就绪：{after} 个文件（本次新增 {added} 个）。")

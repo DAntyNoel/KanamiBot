@@ -1,8 +1,7 @@
 # Memes
 
-使用 [MemeCrafters/meme-generator](https://github.com/MemeCrafters/meme-generator)
-提供的 HTTP API 作为表情包生成引擎，当前插件只保留 NoneBot 命令适配层，方便
-后续通过独立升级 meme-generator 服务同步上游模板和修复。
+使用 [MemeCrafters/meme-generator-rs](https://github.com/MemeCrafters/meme-generator-rs)
+提供的 Python 绑定在 KanamiBot 进程内生成表情包，不再依赖单独运行的 2233 HTTP 服务。
 
 ## 命令
 
@@ -11,24 +10,13 @@
 - `meme <模板key> -a key=value --args-json '{"key": "value"}'`：传入模板额外参数。
 - `meme_info <模板key>`：查看模板需要的图片/文本数量、关键词和标签。
 - `meme_list [关键词]`：搜索模板 key、关键词和标签。
+- `meme_update`：检查并同步表情素材；首次下载约 400 MB。
 
-## 部署注意
+## 素材目录
 
-当前项目依赖 `pillow>=12`，而 `meme-generator<0.2.0` 本地 Python 包依赖
-`pillow<11`。为了不破坏现有图片功能，本插件不把 meme-generator 安装进
-KanamiBot 进程，而是连接一个独立的 meme-generator API 服务。
+`meme-generator>=0.2.3` 使用 Rust 实现，不再与项目的 `pillow>=12` 冲突。模板素材和
+字体默认保存在仓库忽略的 `data/memes/resources/`，不会提交到 Git。
+如需修改保存位置，可在 `.env` 中设置 `MEME_HOME`。
 
-默认 API 地址是 `http://127.0.0.1:2233`，可在 `.env` 中修改：
-
-```powershell
-MEME_GENERATOR_BASE_URL=http://127.0.0.1:2233
-```
-
-在 meme-generator 环境中按上游要求启动服务：
-
-```powershell
-meme download
-meme run
-```
-
-部分模板还依赖系统字体；如果文字渲染不正常，需要按上游文档安装对应字体。
+首次生成时如果发现素材缺失，插件会自动同步一次并重试。也可以提前发送
+`meme_update` 完成下载，避免首次生成等待。下载完成后，后续重启会复用现有素材。

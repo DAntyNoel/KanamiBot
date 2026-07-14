@@ -350,6 +350,7 @@ dependencies = [
     { name = "httpx" },
     { name = "imageio", extra = ["ffmpeg"] },
     { name = "jieba" },
+    { name = "meme-generator" },
     { name = "nonebot-adapter-onebot" },
     { name = "nonebot-plugin-apscheduler" },
     { name = "nonebot2", extra = ["fastapi", "httpx", "websockets"] },
@@ -373,6 +374,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "imageio", extras = ["ffmpeg"], specifier = ">=2.37.2" },
     { name = "jieba", specifier = ">=0.42.1" },
+    { name = "meme-generator", specifier = ">=0.2.3,<0.3" },
     { name = "nonebot-adapter-onebot", specifier = ">=2.4.6" },
     { name = "nonebot-plugin-apscheduler", specifier = ">=0.5.0" },
     { name = "nonebot2", extras = ["fastapi", "httpx", "websockets"], specifier = ">=2.5.0" },
@@ -478,6 +480,18 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/85/c2/db15da2bbdf9e3ca66df7db8e2c33a1dfed67be24a24d2c878efaaff01d6/matplotlib-3.11.0-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:94f5000f67ca9faa300863ea17f8bce9175cb67b88bec4bc7780502d53dd7c9e", size = 10923899, upload-time = "2026-06-12T02:28:00.223Z" },
     { url = "https://files.pythonhosted.org/packages/e5/2f/a58a4443a4d052a4ea77557478336aefc26c7981f6408d37adba763aa758/matplotlib-3.11.0-cp312-cp312-win_amd64.whl", hash = "sha256:ac6f1ef39f3d0f9e2463303013094992cdbe0f85f43bc54155bc472b2042768e", size = 9329528, upload-time = "2026-06-12T02:28:02.27Z" },
     { url = "https://files.pythonhosted.org/packages/61/0f/4b669589d47733b97ab9df4b58d6fc1e68acb5ea42a928dc7cbdd6bf5871/matplotlib-3.11.0-cp312-cp312-win_arm64.whl", hash = "sha256:9dd11fb612ce7bc60b1de5b4fc87ff959d22317b5de42aabf392f66f97af22eb", size = 9003413, upload-time = "2026-06-12T02:28:04.49Z" },
+]
+
+[[package]]
+name = "meme-generator"
+version = "0.2.3"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/2c/b9/f94e1f3e65689183aa7acd3267d2879df2fd032c10d6d68739db76441b63/meme_generator-0.2.3-cp310-abi3-macosx_10_12_x86_64.whl", hash = "sha256:5897696131bcc97c253c911a4cd364295846d6b7d3abdcea0653cc94112a9141", size = 13150633, upload-time = "2026-02-27T13:53:49.924Z" },
+    { url = "https://files.pythonhosted.org/packages/90/76/7b83921e9c8a3c1dae8a63803c5ca4c5efced3c760876d4359c63c04fe94/meme_generator-0.2.3-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:ebf14df9cdfd97ffacf7e4e67c0d3306c656a502ede144a94bf78f0d3f732b78", size = 12936602, upload-time = "2026-02-27T13:53:47.759Z" },
+    { url = "https://files.pythonhosted.org/packages/65/b7/099d23173083572abfbf9ebe03bf88d2f03ac0e4b07c405ffbe634b5f341/meme_generator-0.2.3-cp310-abi3-manylinux_2_31_aarch64.whl", hash = "sha256:69953a14026805f85d762c05b07e6ecb5a54c419a4a49ff7d3df71c710353065", size = 17295917, upload-time = "2026-02-27T13:53:42.802Z" },
+    { url = "https://files.pythonhosted.org/packages/49/f7/9a36d96648e02af81b3f1d825d41bdccdc60176f3db2254bb652826d3162/meme_generator-0.2.3-cp310-abi3-manylinux_2_31_x86_64.whl", hash = "sha256:cac7b7a41d144740ad7ea2bdda0032ba8ce9528dbec0d916f00581be26b657e7", size = 16899741, upload-time = "2026-02-27T13:53:45.415Z" },
+    { url = "https://files.pythonhosted.org/packages/83/6b/6b106aeb23f5b3077da295f9cf696056d6720228f8d1bc35e9dc0d79cf7c/meme_generator-0.2.3-cp310-abi3-win_amd64.whl", hash = "sha256:6a3b269973be1db0c7a121502485442fad23acd999cdadec2132267ad0e167cd", size = 12287553, upload-time = "2026-02-27T13:53:52.157Z" },
 ]
 
 [[package]]
