@@ -9,13 +9,19 @@
 ```powershell
 $env:UV_CACHE_DIR=".uv-cache"; uv sync
 Copy-Item .env.example .env
-.\vendor\install_napcat_windows.ps1
 ```
 
 启动：
 
 ```powershell
 .\start.ps1
+```
+
+默认只启动 NoneBot，不会安装或启动 NapCat。只有确认本仓库应独立管理 NapCat 时，才显式执行：
+
+```powershell
+.\vendor\install_napcat_windows.ps1
+.\start.ps1 -WithNapCat
 ```
 
 或使用 CMD：

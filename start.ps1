@@ -1,4 +1,5 @@
 param(
+  [switch]$WithNapCat,
   [Alias("NoNapCat")]
   [switch]$NoneBotOnly,
   [Parameter(ValueFromRemainingArguments = $true)]
@@ -72,8 +73,11 @@ function Test-PidFileProcessRunning {
 
 $uvPath = Resolve-UvPath
 
-if ($NoneBotOnly) {
+if ($NoneBotOnly -or -not $WithNapCat) {
   Write-Host "Skipping NapCat startup because NoneBot-only mode was requested."
+  if (-not $NoneBotOnly) {
+    Write-Host "NapCat startup is opt-in. Use -WithNapCat only when this repo should own NapCat."
+  }
 } elseif (Test-PidFileProcessRunning -Path $napcatPidFile) {
   Write-Host "NapCat backend already appears to be running from logs\napcat.pid."
   Write-Host "Skipping NapCat startup; starting NoneBot only."
