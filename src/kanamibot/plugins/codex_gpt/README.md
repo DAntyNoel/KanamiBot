@@ -20,6 +20,7 @@
 - `#image <描述>`：生成图片
 - `#image <描述>` + 图片：基于图片编辑/创作
 - `#image` + 图片：默认基于图片内容创作
+- `#image clear`：清空当前会话，与 `#gpt clear` 等效
 
 别名：`#codex`、`#chat`、`#img`。
 

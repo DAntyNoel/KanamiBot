@@ -140,6 +140,13 @@ async def _run_active_reply_from_preprocessor(bot: Bot, event: GroupMessageEvent
 async def handle_codex_image(bot: Bot, event: MessageEvent):
     prompt = _extract_image_payload(event)
     session_id = _session_id(event)
+
+    if prompt.lower() in CLEAR_ALIASES:
+        debug.log("image.session_clear", session_id=session_id)
+        await store.clear(session_id)
+        await codex_image.finish(_reply(event) + "已新建对话，上下文清空。")
+        return
+
     input_images = await _download_event_images(event, session_id, bot)
     debug.log(
         "image.command_received",
@@ -1242,6 +1249,7 @@ def _help_text() -> str:
         "#image <描述>：生成图片\n"
         "#image <描述> + 图片：基于图片编辑/创作\n"
         "#gpt clear：清空当前会话\n"
+        "#image clear：清空当前会话\n"
         "#gpt forget：忘记上一轮对话\n"
         "#gpt status：查看当前会话状态\n"
         "#gpt model：查看当前模型和模型命令\n"
@@ -1260,6 +1268,7 @@ def _image_help_text() -> str:
         "#image <描述>：生成图片\n"
         "#image <描述> + 图片：基于图片编辑/创作\n"
         "#image + 图片：默认基于图片内容创作\n"
+        "#image clear：清空当前会话\n"
         "别名：#img\n"
         f"当前图片模型：{config.image_model}"
     )
