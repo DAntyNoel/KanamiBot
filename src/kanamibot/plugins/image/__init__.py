@@ -229,13 +229,17 @@ pick_image_matcher = on_shell_command(
 
 
 @pick_image_matcher.handle()
-async def pick_image_handler(matcher: Matcher, args: ShellArgs) -> None:
+async def pick_image_handler(
+    event: GroupMessageEvent,
+    matcher: Matcher,
+    args: ShellArgs,
+) -> None:
     alias = args.folder
     folder = get_folder_name(alias)
     if not folder:
         await matcher.finish()
 
-    images = init_folder(folder)["images"]
+    images = get_visible_images(folder, event.group_id)
     if not images:
         await matcher.finish()
 
