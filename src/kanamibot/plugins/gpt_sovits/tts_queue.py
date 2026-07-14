@@ -30,23 +30,23 @@ class TTSQueueManager:
         self.queue: asyncio.Queue[tuple[Bot, object, str, str]] = asyncio.Queue()
         self.processing = False
         self.boot_lock = asyncio.Lock()
+        self.worker_task: asyncio.Task[None] | None = None
 
     async def add_task(self, bot: Bot, event: object, text: str, emotion: str = "natural") -> int:
         position = self.queue.qsize() + (1 if self.processing else 0)
         await self.queue.put((bot, event, text, emotion))
-        if not self.processing:
-            asyncio.create_task(self.worker())
+        if self.worker_task is None or self.worker_task.done():
+            self.worker_task = asyncio.create_task(self.worker())
         return position
 
     async def worker(self) -> None:
-        self.processing = True
         logger.info("[gpt_sovits] TTS queue worker started.")
 
-        while not self.queue.empty():
+        while True:
             bot, event, text, emotion = await self.queue.get()
+            self.processing = True
             try:
                 if not await self.ensure_backend_running(bot, event):
-                    self.queue.task_done()
                     continue
 
                 wav_bytes = await self.call_backend(text, emotion)
@@ -55,12 +55,14 @@ class TTSQueueManager:
                 else:
                     await bot.send(event, "TTS 生成失败：后端返回空数据。")
             except Exception as exc:
-                logger.exception("[gpt_sovits] TTS task failed: %s", exc)
-                await bot.send(event, f"TTS 生成出错：{exc}")
+                logger.exception("[gpt_sovits] TTS task failed: {}", exc)
+                try:
+                    await bot.send(event, f"TTS 生成出错：{exc}")
+                except Exception:
+                    logger.exception("[gpt_sovits] failed to report TTS task error.")
             finally:
+                self.processing = False
                 self.queue.task_done()
-
-        self.processing = False
 
     async def ensure_backend_running(self, bot: Bot, event: object) -> bool:
         if await self.check_health():
