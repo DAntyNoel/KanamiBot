@@ -115,28 +115,36 @@ async def check_bili_update(*, suppress_initial: bool | None = None) -> None:
         if not dynamics:
             continue
 
+        try:
+            for dynamic_data in reversed(dynamics):
+                if is_initial_check:
+                    logger.info(
+                        "[Bilibili] Initial dynamic for {}: {}",
+                        uid,
+                        dynamic_data["id"],
+                    )
+                    continue
+
+                msg = parse_dynamic(dynamic_data)
+                if not msg:
+                    continue
+
+                for group_id in groups:
+                    await _send_group_dynamic(bot, group_id, msg)
+                    if REQUEST_DELAY_SECONDS:
+                        await asyncio.sleep(REQUEST_DELAY_SECONDS)
+        except Exception as exc:
+            logger.warning(
+                "[Bilibili] Dynamic delivery failed for uid {}; baseline retained for retry: {}",
+                uid,
+                exc,
+            )
+            continue
+
         current_info = info.copy()
         current_info["dynamic"] = int(dynamics[0]["id"])
         current_info["name"] = dynamics[0].get("name") or current_info["name"]
         set_subscription(str_uid, current_info)
-
-        for dynamic_data in reversed(dynamics):
-            if is_initial_check:
-                logger.info(
-                    "[Bilibili] Initial dynamic for {}: {}",
-                    uid,
-                    dynamic_data["id"],
-                )
-                continue
-
-            msg = parse_dynamic(dynamic_data)
-            if not msg:
-                continue
-
-            for group_id in groups:
-                await _send_group_dynamic(bot, group_id, msg)
-                if REQUEST_DELAY_SECONDS:
-                    await asyncio.sleep(REQUEST_DELAY_SECONDS)
 
     FIRST_DYNAMIC_CHECK = False
     cleanup_unsubscribed()
@@ -179,17 +187,24 @@ async def check_live_update() -> None:
                 if not status:
                     continue
 
+                if not FIRST_LIVE_CHECK:
+                    msg = parse_live(status, int(info.get("live_status") or 0))
+                    if msg:
+                        try:
+                            await _send_group_message(bot, info["groups"], msg)
+                        except Exception as exc:
+                            logger.warning(
+                                "[Bilibili] Live delivery failed for uid {}; "
+                                "status retained for retry: {}",
+                                uid,
+                                exc,
+                            )
+                            continue
+
                 current_info = info.copy()
                 current_info["name"] = status.name or current_info["name"]
                 current_info["live_status"] = status.live_status
                 set_subscription(str_uid, current_info)
-
-                if FIRST_LIVE_CHECK:
-                    continue
-
-                msg = parse_live(status, int(info.get("live_status") or 0))
-                if msg:
-                    await _send_group_message(bot, info["groups"], msg)
 
             if REQUEST_DELAY_SECONDS:
                 await asyncio.sleep(REQUEST_DELAY_SECONDS)
