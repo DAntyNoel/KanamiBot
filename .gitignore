@@ -3,6 +3,7 @@ apikey.env
 files/napcat_config/onebot11.json
 files/napcat_config/webui.json
 files/napcat_runtime/
+files/erbs-assets/
 logs/
 data/
 vendor/NapCatQQ/
