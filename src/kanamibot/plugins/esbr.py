@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+import shutil
+from pathlib import Path
 
 from nonebot import on_regex
 from nonebot.adapters.onebot.v11 import MessageEvent, MessageSegment
@@ -23,6 +25,7 @@ ER_COMMAND_PATTERN = re.compile(
     flags=re.IGNORECASE | re.DOTALL,
 )
 ERBS_EXECUTABLE_ENV = "ERBS_EXECUTABLE"
+ERBS_WORKDIR_ENV = "ERBS_WORKDIR"
 DEFAULT_ERBS_EXECUTABLE = "erbs"
 ERBS_TIMEOUT_SECONDS = 120.0
 MAX_PLAYER_NAME_LENGTH = 64
@@ -53,13 +56,34 @@ def _failure_message(return_code: int, player_name: str) -> str:
     return "玩家概览查询失败，请稍后重试。"
 
 
+def resolve_erbs_workdir(
+    executable: str,
+    workdir: str | os.PathLike[str] | None = None,
+) -> Path | None:
+    configured = workdir or os.getenv(ERBS_WORKDIR_ENV)
+    if configured:
+        return Path(configured).expanduser()
+
+    resolved_executable = shutil.which(executable)
+    executable_path = Path(resolved_executable or executable).expanduser()
+    if not executable_path.is_file():
+        return None
+
+    for parent in executable_path.resolve().parents:
+        if (parent / "assets" / "manifest.json").is_file():
+            return parent
+    return None
+
+
 async def render_player_overview(
     player_name: str,
     *,
     executable: str | None = None,
+    workdir: str | os.PathLike[str] | None = None,
     timeout: float = ERBS_TIMEOUT_SECONDS,
 ) -> bytes:
     active_executable = executable or os.getenv(ERBS_EXECUTABLE_ENV, DEFAULT_ERBS_EXECUTABLE)
+    active_workdir = resolve_erbs_workdir(active_executable, workdir)
     try:
         process = await asyncio.create_subprocess_exec(
             active_executable,
@@ -69,6 +93,7 @@ async def render_player_overview(
             "bytes",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            cwd=active_workdir,
         )
     except (OSError, ValueError) as exc:
         raise ERBSQueryError(
@@ -122,6 +147,7 @@ async def handle_esbr(event: MessageEvent, matcher: Matcher) -> None:
     if len(player_name) > MAX_PLAYER_NAME_LENGTH or "\x00" in player_name:
         await matcher.finish(f"玩家名不能超过 {MAX_PLAYER_NAME_LENGTH} 个字符。")
 
+    await matcher.send(f"正在查询玩家「{player_name}」，请稍候……")
     try:
         image = await render_player_overview(player_name)
     except ERBSQueryError as exc:

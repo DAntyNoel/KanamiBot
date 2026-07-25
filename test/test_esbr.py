@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import nonebot
@@ -37,6 +39,18 @@ class ESBRPluginTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(esbr.extract_player_name("  #er   B站丨咕咕禽OC  "), "B站丨咕咕禽OC")
         self.assertEqual(esbr.extract_player_name("#ER"), "")
 
+    def test_resolve_erbs_workdir_finds_asset_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            executable = root / ".venv" / "Scripts" / "erbs.exe"
+            executable.parent.mkdir(parents=True)
+            executable.touch()
+            assets = root / "assets"
+            assets.mkdir()
+            (assets / "manifest.json").write_text("{}", encoding="utf-8")
+
+            self.assertEqual(esbr.resolve_erbs_workdir(str(executable)), root)
+
     async def test_render_player_overview_uses_cli_arguments_without_shell(self) -> None:
         process = FakeProcess()
         spawn = AsyncMock(return_value=process)
@@ -45,6 +59,7 @@ class ESBRPluginTest(unittest.IsolatedAsyncioTestCase):
             result = await esbr.render_player_overview(
                 'Player "Name"',
                 executable=r"D:\ERBS-plugin\.venv\Scripts\erbs.exe",
+                workdir=r"D:\ERBS-plugin",
             )
 
         self.assertEqual(result, esbr.PNG_SIGNATURE + b"card")
@@ -56,6 +71,7 @@ class ESBRPluginTest(unittest.IsolatedAsyncioTestCase):
             "bytes",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            cwd=Path(r"D:\ERBS-plugin"),
         )
 
     async def test_render_player_overview_maps_player_not_found(self) -> None:
