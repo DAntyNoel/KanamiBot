@@ -17,12 +17,7 @@ Copy-Item .env.example .env
 .\start.ps1
 ```
 
-默认只启动 NoneBot，不会安装或启动 NapCat。只有确认本仓库应独立管理 NapCat 时，才显式执行：
-
-```powershell
-.\vendor\install_napcat_windows.ps1
-.\start.ps1 -WithNapCat
-```
+启动器会分别检测 NapCat 和 NoneBot：已经运行的服务保持不动，缺少的服务会在当前前台终端中启动。关闭该终端会停止本次启动器新建的所有进程，但不会影响启动前已经存在的服务。
 
 或使用 CMD：
 
@@ -30,12 +25,13 @@ Copy-Item .env.example .env
 start.cmd
 ```
 
-When `.venv` already exists, startup skips the repeated dependency sync. After
-changing `pyproject.toml` or `uv.lock`, sync dependencies once with:
+已有 `.venv` 时会跳过重复的依赖同步。修改 `pyproject.toml` 或 `uv.lock` 后，可执行：
 
 ```cmd
 start.cmd -SyncDependencies
 ```
+
+如只需补启动 NoneBot、明确不启动 NapCat，可执行 `start.cmd --nonebot-only`。
 
 需要调整端口、令牌等本地配置时，修改 `.env`。
 
