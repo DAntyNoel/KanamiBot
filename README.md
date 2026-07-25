@@ -30,6 +30,13 @@ Copy-Item .env.example .env
 start.cmd
 ```
 
+When `.venv` already exists, startup skips the repeated dependency sync. After
+changing `pyproject.toml` or `uv.lock`, sync dependencies once with:
+
+```cmd
+start.cmd -SyncDependencies
+```
+
 需要调整端口、令牌等本地配置时，修改 `.env`。
 
 ## 布局

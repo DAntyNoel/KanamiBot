@@ -2,6 +2,8 @@ param(
   [switch]$WithNapCat,
   [Alias("NoNapCat")]
   [switch]$NoneBotOnly,
+  [Alias("Sync")]
+  [switch]$SyncDependencies,
   [Parameter(ValueFromRemainingArguments = $true)]
   [string[]]$NapCatArgs
 )
@@ -13,6 +15,7 @@ Set-Location $projectRoot
 
 $logDir = Join-Path $projectRoot "logs"
 $botScript = Join-Path $projectRoot "bot.py"
+$venvPython = Join-Path $projectRoot ".venv\Scripts\python.exe"
 $napcatPidFile = Join-Path $logDir "napcat.pid"
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 
@@ -89,5 +92,14 @@ if ($NoneBotOnly -or -not $WithNapCat) {
 Write-Host "KanamiBot NoneBot backend starting in foreground."
 Write-Host "OneBot reverse WebSocket: ws://127.0.0.1:12706/onebot/v11/ws"
 $env:UV_CACHE_DIR = ".uv-cache"
-& $uvPath run python $botScript
+$uvRunArgs = @("run")
+if ((Test-Path -LiteralPath $venvPython) -and -not $SyncDependencies) {
+  $uvRunArgs += "--no-sync"
+  Write-Host "Using the existing virtual environment (dependency sync skipped)."
+  Write-Host "Use -SyncDependencies after pyproject.toml or uv.lock changes."
+} else {
+  Write-Host "Checking and syncing Python dependencies. This may take a moment."
+}
+
+& $uvPath @uvRunArgs python $botScript
 exit $LASTEXITCODE
