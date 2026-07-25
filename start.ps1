@@ -123,6 +123,39 @@ function Test-LocalPortListening {
   }
 }
 
+function Test-NapCatRuntimeProcessRunning {
+  $processes = Get-Process -ErrorAction SilentlyContinue
+  if ($processes | Where-Object { $_.ProcessName -match '^NapCat' } | Select-Object -First 1) {
+    return $true
+  }
+
+  foreach ($qqProcess in $processes | Where-Object { $_.ProcessName -eq "QQ" }) {
+    try {
+      $napcatModule = $qqProcess.Modules |
+        Where-Object { $_.ModuleName -match 'NapCat' -or $_.FileName -match 'NapCat' } |
+        Select-Object -First 1
+      if ($napcatModule) {
+        return $true
+      }
+    } catch {
+      # Some QQ processes deny module enumeration; try their command line next.
+    }
+
+    try {
+      $snapshot = Get-CimInstance Win32_Process `
+        -Filter "ProcessId = $($qqProcess.Id)" `
+        -ErrorAction Stop
+      if ($snapshot.CommandLine -match 'NapCat') {
+        return $true
+      }
+    } catch {
+      # Port and repository PID checks remain available without CIM access.
+    }
+  }
+
+  return $false
+}
+
 function Start-AttachedProcess {
   param(
     [string]$FilePath,
@@ -158,7 +191,8 @@ function Start-AttachedProcess {
 $nonebotPort = Get-DotEnvInt -Name "PORT" -Default 12706
 $napcatWebUiPort = Get-DotEnvInt -Name "NAPCAT_WEBUI_PORT" -Default 12705
 $nonebotRunning = Test-LocalPortListening -Port $nonebotPort
-$napcatRunning = (Test-PidFileProcessRunning -Path $napcatPidFile) -or
+$napcatRunning = (Test-NapCatRuntimeProcessRunning) -or
+  (Test-PidFileProcessRunning -Path $napcatPidFile) -or
   (Test-LocalPortListening -Port $napcatWebUiPort)
 $napcatProcess = $null
 
