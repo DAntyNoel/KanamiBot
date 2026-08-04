@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from nonebot import on_message
 from nonebot.adapters.onebot.v11 import (
     Bot,
+    GroupMessageEvent,
     Message,
     MessageEvent,
     MessageSegment,
@@ -61,18 +62,73 @@ def _private_event(event: MessageEvent) -> bool:
     }
 
 
+def _temporary_private_event(event: MessageEvent) -> bool:
+    return isinstance(event, PrivateMessageEvent) and getattr(event, "sub_type", "") == "group"
+
+
+def _group_event(event: MessageEvent) -> bool:
+    return isinstance(event, GroupMessageEvent)
+
+
 def _command(event: MessageEvent) -> str | None:
     text = event.get_plaintext().strip()
     for command in _COMMANDS:
-        if text == command or text.startswith(command):
+        if text == command or text.startswith(f"{command} "):
             return command
     return None
 
 
 async def _image_rule(event: MessageEvent) -> bool:
-    if not _private_event(event):
-        return False
-    return _command(event) is not None or _session_key(event) in _pending
+    command = _command(event)
+    if _private_event(event) or _temporary_private_event(event):
+        return command is not None or _session_key(event) in _pending
+    if _group_event(event):
+        return command is not None
+    return False
+
+
+def _is_supported_event(event: MessageEvent) -> bool:
+    if _private_event(event) or _temporary_private_event(event):
+        return True
+    if _group_event(event):
+        return True
+    return False
+
+
+async def _send_group_decode_notice(bot: Bot, event: MessageEvent) -> None:
+    await bot.send(event, "群聊不支持解混淆，请私聊机器人后发送“解混淆”命令。")
+
+
+async def _handle_command(
+    bot: Bot, event: MessageEvent, command: str
+) -> tuple[str, list[bytes]] | None:
+    if _group_event(event) and command == "解混淆":
+        await _send_group_decode_notice(bot, event)
+        return None
+
+    action = _COMMANDS[command]
+    images = await download_all_images_from_event(event, bot)
+    exact = event.get_plaintext().strip() == command
+    if images:
+        return action, images
+    if exact:
+        expires_at = time.monotonic() + _INTERACTION_TIMEOUT
+        key = _session_key(event)
+        _pending[key] = _Pending(action, expires_at)
+        asyncio.create_task(_expire_pending(key, expires_at))
+        await bot.send(event, f"请发送要{command}的图片（可多张），60秒内有效。")
+        return None
+    await bot.send(event, f"请在“{command}”后附图片，或直接回复/引用图片。")
+    return None
+
+
+async def _handle_pending(
+    bot: Bot, event: MessageEvent, pending: _Pending
+) -> tuple[str, list[bytes]] | None:
+    images = await download_all_images_from_event(event, bot)
+    if not images:
+        return None
+    return pending.action, images
 
 
 async def _transform_and_send(
@@ -112,7 +168,7 @@ image_obfuscator = on_message(rule=_image_rule, priority=8, block=True)
 
 @image_obfuscator.handle()
 async def handle_image_obfuscator(bot: Bot, event: MessageEvent) -> None:
-    if not _private_event(event):
+    if not _is_supported_event(event):
         return
     key = _session_key(event)
     command = _command(event)
@@ -122,25 +178,17 @@ async def handle_image_obfuscator(bot: Bot, event: MessageEvent) -> None:
             _pending.pop(key, None)
             pending = None
         if command:
-            action = _COMMANDS[command]
-            images = await download_all_images_from_event(event, bot)
-            exact = event.get_plaintext().strip() == command
-            if images:
+            result = await _handle_command(bot, event, command)
+            if result:
+                action, images = result
                 _pending.pop(key, None)
-            elif exact:
-                expires_at = time.monotonic() + _INTERACTION_TIMEOUT
-                _pending[key] = _Pending(action, expires_at)
-                asyncio.create_task(_expire_pending(key, expires_at))
-                await bot.send(event, f"请发送要{command}的图片（可多张），60秒内有效。")
-                return
             else:
-                await bot.send(event, f"请在“{command}”后附图片，或直接回复/引用图片。")
                 return
         elif pending:
-            images = await download_all_images_from_event(event, bot)
-            if not images:
+            result = await _handle_pending(bot, event, pending)
+            if not result:
                 return
-            action = pending.action
+            action, images = result
             _pending.pop(key, None)
         else:
             return
