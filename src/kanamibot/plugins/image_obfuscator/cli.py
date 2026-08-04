@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import base64
 from pathlib import Path
 
 try:

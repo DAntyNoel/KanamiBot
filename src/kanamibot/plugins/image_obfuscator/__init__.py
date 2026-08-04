@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass
-from pathlib import Path
 
 from nonebot import on_message
 from nonebot.adapters.onebot.v11 import (

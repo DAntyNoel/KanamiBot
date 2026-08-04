@@ -9,7 +9,6 @@ import base64
 import io
 import math
 from pathlib import Path
-from typing import Iterable
 
 from PIL import Image
 
