@@ -28,6 +28,7 @@ __plugin_meta__ = PluginMetadata(
 )
 
 _COMMANDS = {"混淆": "encode", "解混淆": "decode"}
+_END_COMMAND = "结束"
 _ARCHIVE = DATA_DIR / "image_obfuscator" / "source"
 _INTERACTION_TIMEOUT = 60.0
 
@@ -42,12 +43,23 @@ _pending: dict[str, _Pending] = {}
 _lock = asyncio.Lock()
 
 
-async def _expire_pending(key: str, expires_at: float) -> None:
+async def _expire_pending(
+    key: str, expires_at: float, bot: Bot, event: MessageEvent
+) -> None:
     await asyncio.sleep(max(0.0, expires_at - time.monotonic()))
+    expired = False
     async with _lock:
         current = _pending.get(key)
         if current and current.expires_at <= time.monotonic() and current.expires_at == expires_at:
             _pending.pop(key, None)
+            expired = True
+    if expired:
+        try:
+            await bot.send(
+                event, "图片交互已超时，当前操作已结束；如需继续请重新发送混淆或解混淆命令。"
+            )
+        except Exception:
+            logger.debug("发送图片交互超时提醒失败", exc_info=True)
 
 
 def _session_key(event: MessageEvent) -> str:
@@ -72,6 +84,8 @@ def _group_event(event: MessageEvent) -> bool:
 
 def _command(event: MessageEvent) -> str | None:
     text = event.get_plaintext().strip()
+    if text == _END_COMMAND:
+        return _END_COMMAND
     for command in _COMMANDS:
         if text == command or text.startswith(f"{command} "):
             return command
@@ -99,36 +113,23 @@ async def _send_group_decode_notice(bot: Bot, event: MessageEvent) -> None:
     await bot.send(event, "群聊不支持解混淆，请私聊机器人后发送“解混淆”命令。")
 
 
-async def _handle_command(
-    bot: Bot, event: MessageEvent, command: str
-) -> tuple[str, list[bytes]] | None:
-    if _group_event(event) and command == "解混淆":
-        await _send_group_decode_notice(bot, event)
-        return None
-
-    action = _COMMANDS[command]
-    images = await download_all_images_from_event(event, bot)
-    exact = event.get_plaintext().strip() == command
-    if images:
-        return action, images
-    if exact:
-        expires_at = time.monotonic() + _INTERACTION_TIMEOUT
-        key = _session_key(event)
-        _pending[key] = _Pending(action, expires_at)
-        asyncio.create_task(_expire_pending(key, expires_at))
-        await bot.send(event, f"请发送要{command}的图片（可多张），60秒内有效。")
-        return None
-    await bot.send(event, f"请在“{command}”后附图片，或直接回复/引用图片。")
-    return None
+def _private_interaction(event: MessageEvent) -> bool:
+    return _private_event(event) or _temporary_private_event(event)
 
 
-async def _handle_pending(
-    bot: Bot, event: MessageEvent, pending: _Pending
-) -> tuple[str, list[bytes]] | None:
-    images = await download_all_images_from_event(event, bot)
-    if not images:
-        return None
-    return pending.action, images
+def _schedule_pending(key: str, pending: _Pending, bot: Bot, event: MessageEvent) -> None:
+    asyncio.create_task(_expire_pending(key, pending.expires_at, bot, event))
+
+
+async def _start_pending(
+    key: str, action: str, command: str, bot: Bot, event: MessageEvent
+) -> _Pending:
+    expires_at = time.monotonic() + _INTERACTION_TIMEOUT
+    pending = _Pending(action, expires_at)
+    _pending[key] = pending
+    _schedule_pending(key, pending, bot, event)
+    await bot.send(event, f"请发送要{command}的图片（可多张），60秒内有效。")
+    return pending
 
 
 async def _transform_and_send(
@@ -172,25 +173,52 @@ async def handle_image_obfuscator(bot: Bot, event: MessageEvent) -> None:
         return
     key = _session_key(event)
     command = _command(event)
+    action: str | None = None
+    images: list[bytes] = []
     async with _lock:
         pending = _pending.get(key)
         if pending and pending.expires_at <= time.monotonic():
             _pending.pop(key, None)
             pending = None
-        if command:
-            result = await _handle_command(bot, event, command)
-            if result:
-                action, images = result
+
+        if command == _END_COMMAND:
+            if pending:
                 _pending.pop(key, None)
+                await bot.send(event, "本轮图片交互已结束；如需继续请重新发送混淆或解混淆命令。")
             else:
+                await bot.send(event, "当前没有进行中的图片交互。")
+            return
+
+        if command:
+            if pending:
+                _pending.pop(key, None)
+                await bot.send(event, "上一轮图片交互已结束，开始处理新的命令。")
+            if _group_event(event) and command == "解混淆":
+                await _send_group_decode_notice(bot, event)
                 return
+
+            action = _COMMANDS[command]
+            images = await download_all_images_from_event(event, bot)
+            if not images:
+                if _group_event(event):
+                    await bot.send(event, "群聊混淆请直接附带图片，不支持后续交互式发送图片。")
+                else:
+                    await _start_pending(key, action, command, bot, event)
+                return
+
+            if _private_interaction(event):
+                pending = _Pending(action, time.monotonic() + _INTERACTION_TIMEOUT)
+                _pending[key] = pending
+                _schedule_pending(key, pending, bot, event)
         elif pending:
-            result = await _handle_pending(bot, event, pending)
-            if not result:
+            images = await download_all_images_from_event(event, bot)
+            if not images:
                 return
-            action, images = result
-            _pending.pop(key, None)
+            action = pending.action
+            pending.expires_at = time.monotonic() + _INTERACTION_TIMEOUT
+            _schedule_pending(key, pending, bot, event)
         else:
             return
 
-    await _transform_and_send(bot, event, action, images)
+    if action:
+        await _transform_and_send(bot, event, action, images)
