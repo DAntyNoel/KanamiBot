@@ -158,7 +158,7 @@ async def _transform_and_send(
     if not outputs:
         await bot.send(event, "图片处理失败，请确认图片格式有效。")
         return
-    message = Message(f"处理完成，共 {len(outputs)} 张：\n")
+    message = Message()
     for output in outputs:
         message += MessageSegment.image(output)
     await bot.send(event, message)
