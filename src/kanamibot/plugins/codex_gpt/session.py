@@ -14,6 +14,7 @@ from .config import CodexGPTConfig
 
 PLUGIN_DATA_DIR = DATA_DIR / "codex_gpt"
 SESSION_FILE = PLUGIN_DATA_DIR / "sessions.json"
+IMAGE_SESSION_FILE = PLUGIN_DATA_DIR / "image_sessions.json"
 
 
 @dataclass
@@ -182,6 +183,70 @@ class SessionStore:
         os.replace(temp_path, self.path)
 
 
+class ImageSessionStore:
+    def __init__(self, max_context_chars: int, path: Path = IMAGE_SESSION_FILE):
+        self.max_context_chars = max_context_chars
+        self.path = path
+        self._lock = asyncio.Lock()
+        self._sessions: dict[str, dict[str, Any]] = {}
+        self._loaded = False
+
+    async def clear(self, session_id: str) -> None:
+        async with self._lock:
+            await self._ensure_loaded()
+            self._sessions.pop(session_id, None)
+            await self._save_locked()
+
+    async def build_prompt(self, session_id: str, prompt: str) -> str:
+        async with self._lock:
+            await self._ensure_loaded()
+            session = self._sessions.get(session_id, {})
+            history = session.get("history", [])
+            context = _trim_image_context(history, self.max_context_chars)
+            if not context:
+                return prompt
+            return f"此前图片对话：\n{context}\n\n当前请求：\n{prompt}"
+
+    async def add_turn(
+        self,
+        session_id: str,
+        user_prompt: str,
+        assistant_context: str | None,
+    ) -> None:
+        async with self._lock:
+            await self._ensure_loaded()
+            session = self._sessions.setdefault(session_id, {"history": []})
+            history = session.setdefault("history", [])
+            history.append(
+                {
+                    "user": user_prompt,
+                    "assistant": assistant_context or "已生成图片",
+                }
+            )
+            session["history"] = _trim_image_turns(history, self.max_context_chars)
+            session["updated_at"] = time.time()
+            await self._save_locked()
+
+    async def _ensure_loaded(self) -> None:
+        if self._loaded:
+            return
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            raw = json.loads(self.path.read_text(encoding="utf-8"))
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            raw = {}
+        sessions = raw.get("sessions", {}) if isinstance(raw, dict) else {}
+        self._sessions = sessions if isinstance(sessions, dict) else {}
+        self._loaded = True
+
+    async def _save_locked(self) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        data = {"version": 1, "sessions": self._sessions}
+        temp_path = self.path.with_suffix(f".tmp.{os.getpid()}")
+        temp_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.replace(temp_path, self.path)
+
+
 def _trim_history(
     messages: list[dict[str, str]],
     max_messages: int,
@@ -197,3 +262,56 @@ def _trim_history(
         kept.append({"role": message["role"], "content": content})
     kept.reverse()
     return kept
+
+
+def _format_image_turn(turn: dict[str, Any]) -> str:
+    user = turn.get("user")
+    assistant = turn.get("assistant")
+    if not isinstance(user, str) or not user.strip():
+        return ""
+    text = f"用户：{user.strip()}"
+    if isinstance(assistant, str) and assistant.strip():
+        text += f"\n结果：{assistant.strip()}"
+    return text
+
+
+def _trim_image_turns(history: list[dict[str, Any]], max_chars: int) -> list[dict[str, str]]:
+    if max_chars <= 0:
+        return []
+    kept: list[dict[str, str]] = []
+    total = 0
+    for turn in reversed(history):
+        formatted = _format_image_turn(turn)
+        if not formatted:
+            continue
+        remaining = max_chars - total
+        if remaining <= 0:
+            break
+        if len(formatted) > remaining:
+            if kept:
+                break
+            user = str(turn.get("user", ""))
+            assistant = str(turn.get("assistant", ""))
+            overflow = len(formatted) - remaining
+            if overflow >= len(user):
+                user = user[-max(0, remaining // 2) :]
+                assistant = assistant[-max(0, remaining // 2) :]
+            else:
+                user = user[overflow:]
+            turn = {"user": user, "assistant": assistant}
+            formatted = _format_image_turn(turn)[-remaining:]
+        kept.append(
+            {
+                "user": str(turn.get("user", "")),
+                "assistant": str(turn.get("assistant", "")),
+            }
+        )
+        total += len(formatted)
+    kept.reverse()
+    return kept
+
+
+def _trim_image_context(history: list[dict[str, Any]], max_chars: int) -> str:
+    turns = _trim_image_turns(history, max_chars)
+    context = "\n\n".join(filter(None, (_format_image_turn(turn) for turn in turns)))
+    return context[-max_chars:] if max_chars > 0 else ""
