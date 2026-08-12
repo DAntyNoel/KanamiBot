@@ -1,11 +1,12 @@
 @echo off
 setlocal
 
-set "PROJECT_ROOT=%~dp0"
-set "NAPCAT_DIR=%PROJECT_ROOT%vendor\NapCat.Shell"
-set "NAPCAT_WORKDIR=%PROJECT_ROOT%files\napcat_runtime"
-set "NAPCAT_CONFIG_SCRIPT=%PROJECT_ROOT%vendor\configure_napcat_windows.ps1"
-set "NONEBOT_PYTHON=%PROJECT_ROOT%.venv\Scripts\python.exe"
+cd /d "%~dp0"
+set "PROJECT_ROOT=%CD%"
+set "NAPCAT_DIR=%PROJECT_ROOT%\vendor\NapCat.Shell"
+set "NAPCAT_WORKDIR=%PROJECT_ROOT%\files\napcat_runtime"
+set "NAPCAT_CONFIG_SCRIPT=%PROJECT_ROOT%\vendor\configure_napcat_windows.ps1"
+set "NONEBOT_PYTHON=%PROJECT_ROOT%\.venv\Scripts\python.exe"
 
 echo [KanamiBot] Checking services...
 
