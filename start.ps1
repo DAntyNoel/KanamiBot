@@ -22,7 +22,6 @@ $napcatPidFile = Join-Path $logDir "napcat.pid"
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 
 $napcatInstallScript = Join-Path $projectRoot "vendor\install_napcat_windows.ps1"
-$napcatStartScript = Join-Path $projectRoot "vendor\start_kanamibot.ps1"
 
 function Resolve-UvPath {
   $uvCommand = Get-Command "uv" -ErrorAction SilentlyContinue
@@ -177,14 +176,6 @@ function Start-ForegroundTerminal {
   return $process
 }
 
-if ($ForegroundService -eq "NapCat") {
-  $Host.UI.RawUI.WindowTitle = "KanamiBot NapCat"
-  Write-Host "NapCat is running in its own foreground terminal."
-  Write-Host "Close this terminal to stop the NapCat backend."
-  & $napcatStartScript @NapCatArgs
-  exit $LASTEXITCODE
-}
-
 if ($ForegroundService -eq "NoneBot") {
   $Host.UI.RawUI.WindowTitle = "KanamiBot NoneBot"
   $env:UV_CACHE_DIR = ".uv-cache"
@@ -221,30 +212,20 @@ if ($NoneBotOnly) {
 } elseif ($napcatRunning) {
   Write-Host "NapCat is already running; leaving the existing process untouched."
 } else {
-  $configuredLauncher = if ($env:NAPCAT_WINDOWS_LAUNCHER) {
-    $env:NAPCAT_WINDOWS_LAUNCHER
-  } else {
-    "launcher-user.bat"
-  }
+  $configuredLauncher = "launcher.bat"
   $napcatLauncher = Join-Path $projectRoot "vendor\NapCat.Shell\$configuredLauncher"
   if (-not (Test-Path -LiteralPath $napcatLauncher)) {
     Write-Host "NapCat is not installed; installing it before startup."
     & $napcatInstallScript
   }
 
-  Write-Host "Starting NapCat in a separate foreground terminal."
-  $napcatPowerShellArgs = @(
-    "-NoProfile",
-    "-ExecutionPolicy",
-    "Bypass",
-    "-File",
-    $PSCommandPath,
-    "-ForegroundService",
-    "NapCat"
-  ) + $NapCatArgs
-  Start-ForegroundTerminal `
-    -Title "KanamiBot NapCat" `
-    -ArgumentList $napcatPowerShellArgs | Out-Null
+  Write-Host "Starting NapCat in a separate foreground CMD terminal."
+  $napcatDir = Split-Path -Parent $napcatLauncher
+  $napcatCommand = "start cmd /k `"cd /d $napcatDir && call launcher.bat`""
+  & $env:ComSpec /d /c $napcatCommand
+  if ($LASTEXITCODE -ne 0) {
+    throw "Failed to open the NapCat foreground terminal (exit code $LASTEXITCODE)."
+  }
   $startedTerminalCount++
 }
 
