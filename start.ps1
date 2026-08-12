@@ -4,6 +4,8 @@ param(
   [switch]$NoneBotOnly,
   [Alias("Sync")]
   [switch]$SyncDependencies,
+  [ValidateSet("", "NapCat", "NoneBot")]
+  [string]$ForegroundService = "",
   [Parameter(ValueFromRemainingArguments = $true)]
   [string[]]$NapCatArgs
 )
@@ -156,36 +158,54 @@ function Test-NapCatRuntimeProcessRunning {
   return $false
 }
 
-function Start-AttachedProcess {
+function Start-ForegroundTerminal {
   param(
-    [string]$FilePath,
-    [string[]]$ArgumentList,
-    [string]$WorkingDirectory
+    [string]$Title,
+    [string[]]$ArgumentList
   )
 
-  $quotedArguments = $ArgumentList | ForEach-Object {
-    if ($null -eq $_ -or $_ -eq "") {
-      return '""'
-    }
-    if ($_ -notmatch '[\s"]') {
-      return $_
-    }
-    return '"' + ($_ -replace '"', '\"') + '"'
+  $process = Start-Process `
+    -FilePath "powershell.exe" `
+    -ArgumentList $ArgumentList `
+    -WorkingDirectory $projectRoot `
+    -WindowStyle Normal `
+    -PassThru
+  if (-not $process) {
+    throw "Failed to start foreground terminal: $Title"
   }
-
-  $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
-  $startInfo.FileName = $FilePath
-  $startInfo.Arguments = $quotedArguments -join " "
-  $startInfo.WorkingDirectory = $WorkingDirectory
-  $startInfo.UseShellExecute = $false
-  $startInfo.CreateNoWindow = $true
-
-  $process = [System.Diagnostics.Process]::new()
-  $process.StartInfo = $startInfo
-  if (-not $process.Start()) {
-    throw "Failed to start attached process: $FilePath"
-  }
+  Write-Host "$Title foreground terminal started with PID $($process.Id)."
   return $process
+}
+
+if ($ForegroundService -eq "NapCat") {
+  $Host.UI.RawUI.WindowTitle = "KanamiBot NapCat"
+  Write-Host "NapCat is running in its own foreground terminal."
+  Write-Host "Close this terminal to stop the NapCat backend."
+  & $napcatStartScript @NapCatArgs
+  exit $LASTEXITCODE
+}
+
+if ($ForegroundService -eq "NoneBot") {
+  $Host.UI.RawUI.WindowTitle = "KanamiBot NoneBot"
+  $env:UV_CACHE_DIR = ".uv-cache"
+  if ($SyncDependencies -or -not (Test-Path -LiteralPath $venvPython)) {
+    $uvPath = Resolve-UvPath
+    Write-Host "Checking and syncing Python dependencies. This may take a moment."
+    & $uvPath sync
+    if ($LASTEXITCODE -ne 0) {
+      throw "Python dependency sync failed with exit code $LASTEXITCODE."
+    }
+  } else {
+    Write-Host "Using the existing virtual environment (dependency sync skipped)."
+    Write-Host "Use -SyncDependencies after pyproject.toml or uv.lock changes."
+  }
+
+  Write-Host "NoneBot is running in its own foreground terminal."
+  Write-Host "Close this terminal to stop the NoneBot backend."
+  Write-Host "OneBot reverse WebSocket: ws://127.0.0.1:$(Get-DotEnvInt -Name 'PORT' -Default 12706)/onebot/v11/ws"
+  $env:PYTHONUNBUFFERED = "1"
+  & $venvPython -u $botScript
+  exit $LASTEXITCODE
 }
 
 $nonebotPort = Get-DotEnvInt -Name "PORT" -Default 12706
@@ -194,7 +214,7 @@ $nonebotRunning = Test-LocalPortListening -Port $nonebotPort
 $napcatRunning = (Test-NapCatRuntimeProcessRunning) -or
   (Test-PidFileProcessRunning -Path $napcatPidFile) -or
   (Test-LocalPortListening -Port $napcatWebUiPort)
-$napcatProcess = $null
+$startedTerminalCount = 0
 
 if ($NoneBotOnly) {
   Write-Host "Skipping NapCat startup because NoneBot-only mode was requested."
@@ -212,65 +232,48 @@ if ($NoneBotOnly) {
     & $napcatInstallScript
   }
 
-  Write-Host "Starting NapCat in this console."
+  Write-Host "Starting NapCat in a separate foreground terminal."
   $napcatPowerShellArgs = @(
     "-NoProfile",
     "-ExecutionPolicy",
     "Bypass",
     "-File",
-    $napcatStartScript
+    $PSCommandPath,
+    "-ForegroundService",
+    "NapCat"
   ) + $NapCatArgs
-  $napcatProcess = Start-AttachedProcess `
-    -FilePath "powershell.exe" `
-    -ArgumentList $napcatPowerShellArgs `
-    -WorkingDirectory $projectRoot
-  Write-Host "NapCat launcher attached with PID $($napcatProcess.Id)."
+  Start-ForegroundTerminal `
+    -Title "KanamiBot NapCat" `
+    -ArgumentList $napcatPowerShellArgs | Out-Null
+  $startedTerminalCount++
 }
 
 if ($nonebotRunning) {
   Write-Host "NoneBot is already listening on port $nonebotPort; leaving it untouched."
 } else {
-  $env:UV_CACHE_DIR = ".uv-cache"
-  if ($SyncDependencies -or -not (Test-Path -LiteralPath $venvPython)) {
-    $uvPath = Resolve-UvPath
-    Write-Host "Checking and syncing Python dependencies. This may take a moment."
-    & $uvPath sync
-    if ($LASTEXITCODE -ne 0) {
-      throw "Python dependency sync failed with exit code $LASTEXITCODE."
-    }
-  } else {
-    Write-Host "Using the existing virtual environment (dependency sync skipped)."
-    Write-Host "Use -SyncDependencies after pyproject.toml or uv.lock changes."
+  Write-Host "Starting NoneBot in a separate foreground terminal."
+  $nonebotPowerShellArgs = @(
+    "-NoProfile",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-File",
+    $PSCommandPath,
+    "-ForegroundService",
+    "NoneBot"
+  )
+  if ($SyncDependencies) {
+    $nonebotPowerShellArgs += "-SyncDependencies"
   }
-
-  Write-Host "Starting NoneBot in this console."
-  Write-Host "OneBot reverse WebSocket: ws://127.0.0.1:$nonebotPort/onebot/v11/ws"
-  $env:PYTHONUNBUFFERED = "1"
-  Write-Host "Startup complete. Keep this console open to keep newly started processes running."
-  Write-Host "Closing this console stops every process started by this launcher."
-  & $venvPython -u $botScript
-  $nonebotExitCode = $LASTEXITCODE
+  Start-ForegroundTerminal `
+    -Title "KanamiBot NoneBot" `
+    -ArgumentList $nonebotPowerShellArgs | Out-Null
+  $startedTerminalCount++
 }
 
-if ($nonebotRunning -and -not $napcatProcess) {
+if ($startedTerminalCount -eq 0) {
   Write-Host "All requested services are already running; nothing was changed."
-  exit 0
-}
-
-if ($napcatProcess -and -not $napcatProcess.HasExited) {
-  if ($nonebotRunning) {
-    Write-Host "NapCat startup complete. Keep this console open to keep it running."
-    Write-Host "Closing this console stops the NapCat process started by this launcher."
-  }
-  while (-not $napcatProcess.HasExited) {
-    Start-Sleep -Milliseconds 500
-  }
-}
-
-if (-not $nonebotRunning -and $nonebotExitCode -ne 0) {
-  exit $nonebotExitCode
-}
-if ($napcatProcess -and $napcatProcess.ExitCode -ne 0) {
-  exit $napcatProcess.ExitCode
+} else {
+  Write-Host "Startup dispatched. Each missing service now has its own foreground terminal."
+  Write-Host "Close a service terminal to stop only that service."
 }
 exit 0

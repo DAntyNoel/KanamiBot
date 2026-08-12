@@ -74,7 +74,8 @@ Start NapCat on Windows PowerShell:
 
 By default the NapCat launcher is bound to the current terminal. Closing that
 terminal stops the NapCat backend. The root `start.cmd` / `start.ps1` scripts
-attach newly started NapCat and NoneBot processes to the same visible terminal.
+open a separate visible foreground terminal for each missing service. Closing
+one service terminal stops only that service.
 
 Use the root `start.cmd` or `start.ps1` scripts to start both NapCat and
 NoneBot in one step.
