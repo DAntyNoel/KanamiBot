@@ -73,24 +73,14 @@ Start NapCat on Windows PowerShell:
 ```
 
 By default the NapCat launcher is bound to the current terminal. Closing that
-terminal stops the NapCat backend. The root `start.cmd` / `start.ps1` scripts
-open a separate visible foreground terminal for each missing service. Closing
-one service terminal stops only that service.
+terminal stops the NapCat backend. The root `start.cmd` script opens a separate
+visible foreground CMD terminal for each missing service. Closing one service
+terminal stops only that service.
 
-Use the root `start.cmd` or `start.ps1` scripts to start both NapCat and
-NoneBot in one step.
+Use the root `start.cmd` script to start both NapCat and NoneBot in one step.
 
-The root startup scripts check NapCat and NoneBot separately. Each running
-service is left untouched, and each missing service is started. To explicitly
-skip NapCat and only ensure NoneBot is running:
-
-```cmd
-start.cmd --nonebot-only
-```
-
-```powershell
-.\start.ps1 -NoneBotOnly
-```
+The root startup script checks NapCat and NoneBot separately. Each running
+service is left untouched, and each missing service is started.
 
 ## Mock NapCat Backend
 

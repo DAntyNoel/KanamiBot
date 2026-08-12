@@ -28,25 +28,17 @@ ERBS 图片资源不会在 Bot 运行时下载，也不会提交到 Git。更新
 
 启动：
 
-```powershell
-.\start.ps1
-```
-
-启动器会分别检测 NapCat 和 NoneBot：已经运行的服务保持不动，每个缺少的服务都会在各自独立、可见的前台终端中启动。关闭某个服务的终端只会停止该服务，不会影响另一个终端或启动前已经存在的服务。
-
-或使用 CMD：
-
 ```cmd
 start.cmd
 ```
 
-已有 `.venv` 时会跳过重复的依赖同步。修改 `pyproject.toml` 或 `uv.lock` 后，可执行：
+启动器使用原生 CMD 命令分别检测 NapCat 和 NoneBot。已经运行的服务保持不动，每个缺少的服务都会在各自独立、可见的前台 CMD 终端中启动。关闭某个服务的终端只会停止该服务。
+
+首次启动或修改 `pyproject.toml`、`uv.lock` 后，请先同步依赖：
 
 ```cmd
-start.cmd -SyncDependencies
+uv sync
 ```
-
-如只需补启动 NoneBot、明确不启动 NapCat，可执行 `start.cmd --nonebot-only`。
 
 需要调整端口、令牌等本地配置时，修改 `.env`。
 
