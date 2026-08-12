@@ -80,7 +80,9 @@ terminal stops only that service.
 Use the root `start.cmd` script to start both NapCat and NoneBot in one step.
 
 The root startup script checks NapCat and NoneBot separately. Each running
-service is left untouched, and each missing service is started.
+service is left untouched, and each missing service is started. Before NapCat
+starts, its WebUI and reverse WebSocket configuration is generated under
+`files/napcat_runtime`, which is also passed as `NAPCAT_WORKDIR`.
 
 ## Mock NapCat Backend
 
