@@ -1,0 +1,5 @@
+/er 帮助	永恒轮回查询
+/永恒 来源	数据来源：DAK.GG
+SKIP	/er 绑定 B站丨咕咕禽OC	会写入 QQ 用户绑定配置
+SKIP	/er 查询 B站丨咕咕禽OC	依赖 DAK.GG、已下载资源和系统 Chrome
+SKIP	/er 战绩 B站丨咕咕禽OC 5	依赖 DAK.GG、已下载资源和系统 Chrome

@@ -20,7 +20,7 @@
 - `#image <描述>`：生成图片
 - `#image <描述>` + 图片：基于图片编辑/创作
 - `#image` + 图片：默认基于图片内容创作
-- `#image clear`：清空当前会话，与 `#gpt clear` 等效
+- `#image clear`：清空当前图片会话；`reset/new/清空/重置/新建` 同样有效
 
 别名：`#codex`、`#chat`、`#img`。
 
@@ -47,6 +47,7 @@ CODEX_GPT_IMAGE_MODEL=gpt-image-2
 - `CODEX_GPT_MAX_HISTORY_CHARS`：最多保留历史字符数，默认 `16000`
 - `CODEX_GPT_TIMEOUT`：对话请求超时秒数，默认 `120`
 - `CODEX_GPT_IMAGE_TIMEOUT`：图片生成/编辑请求超时秒数，默认 `300`
+- `CODEX_GPT_IMAGE_MAX_CONTEXT_CHARS`：图片会话历史最多携带的字符数，默认 `4000`；设为 `0` 可关闭图片上下文
 - `CODEX_GPT_STREAM`：是否使用流式请求，默认 `true`
 - `CODEX_GPT_SESSION_SCOPE`：群聊会话隔离方式，`user` 为每个群成员独立上下文，`group` 为全群共享上下文
 - `CODEX_GPT_AUTH_SCHEME`：鉴权头格式，默认 `bearer`；代理要求原样传入 `Authorization` 时可设为 `raw`
@@ -54,7 +55,7 @@ CODEX_GPT_IMAGE_MODEL=gpt-image-2
 - `CODEX_GPT_DEBUG`：是否输出本地 debug 日志，默认 `0`
 - `CODEX_GPT_DEBUG_LOG`：debug 日志路径，默认 `data/codex_gpt/debug.log`
 
-会话数据保存在 `data/codex_gpt/sessions.json`。`data/` 已加入 `.gitignore`，不会提交群聊上下文。
+文本会话保存在 `data/codex_gpt/sessions.json`，图片会话保存在 `data/codex_gpt/image_sessions.json`。`data/` 已加入 `.gitignore`，不会提交上下文。
 
 ## 群聊概率自动回复
 
