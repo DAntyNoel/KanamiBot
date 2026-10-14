@@ -415,11 +415,58 @@ class RenderingTests(unittest.TestCase):
         )
         self.assertEqual(row["result"], "胜利")
         self.assertEqual(row["kda"], "0 / — / —")
-        self.assertEqual(row["score"], "6 : 9")
+        self.assertEqual(row["score"], "9 : 6")
+        self.assertEqual(row["score_label"], "我方 : 对方")
         self.assertEqual(row["room_id"], ROOM_ID)
         self.assertEqual(row["damage"], "—")
         self.assertEqual(match_row({})["result"], "未知")
         self.assertEqual(match_row({"my_team": 1, "winner_team": []})["result"], "平局")
+
+    def test_scores_follow_queried_team_for_wins_losses_and_draws(self):
+        for team, scores, winners, expected, result in (
+            (1, [9, 2], [1], "9 : 2", "胜利"),
+            (1, [3, 7], [2], "3 : 7", "失败"),
+            (2, [3, 7], [2], "7 : 3", "胜利"),
+            (2, [9, 4], [1], "4 : 9", "失败"),
+            (1, [6, 6], [], "6 : 6", "平局"),
+            (2, [6, 6], [], "6 : 6", "平局"),
+        ):
+            with self.subTest(team=team, scores=scores, winners=winners):
+                original = {"my_team": team, "scores": scores, "winner_team": winners}
+                row = match_row(original)
+                self.assertEqual(row["score"], expected)
+                self.assertEqual(row["result"], result)
+                self.assertEqual(row["score_label"], "我方 : 对方")
+                self.assertEqual(original["scores"], scores)
+
+    def test_unknown_score_orientation_is_explicit_and_never_guessed(self):
+        for team in (None, 0, 3, "2", True):
+            with self.subTest(team=team):
+                row = match_row({"my_team": team, "scores": [3, 7]})
+                self.assertEqual(row["score"], "3 : 7")
+                self.assertEqual(row["score_label"], "队伍原始顺序")
+        for scores in (None, [], "3-7"):
+            self.assertEqual(match_row({"my_team": 2, "scores": scores})["score"], "—")
+        row = match_row({"my_team": 2, "scores": [3, 7, 4]})
+        self.assertEqual(row["score"], "3 : 7 : 4")
+        self.assertEqual(row["score_label"], "队伍原始顺序")
+
+    def test_score_order_is_shared_by_overview_standings_and_match_summary(self):
+        title = {"my_team": 2, "winner_team": [2], "scores": [3, 7], "room_id": ROOM_ID}
+        for view in ("overview", "standings", "match"):
+            with self.subTest(view=view):
+                report = Report(
+                    Query("测试玩家", view=view, room_id=ROOM_ID),
+                    "123456",
+                    PLAYER,
+                    sections={"standings": {"titles": [title]}},
+                )
+                context = report_context(report)
+                self.assertEqual(context["matches"][0]["score"], "7 : 3")
+                self.assertEqual(context["match_summary"]["score"], "7 : 3")
+                html = render_html(report)
+                self.assertIn("7 : 3", html)
+                self.assertIn("我方 : 对方", html)
 
     def test_external_nickname_is_escaped_and_match_highlights_query_player(self):
         report = Report(

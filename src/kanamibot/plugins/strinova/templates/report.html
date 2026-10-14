@@ -72,13 +72,13 @@
       {% if row.map_image %}<img class="match-map-art" src="{{ row.map_image }}" alt="">{% endif %}<div class="match-wash"></div>
       <div class="match-top"><div class="result">{{ row.result }}<b>{{ row.score }}</b></div><div class="match-info"><strong>{{ row.map }}</strong><span>{{ row.mode }} · {{ row.time }}</span></div><b class="delta {{ 'positive' if row.positive else '' }}">{{ row.change }}</b></div>
       <div class="match-bottom"><span class="match-role">{% if row.role_icon %}<img src="{{ row.role_icon }}" alt="">{% endif %}{{ row.role }}</span><strong class="kda">{{ row.kda }}</strong><span class="damage">伤害 {{ row.damage }}</span></div>
-      <div class="match-foot"><span>{{ row.duration }}</span><small>ROOM {{ row.room_id }}</small><span>K / D / A</span></div>
+      <div class="match-foot"><span>{{ row.duration }}</span><small>ROOM {{ row.room_id }}</small><span>{{ row.score_label }}</span></div>
     </article>{% else %}<div class="empty full">{{ '这一页没有返回对局记录。可以更换页码或模式。' if standings_available else '近期战绩暂不可用，详见上方提示。' }}</div>{% endfor %}</div>
   </section>
   {% endif %}
 
   {% if view == 'match' %}
-  <section class="panel"><div class="section-title"><h2>单局详情</h2><span class="caption">ROOM {{ room_id }}</span></div>{% if match_summary %}<div class="duel-summary"><b class="{{ match_summary.tone }}">{{ match_summary.result }} · {{ match_summary.score }}</b><span>{{ match_summary.map }}</span><span>{{ match_summary.time }}</span><span>{{ match_summary.mode }}</span></div>{% endif %}
+  <section class="panel"><div class="section-title"><h2>单局详情</h2><span class="caption">ROOM {{ room_id }}</span></div>{% if match_summary %}<div class="duel-summary"><b class="{{ match_summary.tone }}">{{ match_summary.result }} · {{ match_summary.score }}</b><span>{{ match_summary.score_label }}</span><span>{{ match_summary.map }}</span><span>{{ match_summary.time }}</span><span>{{ match_summary.mode }}</span></div>{% endif %}
     <div class="team-grid">{% for team, players in match_teams.items() %}<div class="team-panel"><div class="team-title">队伍 {{ team }}<span class="en">TEAM {{ team }}</span></div><table><thead><tr><th>玩家 / 超弦体</th><th>K / D / A</th><th>伤害</th><th>评分</th></tr></thead><tbody>{% for player in players %}<tr class="{{ 'self' if player.self else '' }}"><td><div class="team-player">{% if player.avatar %}<img src="{{ player.avatar }}" alt="">{% elif player.role_icon %}<img src="{{ player.role_icon }}" alt="">{% endif %}<span><b>{{ player.nick }}{% if player.self %} · 查询玩家{% endif %}</b><small>{{ player.role }} <em>{{ player.award }}</em></small></span></div></td><td class="team-kda">{{ player.kda }}</td><td>{{ player.damage }}</td><td>{{ player.score }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<div class="empty full">{{ 'API 未返回该对局的玩家统计。' if match_available else '单局详情暂不可用，详见上方提示。' }}</div>{% endfor %}</div>
   </section>
   {% endif %}

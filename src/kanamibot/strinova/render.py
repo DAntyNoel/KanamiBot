@@ -155,10 +155,21 @@ def match_result(row: dict) -> tuple[str, str]:
     return "未知", "unknown"
 
 
+def match_score(row: dict) -> tuple[str, str]:
+    scores = row.get("scores")
+    if not isinstance(scores, list) or not scores:
+        return "—", "比分未提供"
+    team = row.get("my_team")
+    # The API array is indexed by team ID: [team 1, team 2], not by the queried player.
+    if len(scores) == 2 and type(team) is int and team in (1, 2):
+        own, opponent = scores[team - 1], scores[2 - team]
+        return f"{own} : {opponent}", "我方 : 对方"
+    return " : ".join(str(item) for item in scores), "队伍原始顺序"
+
+
 def match_row(row: dict) -> dict:
     result, tone = match_result(row)
-    scores = row.get("scores")
-    score = " : ".join(str(item) for item in scores) if isinstance(scores, list) else "—"
+    score, score_label = match_score(row)
     current, old = row.get("divison_score"), row.get("old_division_score")
     change = current - old if isinstance(current, int) and isinstance(old, int) else None
     stats_available = row.get("bridge_stats_status") not in (
@@ -172,6 +183,7 @@ def match_row(row: dict) -> dict:
         "result": result,
         "tone": tone,
         "score": score,
+        "score_label": score_label,
         "time": timestamp(row.get("time")),
         "duration": f"{row['fight_time'] // 60}分{row['fight_time'] % 60:02d}秒"
         if isinstance(row.get("fight_time"), int)
