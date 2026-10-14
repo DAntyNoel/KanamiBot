@@ -33,7 +33,7 @@
     {% if portrait %}<figure class="hero-art"><img class="hero-portrait" src="{{ portrait }}" alt="{{ portrait_name }}"><figcaption class="portrait-label"><span>{{ portrait_team or '档案助手' }}</span><b>{{ portrait_name }}</b></figcaption></figure>{% endif %}
   </section>
 
-  <div class="switch-hint"><code>{{ overview_command }}</code><code>{{ switch_command }}</code></div>
+  <div class="switch-hint"><code>#卡丘战绩 玩家名 玩家概览/引航者资料/生涯数据/对局战绩 可切换展示页</code></div>
   {% if warnings %}<div class="notice">{% for warning in warnings %}<div>{{ warning }}</div>{% endfor %}</div>{% endif %}
 
   {% if view in ['overview','profile'] %}

@@ -441,7 +441,9 @@ class RenderingTests(unittest.TestCase):
                     Report(Query("测试玩家", view=view, room_id=ROOM_ID), "123456", PLAYER)
                 )
                 self.assertIn("测试玩家", html)
-                self.assertIn("#卡丘战绩 测试玩家 对局战绩", html)
+                self.assertIn(
+                    "#卡丘战绩 玩家名 玩家概览/引航者资料/生涯数据/对局战绩 可切换展示页", html
+                )
                 self.assertNotIn("切换喵", html)
                 self.assertNotIn('src="http', html)
 
@@ -452,8 +454,9 @@ class RenderingTests(unittest.TestCase):
         report = Report(Query("测试玩家"), "123456", PLAYER, avatar_data_uri=avatar)
         html = render_html(report)
         self.assertIn(f'src="{avatar}"', html)
-        self.assertIn("#卡丘战绩 测试玩家 对局战绩", html)
-        self.assertIn("#卡丘战绩 测试玩家 玩家概览", html)
+        self.assertIn(
+            "#卡丘战绩 玩家名 玩家概览/引航者资料/生涯数据/对局战绩 可切换展示页", html
+        )
         for query in (
             Query("Player Name"),
             Query("12345"),
