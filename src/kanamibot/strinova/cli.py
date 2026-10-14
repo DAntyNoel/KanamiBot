@@ -46,7 +46,7 @@ async def run(args: argparse.Namespace) -> Path:
         browser_executable=args.browser_executable or configured.browser_executable,
         avatar_url_template=configured.avatar_url_template,
     )
-    print(f"正在查询「{query.target}」……", flush=True)
+    print(f"正在查询「{query.target}」的卡丘战绩……", flush=True)
     async with asyncio.timeout(QUERY_TIMEOUT_SECONDS):
         report = await create_report(query, settings)
         image = await render_png(report, settings)

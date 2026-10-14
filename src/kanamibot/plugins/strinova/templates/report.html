@@ -48,7 +48,7 @@
     <section class="panel mode-panel">
       <div class="section-title"><h2>生涯模式统计</h2><span class="caption">按模式分别计算</span></div>
       {% if modes %}<table class="mode-table"><thead><tr><th>模式</th><th>对局</th><th>胜率</th><th>K/D</th><th>击杀/场</th><th>伤害/场</th></tr></thead><tbody>{% for row in modes %}<tr><td>{{ mode_name(row) }}</td><td>{{ number(row.get('round')) }}</td><td class="accent">{{ percent(row.get('win_rate')) }}</td><td>{{ number(row.get('k_d'),2) }}</td><td>{{ number(row.get('ave_kill'),1) }}</td><td>{{ number(row.get('ave_damage')) }}</td></tr>{% endfor %}</tbody></table>{% else %}<div class="empty">生涯模式数据暂未提供。</div>{% endif %}
-      <div class="role-heading"><span>常用超弦体</span><small>作战搭档已归档喵</small></div>
+      <div class="role-heading"><span>常用超弦体</span></div>
       {% if freq_roles %}<div class="role-roster">{% for role in freq_roles %}<div class="role-chip">{% if role.icon %}<img src="{{ role.icon }}" alt="">{% endif %}<span>{{ role.name }}<small>{{ role.team }}</small></span></div>{% endfor %}</div>{% else %}<div class="empty">暂无常用超弦体记录。</div>{% endif %}
       <p class="caption compact-note">顶部总览来自公开资料快照，可能与生涯数据的缓存时间不同。</p>
     </section>
@@ -72,17 +72,17 @@
       {% if row.map_image %}<img class="match-map-art" src="{{ row.map_image }}" alt="">{% endif %}<div class="match-wash"></div>
       <div class="match-top"><div class="result">{{ row.result }}<b>{{ row.score }}</b></div><div class="match-info"><strong>{{ row.map }}</strong><span>{{ row.mode }} · {{ row.time }}</span></div><b class="delta {{ 'positive' if row.positive else '' }}">{{ row.change }}</b></div>
       <div class="match-bottom"><span class="match-role">{% if row.role_icon %}<img src="{{ row.role_icon }}" alt="">{% endif %}{{ row.role }}</span><strong class="kda">{{ row.kda }}</strong><span class="damage">伤害 {{ row.damage }}</span></div>
-      <div class="match-foot"><span>{{ row.duration }}</span><small>ROOM {{ row.room_id }}</small><span>{{ row.score_label }}</span></div>
+      <div class="match-foot"><span>{{ row.duration }}</span><small>ROOM {{ row.room_id }}</small>{% if row.score_label != '我方 : 对方' %}<span>{{ row.score_label }}</span>{% endif %}</div>
     </article>{% else %}<div class="empty full">{{ '这一页没有返回对局记录。可以更换页码或模式。' if standings_available else '近期战绩暂不可用，详见上方提示。' }}</div>{% endfor %}</div>
   </section>
   {% endif %}
 
   {% if view == 'match' %}
-  <section class="panel"><div class="section-title"><h2>单局详情</h2><span class="caption">ROOM {{ room_id }}</span></div>{% if match_summary %}<div class="duel-summary"><b class="{{ match_summary.tone }}">{{ match_summary.result }} · {{ match_summary.score }}</b><span>{{ match_summary.score_label }}</span><span>{{ match_summary.map }}</span><span>{{ match_summary.time }}</span><span>{{ match_summary.mode }}</span></div>{% endif %}
+  <section class="panel"><div class="section-title"><h2>单局详情</h2><span class="caption">ROOM {{ room_id }}</span></div>{% if match_summary %}<div class="duel-summary"><b class="{{ match_summary.tone }}">{{ match_summary.result }} · {{ match_summary.score }}</b>{% if match_summary.score_label != '我方 : 对方' %}<span>{{ match_summary.score_label }}</span>{% endif %}<span>{{ match_summary.map }}</span><span>{{ match_summary.time }}</span><span>{{ match_summary.mode }}</span></div>{% endif %}
     <div class="team-grid">{% for team, players in match_teams.items() %}<div class="team-panel"><div class="team-title">队伍 {{ team }}<span class="en">TEAM {{ team }}</span></div><table><thead><tr><th>玩家 / 超弦体</th><th>K / D / A</th><th>伤害</th><th>评分</th></tr></thead><tbody>{% for player in players %}<tr class="{{ 'self' if player.self else '' }}"><td><div class="team-player">{% if player.avatar %}<img src="{{ player.avatar }}" alt="">{% elif player.role_icon %}<img src="{{ player.role_icon }}" alt="">{% endif %}<span><b>{{ player.nick }}{% if player.self %} · 查询玩家{% endif %}</b><small>{{ player.role }} <em>{{ player.award }}</em></small></span></div></td><td class="team-kda">{{ player.kda }}</td><td>{{ player.damage }}</td><td>{{ player.score }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<div class="empty full">{{ 'API 未返回该对局的玩家统计。' if match_available else '单局详情暂不可用，详见上方提示。' }}</div>{% endfor %}</div>
   </section>
   {% endif %}
 
-  <footer><span>不同数据的缓存周期不同，以游戏内为准。— 表示缺失；未识别条目保留编号。</span><b>记录收好啦喵 · KanamiBot</b></footer>
+  <footer><span>不同数据的缓存周期不同，以游戏内为准。— 表示缺失；未识别条目保留编号。</span><b>KanamiBot</b></footer>
   </div>
 </div></body></html>

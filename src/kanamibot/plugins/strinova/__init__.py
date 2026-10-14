@@ -66,7 +66,7 @@ async def handle_strinova(event: MessageEvent, matcher: Matcher, bot: Bot) -> No
     if query_gate.locked():
         await matcher.finish("战绩查询正在忙，请稍后再试。")
     async with query_gate:
-        receipt = await matcher.send(f"正在查询「{query.target}」的卡丘战绩，最多等待 2 分钟……")
+        receipt = await matcher.send(f"正在查询「{query.target}」的卡丘战绩……")
         message_id = receipt.get("message_id") if isinstance(receipt, dict) else None
         try:
             async with asyncio.timeout(QUERY_TIMEOUT_SECONDS):

@@ -524,7 +524,7 @@ class RenderingTests(unittest.TestCase):
                 self.assertEqual(context["match_summary"]["score"], "7 : 3")
                 html = render_html(report)
                 self.assertIn("7 : 3", html)
-                self.assertIn("我方 : 对方", html)
+                self.assertNotIn("我方 : 对方", html)
 
     def test_external_nickname_is_escaped_and_match_highlights_query_player(self):
         report = Report(
