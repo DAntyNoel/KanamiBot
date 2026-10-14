@@ -1,15 +1,20 @@
 from __future__ import annotations
 
 import importlib
+import io
 import sys
+import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import httpx
+from PIL import Image
 
+from kanamibot.strinova.avatar import AvatarError, image_data_uri, load_avatar
 from kanamibot.strinova.client import APIError, ServiceUnavailable, Settings, StrinovaClient
-from kanamibot.strinova.query import VIEWS, Query, QueryError, parse_query
+from kanamibot.strinova.query import VIEWS, Query, QueryError, parse_query, query_from_args
 from kanamibot.strinova.render import match_row, render_html, report_context
 from kanamibot.strinova.service import Report, fetch_report, resolve_player
 
@@ -31,6 +36,19 @@ def healthy_transport(handler) -> httpx.MockTransport:
 
 
 class QueryTests(unittest.TestCase):
+    def test_chinese_view_suffix_does_not_become_part_of_the_nickname(self):
+        query = parse_query("测试玩家 对局战绩 --index 2")
+        self.assertEqual((query.target, query.view, query.index), ("测试玩家", "standings", 2))
+        self.assertEqual(parse_query("测试玩家").view, "overview")
+        self.assertEqual(parse_query("测试玩家 玩家概览", view="standings").view, "overview")
+        self.assertEqual(parse_query("--player-id 123456 对局战绩").view, "standings")
+        self.assertEqual(parse_query("--nick 12345 引航者资料").view, "profile")
+        self.assertEqual(parse_query('"Player Name 对局战绩"').target, "Player Name 对局战绩")
+        self.assertEqual(parse_query('"Player Name" 对局战绩').target, "Player Name")
+        self.assertEqual(parse_query("对局战绩").target, "对局战绩")
+        with self.assertRaisesRegex(QueryError, "不一致"):
+            parse_query("测试玩家 对局战绩 --view profile")
+
     def test_numeric_nickname_can_be_explicit_and_names_can_contain_spaces(self):
         self.assertFalse(parse_query("--nick 12345").by_id)
         self.assertTrue(parse_query("12345").by_id)
@@ -309,6 +327,28 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
 
 
 class RenderingTests(unittest.TestCase):
+    def test_picture_includes_real_avatar_and_roundtrippable_switch_commands(self):
+        with io.BytesIO() as buffer:
+            Image.new("RGB", (4, 4), "green").save(buffer, format="PNG")
+            avatar = image_data_uri(buffer.getvalue())
+        report = Report(Query("测试玩家"), "123456", PLAYER, avatar_data_uri=avatar)
+        html = render_html(report)
+        self.assertIn(f'src="{avatar}"', html)
+        self.assertIn("#卡丘战绩 测试玩家 对局战绩", html)
+        self.assertIn("#卡丘战绩 测试玩家 玩家概览", html)
+        for query in (
+            Query("Player Name"),
+            Query("12345"),
+            Query("12345", by_id=True),
+            Query("Player 对局战绩"),
+        ):
+            context = report_context(Report(query, "123456", PLAYER))
+            command_args = context["switch_command"].removeprefix("#卡丘战绩 ")
+            switched = parse_query(command_args)
+            self.assertEqual(switched.view, "standings")
+            self.assertEqual(switched.target, "123456" if query.by_id else query.target)
+            self.assertEqual(switched.by_id, query.by_id)
+
     def test_result_uses_team_not_score_order_and_keeps_missing_stats_missing(self):
         row = match_row(
             {"my_team": 2, "winner_team": [2], "scores": [6, 9], "room_id": ROOM_ID, "kill_num": 0}
@@ -425,11 +465,94 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
                 create.assert_not_awaited()
                 render.assert_not_awaited()
 
+    async def test_main_command_defaults_to_overview_and_accepts_chinese_switch(self):
+        from nonebot.adapters.onebot.v11 import Message
+
+        class Finished(Exception):
+            pass
+
+        for command, view in (
+            ("#卡丘战绩 测试玩家", "overview"),
+            ("#卡丘战绩 测试玩家 对局战绩", "standings"),
+            ("#卡丘战绩 测试玩家 生涯数据", "career"),
+            ("#卡丘战绩 测试玩家 玩家概览", "overview"),
+            ("#卡丘资料 测试玩家", "profile"),
+        ):
+            matcher = SimpleNamespace(send=AsyncMock(), finish=AsyncMock(side_effect=Finished))
+            report = Report(Query("测试玩家", view=view), "123456", PLAYER)
+            with (
+                self.subTest(command=command),
+                patch.object(self.plugin, "check_available", AsyncMock()),
+                patch.object(
+                    self.plugin, "create_report", AsyncMock(return_value=report)
+                ) as create,
+                patch.object(self.plugin, "render_png", AsyncMock(return_value=b"png")),
+            ):
+                with self.assertRaises(Finished):
+                    await self.plugin.handle_strinova(
+                        SimpleNamespace(message=Message(command)), matcher
+                    )
+                self.assertEqual(create.call_args.args[0].target, "测试玩家")
+                self.assertEqual(create.call_args.args[0].view, view)
+
     def test_cli_core_does_not_import_bot_entrypoint(self):
         from kanamibot.strinova import cli
 
-        self.assertEqual(cli.build_parser().parse_args(["测试玩家"]).view, "overview")
+        self.assertEqual(
+            query_from_args(cli.build_parser().parse_args(["测试玩家"])).view, "overview"
+        )
         self.assertNotIn("bot", sys.modules)
+
+
+class AvatarTests(unittest.IsolatedAsyncioTestCase):
+    async def test_real_image_is_embedded_and_cached_by_icon(self):
+        with io.BytesIO() as buffer:
+            Image.new("RGB", (4, 4), "green").save(buffer, format="PNG")
+            png = buffer.getvalue()
+        urls = []
+
+        def handler(request):
+            urls.append(str(request.url))
+            return httpx.Response(200, content=png)
+
+        with tempfile.TemporaryDirectory() as folder:
+            cache = Path(folder)
+            transport = httpx.MockTransport(handler)
+            first = await load_avatar(31000001, cache_dir=cache, transport=transport)
+            second = await load_avatar(31000001, cache_dir=cache, transport=transport)
+            self.assertEqual(first, second)
+            self.assertTrue(first.startswith("data:image/png;base64,"))
+            self.assertEqual(len(urls), 1)
+            self.assertIn("T_Dynamic_IdCard_31000001_icon.png", urls[0])
+            cached = next(cache.glob("*.image"))
+            cached.write_bytes(b"corrupted cache")
+            self.assertEqual(
+                await load_avatar(31000001, cache_dir=cache, transport=transport), first
+            )
+            self.assertEqual(len(urls), 2)
+
+    async def test_error_pages_and_invalid_ids_are_never_embedded(self):
+        with tempfile.TemporaryDirectory() as folder:
+            for icon in (0, None, "../private", 31000001):
+                with self.subTest(icon=icon), self.assertRaises(AvatarError):
+                    await load_avatar(
+                        icon,
+                        cache_dir=Path(folder),
+                        transport=httpx.MockTransport(
+                            lambda _: httpx.Response(200, text="<html>verification required</html>")
+                        ),
+                    )
+            self.assertEqual(list(Path(folder).glob("*.image")), [])
+
+    async def test_oversized_avatar_is_rejected(self):
+        with tempfile.TemporaryDirectory() as folder, self.assertRaises(AvatarError):
+            await load_avatar(
+                31000001,
+                cache_dir=Path(folder),
+                transport=httpx.MockTransport(
+                    lambda _: httpx.Response(200, content=b"x" * (2 * 1024 * 1024 + 1))
+                ),
+            )
 
 
 if __name__ == "__main__":

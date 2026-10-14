@@ -11,6 +11,10 @@ import httpx
 from .query import QueryError, numeric_id
 
 DEFAULT_API_URL = "http://10.38.20.220:19080"
+DEFAULT_AVATAR_URL_TEMPLATE = (
+    "https://cdn.jsdelivr.net/gh/Celest151/StrinovaData@main/"
+    "PaperMan/UI/Atlas/DynamicResource/IdCard/Appearance/T_Dynamic_IdCard_{icon}_icon.png"
+)
 
 
 class APIError(QueryError):
@@ -28,6 +32,7 @@ class Settings:
     timeout: float = 35.0
     browser_channel: str | None = None
     browser_executable: str | None = None
+    avatar_url_template: str = DEFAULT_AVATAR_URL_TEMPLATE
 
     def __post_init__(self) -> None:
         parsed = urlsplit(self.base_url)
@@ -46,6 +51,8 @@ class Settings:
                 timeout=float(os.getenv("STRINOVA_API_TIMEOUT", "35")),
                 browser_channel=os.getenv("STRINOVA_BROWSER_CHANNEL") or None,
                 browser_executable=os.getenv("STRINOVA_BROWSER_EXECUTABLE") or None,
+                avatar_url_template=os.getenv("STRINOVA_AVATAR_URL_TEMPLATE")
+                or DEFAULT_AVATAR_URL_TEMPLATE,
             )
         except ValueError as exc:
             raise QueryError(f"战绩查询配置无效：{exc}") from exc

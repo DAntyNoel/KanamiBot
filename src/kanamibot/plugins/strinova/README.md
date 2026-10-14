@@ -19,6 +19,7 @@ uv run python scripts/query_strinova.py
 ```powershell
 # 概览：资料、公开生涯统计、最近 8 条战绩。
 uv run python scripts/query_strinova.py "咕谷酱" -o data/strinova/overview.png
+uv run python scripts/query_strinova.py "咕谷酱" 对局战绩 -o data/strinova/standings.png
 uv run python scripts/query_strinova.py "丹提诺艾丨3601" --html-output data/strinova/overview.html
 
 # 其余视图与过滤参数。
@@ -43,6 +44,7 @@ uv run python scripts/query_strinova.py "咕谷酱" --view match --room-id 75102
 | `STRINOVA_API_TIMEOUT` | `35` | 单次请求超时秒数，1–120 |
 | `STRINOVA_BROWSER_CHANNEL` | 空 | `chrome` 或 `msedge`；空值使用 Playwright Chromium |
 | `STRINOVA_BROWSER_EXECUTABLE` | 空 | 明确指定浏览器可执行文件，优先于 channel |
+| `STRINOVA_AVATAR_URL_TEMPLATE` | 空，使用公开资源镜像 | 游戏头像图片地址模板，使用 `{icon}` 替换头像编号 |
 | `KANAMIBOT_STRINOVA_ENABLED` | `true` | 是否注册 Bot 命令，不影响本地脚本 |
 
 CLI 也支持 `--api-url`、`--timeout`、`--browser-channel`、`--browser-executable`。
@@ -56,15 +58,36 @@ API 请求绕过环境 HTTP 代理，确保访问提供的内网地址；总查�
 
 | 命令 | 图片视图 |
 | --- | --- |
-| `#卡丘 昵称` / `#KQ 昵称` | 玩家概览 |
+| `#卡丘战绩 昵称` / `#卡丘 昵称` / `#KQ 昵称` | 玩家概览（默认） |
+| `#卡丘战绩 昵称 对局战绩` | 对局列表 |
+| `#卡丘战绩 昵称 引航者资料` | 玩家资料 |
+| `#卡丘战绩 昵称 生涯数据` | 生涯数据 |
+| `#卡丘战绩 昵称 玩家概览` | 返回玩家概览 |
 | `#卡丘资料 昵称` | 玩家资料 |
 | `#卡丘状态 昵称` | 当前状态快照 |
 | `#卡丘生涯 昵称 --season-id 0 --season-type 1` | 生涯及指定赛季统计 |
 | `#卡丘赛季 昵称 --season-id 25` | 历史赛季 |
-| `#卡丘战绩 昵称 --index 1 --limit 8` | 对局列表 |
+| `#卡丘战绩 昵称 对局战绩 --index 1 --limit 8` | 对局列表（分页） |
 | `#卡丘对局 昵称 --room-id 房间ID` | 单局双方玩家统计 |
 
 Bot 和 CLI 共用查询参数，也可用 `--view` 指定视图。Bot 同时最多执行两次查询。
+玩家名后可以追加「玩家概览」「引航者资料」「当前状态」「生涯数据」「历史赛季」
+「对局战绩」或「单局详情」切换图片界面。历史赛季及单局详情仍需对应的赛季、房间参数。
+图片会提示当前玩家的对局战绩和玩家概览切换命令。昵称含空格或本身以界面名称结尾时，
+请将完整昵称放在引号内。中文界面名称与 `--view` 同时填写时必须一致。
+
+## 玩家头像
+
+头像按玩家 API 返回的 `icon` 编号加载，默认使用公开的
+[Celest151/StrinovaData](https://github.com/Celest151/StrinovaData/tree/main/PaperMan/UI/Atlas/DynamicResource/IdCard/Appearance)
+游戏资源镜像（经 jsDelivr CDN 获取），不依赖参考网站的验证接口。
+图片缓存到忽略的 `data/strinova/avatars/`，重复查询直接使用缓存。
+可通过 `STRINOVA_AVATAR_URL_TEMPLATE` 换成自己的图片服务，例如
+`https://your-assets.example/avatars/{icon}.png`。
+
+下载采用 5 秒超时及 2 MiB 大小限制，验证 PNG、JPEG 或 WebP 后以 data URI 内嵌到 HTML。
+头像资源暂不可用时保留昵称占位并给出提示，不影响其他查询数据。
+图片和缓存均不提交到仓库；第三方游戏资源的权利归原权利人所有。
 
 ## 服务健康检查
 

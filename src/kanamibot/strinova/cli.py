@@ -44,6 +44,7 @@ async def run(args: argparse.Namespace) -> Path:
         timeout=args.timeout if args.timeout is not None else configured.timeout,
         browser_channel=args.browser_channel or configured.browser_channel,
         browser_executable=args.browser_executable or configured.browser_executable,
+        avatar_url_template=configured.avatar_url_template,
     )
     print(f"正在查询「{query.target}」……", flush=True)
     async with asyncio.timeout(180):

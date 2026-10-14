@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import math
+import shlex
 import sys
 from datetime import timedelta, timezone
 from pathlib import Path
@@ -225,12 +226,23 @@ def report_context(report: Report) -> dict:
     roles = sorted(
         objects(stats.get("role_employs")), key=lambda row: row.get("count", 0), reverse=True
     )[:8]
+    target = query.target
+    if query.by_id:
+        target = report.player_id
+    elif target.isdecimal() or target.startswith("-"):
+        target = f"--nick {shlex.quote(target)}"
+    elif any(char.isspace() or char in "'\"\\" for char in target):
+        target = shlex.quote(target)
+    command = f"#卡丘战绩 {target}"
     return {
         "title": VIEW_NAMES[query.view],
         "view": query.view,
         "name": str(profile.get("nick") or query.target),
         "player_id": report.player_id,
         "initial": str(profile.get("nick") or query.target)[:1],
+        "avatar_data_uri": report.avatar_data_uri,
+        "switch_command": f"{command} 对局战绩",
+        "overview_command": f"{command} 玩家概览",
         "level": number(profile.get("level")),
         "rank": rank_name(profile.get("rank")),
         "grade": number(profile.get("grade_score")),

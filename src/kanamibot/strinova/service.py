@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
+from .avatar import AvatarError, load_avatar
 from .client import APIError, ServiceUnavailable, Settings, StrinovaClient
 from .query import Query, QueryError
 
@@ -16,6 +17,7 @@ class Report:
     fetched_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     sections: dict[str, dict[str, Any]] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
+    avatar_data_uri: str | None = None
 
 
 async def resolve_player(client: StrinovaClient, query: Query) -> dict:
@@ -106,7 +108,15 @@ async def fetch_report(client: StrinovaClient, query: Query) -> Report:
 
 async def create_report(query: Query, settings: Settings) -> Report:
     async with StrinovaClient(settings) as client:
-        return await fetch_report(client, query)
+        report = await fetch_report(client, query)
+        await client.check_health()
+        try:
+            report.avatar_data_uri = await load_avatar(
+                report.profile.get("icon"), url_template=settings.avatar_url_template
+            )
+        except AvatarError:
+            report.warnings.append("头像资源暂不可用，已使用昵称占位。")
+        return report
 
 
 async def check_available(settings: Settings) -> None:

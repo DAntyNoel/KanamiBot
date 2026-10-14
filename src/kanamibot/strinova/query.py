@@ -5,6 +5,16 @@ import shlex
 from dataclasses import dataclass
 
 VIEWS = ("overview", "profile", "status", "career", "history", "standings", "match")
+VIEW_LABELS = {
+    "玩家概览": "overview",
+    "引航者资料": "profile",
+    "玩家资料": "profile",
+    "当前状态": "status",
+    "生涯数据": "career",
+    "历史赛季": "history",
+    "对局战绩": "standings",
+    "单局详情": "match",
+}
 
 
 class QueryError(ValueError):
@@ -21,7 +31,8 @@ def add_query_arguments(parser: argparse.ArgumentParser, *, view: str = "overvie
     identity = parser.add_mutually_exclusive_group()
     identity.add_argument("--player-id", help="明确按 player_id 查询")
     identity.add_argument("--nick", help="明确按昵称查询，包括纯数字昵称")
-    parser.add_argument("--view", choices=VIEWS, default=view)
+    parser.set_defaults(default_view=view)
+    parser.add_argument("--view", choices=VIEWS, help="也可在玩家名后追加中文界面名称")
     parser.add_argument("--season-id", type=int, default=0)
     parser.add_argument("--season-type", type=int, default=1)
     parser.add_argument("--index", type=int, default=1, help="战绩页码，从 1 开始")
@@ -83,7 +94,18 @@ class Query:
 
 
 def query_from_args(args: argparse.Namespace) -> Query:
-    positional = " ".join(args.nickname).strip()
+    nickname = list(args.nickname)
+    view = args.view
+    if (
+        nickname
+        and nickname[-1] in VIEW_LABELS
+        and (len(nickname) > 1 or args.player_id is not None or args.nick is not None)
+    ):
+        selected = VIEW_LABELS[nickname.pop()]
+        if view is not None and view != selected:
+            raise QueryError("中文界面名称与 --view 不一致，请只指定一种界面。")
+        view = selected
+    positional = " ".join(nickname).strip()
     if positional and (args.player_id is not None or args.nick is not None):
         raise QueryError("昵称和 --player-id / --nick 只需填写一项。")
     target = (args.player_id or args.nick or positional).strip()
@@ -91,7 +113,7 @@ def query_from_args(args: argparse.Namespace) -> Query:
     return Query(
         target=target,
         by_id=by_id,
-        view=args.view,
+        view=view or args.default_view,
         season_id=args.season_id,
         season_type=args.season_type,
         index=args.index,
