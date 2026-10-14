@@ -133,6 +133,11 @@ class ResourcePack:
 
     def role_image(self, role_id: int, *, portrait: bool = False) -> str | None:
         row = self.records("characters").get(role_id, {})
+        if portrait and row:
+            # Wiki originals avoid the blur baked into the game's CareerIcon texture.
+            original = self.data_uri(self.resolve(f"images/wiki/portraits/{role_id}.png"))
+            if original is not None:
+                return original
         return self.image(row, "CareerIcon" if portrait else "IconRoleHud")
 
     def rank_image(self, rank_id: int) -> str | None:

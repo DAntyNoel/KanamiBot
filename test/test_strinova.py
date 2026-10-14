@@ -898,6 +898,38 @@ class AvatarTests(unittest.IsolatedAsyncioTestCase):
 
 
 class ResourceTests(unittest.TestCase):
+    def test_wiki_original_overrides_only_portrait_and_preserves_game_fallback(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "mappings").mkdir()
+            game = root / "images/game.png"
+            game.parent.mkdir()
+            Image.new("RGB", (4, 4), "pink").save(game)
+            (root / "mappings/characters.json").write_text(
+                json.dumps(
+                    [
+                        {
+                            "id": 131,
+                            "verified": True,
+                            "extracted_paths": {
+                                "CareerIcon": {"png": "images/game.png"},
+                                "IconRoleHud": {"png": "images/game.png"},
+                            },
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            pack = ResourcePack(root)
+            self.assertEqual(pack.role_image(131, portrait=True), pack.data_uri(game))
+            original = root / "images/wiki/portraits/131.png"
+            original.parent.mkdir(parents=True)
+            Image.new("RGBA", (4, 4), "blue").save(original)
+            self.assertEqual(pack.role_image(131, portrait=True), pack.data_uri(original))
+            self.assertEqual(pack.role_image(131), pack.data_uri(game))
+            original.with_name("999.png").write_bytes(original.read_bytes())
+            self.assertIsNone(pack.role_image(999, portrait=True))
+
     def test_paths_stay_inside_pack_and_only_verified_metadata_is_used(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder) / "pack"

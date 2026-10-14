@@ -95,6 +95,18 @@ Bot 查询超过 2 分钟会取消并发送超时提示。查询成功、失败�
 右上角立绘按公开资料的 `freq_roles` 列表第一个角色显示，并标明「常用角色」。
 公开资料缺少常用角色时读取生涯资料的同名列表，不使用 `role_module` 的模型展示字段。
 常用角色为空或对应立绘资源缺失时省略立绘，不默认展示其他角色。
+立绘优先读取 `resources/images/wiki/portraits/{角色ID}.png` 中的 Wiki 高清默认服装原图，
+避免游戏 `CareerIcon` 资源自带的虚化；缺少 Wiki 原图时仍使用原游戏立绘。
+角色头像和对局角色图标继续使用原游戏资源。原图来源链接记录在插件的
+`wiki_portraits.json` 中，可运行以下脚本补齐本地资源：
+
+```powershell
+.\.venv\Scripts\python.exe scripts/download_strinova_portraits.py
+```
+
+脚本优先复用相邻仓库 `local-server/files/WIKI/` 中已下载的原图，也可用
+`--wiki-cache "已有的 WIKI 目录"` 指定位置；缺失图片才下载，并验证 PNG 格式和尺寸。
+图片保留原始字节、透明通道及分辨率，不进入公开仓库，查询和截图时不请求 Wiki。
 「引航者」「超弦体」采用游戏用语；猫形标记及「喵」文案是社区风格装饰，
 不把玩家均为猫娘作为官方设定。所有第三方游戏资源和字体的权利归原权利人所有。
 
