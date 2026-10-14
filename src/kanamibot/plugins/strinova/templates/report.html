@@ -10,14 +10,19 @@
   {% if backdrop %}<div class="canvas-backdrop" style="background-image:url('{{ backdrop }}')"></div>{% endif %}
   <div class="sheet">
   <header>
-    <div class="brand"><span class="brand-mark"><i></i></span><strong>卡丘战绩档案</strong><span class="en">NAVIGATOR ARCHIVE</span></div>
+    <div class="brand"><span class="brand-mark"><i></i></span><strong>卡丘战绩档案</strong></div>
     <div class="capture"><span>{{ title }}</span><time>{{ updated }}</time></div>
   </header>
 
-  <section class="hero">
+  <nav class="tabs">
+    {% for key, label in [('overview','玩家概览'),('profile','引航者资料'),('career','生涯数据'),('standings','对局战绩')] %}
+    <span class="tab {{ 'active' if view == key or (key == 'career' and view == 'history') or (key == 'standings' and view == 'match') or (key == 'profile' and view == 'status') else '' }}">{{ label }}</span>
+    {% endfor %}
+  </nav>
+
+  <section class="hero {{ 'has-portrait' if portrait else '' }}">
     {% if backdrop %}<img class="hero-scene" src="{{ backdrop }}" alt="">{% endif %}
     <div class="hero-wash"></div>
-    {% if portrait %}<img class="hero-portrait" src="{{ portrait }}" alt="{{ portrait_name }}">{% endif %}
     <div class="hero-content">
       <div class="player">
         <div class="avatar-shell"><div class="avatar">{% if avatar_data_uri %}<img src="{{ avatar_data_uri }}" alt="{{ name }} 的游戏头像">{% else %}{{ initial }}{% endif %}</div><span>MEOW ID</span></div>
@@ -25,16 +30,10 @@
       </div>
       <div class="metrics">{% for label, value in metrics %}<div class="metric"><label>{{ label }}</label><strong>{{ value }}</strong></div>{% endfor %}</div>
     </div>
-    <div class="portrait-label"><span>{{ portrait_team or '档案助手' }}</span><b>{{ portrait_name }}</b><small>今日也要漂亮取胜喵。</small></div>
+    {% if portrait %}<figure class="hero-art"><img class="hero-portrait" src="{{ portrait }}" alt="{{ portrait_name }}"><figcaption class="portrait-label"><span>{{ portrait_team or '档案助手' }}</span><b>{{ portrait_name }}</b></figcaption></figure>{% endif %}
   </section>
 
-  <nav class="tabs">
-    {% for key, label in [('overview','玩家概览'),('profile','引航者资料'),('career','生涯数据'),('standings','对局战绩')] %}
-    <span class="tab {{ 'active' if view == key or (key == 'career' and view == 'history') or (key == 'standings' and view == 'match') or (key == 'profile' and view == 'status') else '' }}">{{ label }}</span>
-    {% endfor %}<span class="tab-end en">STRING SYNC / 01</span>
-  </nav>
-
-  <div class="switch-hint"><div><code>{{ switch_command }}</code><span class="separator">｜</span><code>{{ overview_command }}</code><small>末尾也可填写「引航者资料」或「生涯数据」</small></div></div>
+  <div class="switch-hint"><code>{{ overview_command }}</code><code>{{ switch_command }}</code></div>
   {% if warnings %}<div class="notice">{% for warning in warnings %}<div>{{ warning }}</div>{% endfor %}</div>{% endif %}
 
   {% if view in ['overview','profile'] %}

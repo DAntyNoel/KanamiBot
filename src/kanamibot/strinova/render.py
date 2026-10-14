@@ -378,7 +378,7 @@ async def _screenshot(html: str, settings: Settings) -> bytes:
             browser = await playwright.chromium.launch(**options)
             try:
                 page = await browser.new_page(
-                    viewport={"width": 1040, "height": 800},
+                    viewport={"width": 840, "height": 800},
                     device_scale_factor=1.5,
                     java_script_enabled=False,
                 )
