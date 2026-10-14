@@ -372,9 +372,67 @@ class RenderingTests(unittest.TestCase):
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)
         pack = ResourcePack(Path(folder.name))
+        self.pack = pack
         mocked = patch("kanamibot.strinova.render.resource_pack", return_value=pack)
         mocked.start()
         self.addCleanup(mocked.stop)
+
+    def test_portrait_uses_first_frequent_role_even_when_model_defaults_to_michele(self):
+        for first in (131, 146, 101):
+            with (
+                self.subTest(first=first),
+                patch.object(
+                    self.pack, "role_image", return_value="data:image/png;base64,portrait"
+                ) as image,
+            ):
+                context = report_context(
+                    Report(
+                        Query("测试玩家"),
+                        "123456",
+                        {**PLAYER, "freq_roles": [first, 137]},
+                        sections={
+                            "career": {
+                                "career_info": {
+                                    "role_module": {"profile_show_type": 0, "role_id": 101}
+                                }
+                            }
+                        },
+                    )
+                )
+                self.assertEqual(context["portrait"], "data:image/png;base64,portrait")
+                self.assertEqual(
+                    context["portrait_name"], {131: "伊薇特", 146: "星绘", 101: "米雪儿·李"}[first]
+                )
+                self.assertEqual(context["portrait_team"], "常用角色")
+                self.assertIn(((first,), {"portrait": True}), image.call_args_list)
+
+    def test_portrait_falls_back_to_career_frequent_list_when_profile_has_none(self):
+        with patch.object(self.pack, "role_image", return_value="career-portrait") as image:
+            context = report_context(
+                Report(
+                    Query("测试玩家"),
+                    "123456",
+                    {**PLAYER, "freq_roles": []},
+                    sections={"career": {"career_info": {"freq_roles": [137, 101]}}},
+                )
+            )
+        self.assertEqual(context["portrait_name"], "香奈美")
+        self.assertEqual(context["freq_roles"][0]["name"], "香奈美")
+        self.assertIn(((137,), {"portrait": True}), image.call_args_list)
+
+    def test_missing_frequent_role_or_artwork_never_displays_another_character(self):
+        for roles in ([], None, {}, [None], [True], [999]):
+            with self.subTest(roles=roles):
+                context = report_context(
+                    Report(
+                        Query("测试玩家"),
+                        "123456",
+                        {**PLAYER, "freq_roles": roles},
+                        sections={"career": {"career_info": {"role_module": {"role_id": 101}}}},
+                    )
+                )
+                self.assertIsNone(context["portrait"])
+                self.assertNotEqual(context["portrait_name"], "米雪儿·李")
 
     def test_every_view_renders_without_an_installed_resource_pack(self):
         for view in VIEWS:

@@ -257,8 +257,13 @@ def report_context(report: Report) -> dict:
         target = shlex.quote(target)
     command = f"#卡丘战绩 {target}"
     pack = resource_pack()
-    module = dictionary(career.get("role_module"))
-    main_role = module.get("role_id") or next(iter(profile.get("freq_roles") or []), None)
+    frequent_roles = profile.get("freq_roles")
+    if not isinstance(frequent_roles, list) or not frequent_roles:
+        frequent_roles = career.get("freq_roles")
+    frequent_roles = frequent_roles if isinstance(frequent_roles, list) else []
+    main_role = frequent_roles[0] if frequent_roles else None
+    if type(main_role) is not int or main_role <= 0:
+        main_role = None
     visible_matches = [match_row(item) for item in titles[: query.limit]]
     recent = {
         "count": len(visible_matches),
@@ -272,7 +277,8 @@ def report_context(report: Report) -> dict:
             "icon": pack.role_image(item),
             "team": pack.records("characters").get(item, {}).get("team", ""),
         }
-        for item in (profile.get("freq_roles") or [])[:6]
+        for item in frequent_roles[:6]
+        if type(item) is int and item > 0
     ]
     collect = dictionary(career.get("collect"))
     return {
@@ -282,9 +288,9 @@ def report_context(report: Report) -> dict:
         "player_id": report.player_id,
         "initial": str(profile.get("nick") or query.target)[:1],
         "avatar_data_uri": report.avatar_data_uri,
-        "portrait": pack.role_image(main_role or 101, portrait=True),
-        "portrait_name": role_name(main_role) if main_role else "喵喵档案助手",
-        "portrait_team": pack.records("characters").get(main_role, {}).get("team", ""),
+        "portrait": pack.role_image(main_role, portrait=True) if main_role else None,
+        "portrait_name": role_name(main_role) if main_role else "",
+        "portrait_team": "常用角色",
         "rank_badge": pack.rank_image(profile.get("rank")),
         "backdrop": pack.map_image(titles[0].get("map_id") if titles else 200, background=True),
         "game_font": pack.data_uri(pack.resolve("fonts/Game-Semibold.ttf")),
