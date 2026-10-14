@@ -52,3 +52,20 @@ uv sync
 - `files/napcat_runtime/`：NapCat 运行时目录，启动后生成。
 - `logs/`：运行日志。
 - `vendor/`：NapCat 安装与辅助脚本。
+
+## 卡拉彼丘战绩图片
+
+新增的战绩插件默认关闭，不会连接 QQ 或在启动时请求战绩 API。
+可以先独立运行本地脚本，输入昵称并保存 PNG：
+
+```powershell
+uv sync
+uv run python -m playwright install chromium
+uv run python scripts/query_strinova.py
+# 也可直接指定昵称；本机已安装 Chrome 时可省略 Chromium 下载。
+uv run python scripts/query_strinova.py "咕谷酱" --browser-channel chrome
+```
+
+脚本默认使用 `http://10.38.20.220:19080`，图片保存到忽略的 `data/strinova/`。
+支持玩家资料、状态、生涯、历史赛季、近期战绩和单局详情。
+命令、API 参数、浏览器配置见 [插件说明](src/kanamibot/plugins/strinova/README.md)。

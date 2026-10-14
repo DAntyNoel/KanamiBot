@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = "==3.12.*"
 
 [[package]]
@@ -423,11 +423,13 @@ dependencies = [
     { name = "httpx" },
     { name = "imageio", extra = ["ffmpeg"] },
     { name = "jieba" },
+    { name = "jinja2" },
     { name = "meme-generator" },
     { name = "nonebot-adapter-onebot" },
     { name = "nonebot-plugin-apscheduler" },
     { name = "nonebot2", extra = ["fastapi", "httpx", "websockets"] },
     { name = "pillow" },
+    { name = "playwright" },
     { name = "pydub" },
     { name = "python-dotenv" },
     { name = "qrcode" },
@@ -449,11 +451,13 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "imageio", extras = ["ffmpeg"], specifier = ">=2.37.2" },
     { name = "jieba", specifier = ">=0.42.1" },
+    { name = "jinja2", specifier = ">=3.1.4" },
     { name = "meme-generator", specifier = ">=0.2.3,<0.3" },
     { name = "nonebot-adapter-onebot", specifier = ">=2.4.6" },
     { name = "nonebot-plugin-apscheduler", specifier = ">=0.5.0" },
     { name = "nonebot2", extras = ["fastapi", "httpx", "websockets"], specifier = ">=2.5.0" },
     { name = "pillow", specifier = ">=12.0.0" },
+    { name = "playwright", specifier = ">=1.45.0" },
     { name = "pydub", specifier = ">=0.25.1" },
     { name = "python-dotenv", specifier = ">=1.0.1" },
     { name = "qrcode", specifier = ">=8.2" },
