@@ -8,8 +8,8 @@ from unittest.mock import AsyncMock, patch
 
 import httpx
 
-from kanamibot.strinova.client import APIError, Settings, StrinovaClient
-from kanamibot.strinova.query import Query, QueryError, parse_query
+from kanamibot.strinova.client import APIError, ServiceUnavailable, Settings, StrinovaClient
+from kanamibot.strinova.query import VIEWS, Query, QueryError, parse_query
 from kanamibot.strinova.render import match_row, render_html, report_context
 from kanamibot.strinova.service import Report, fetch_report, resolve_player
 
@@ -19,6 +19,15 @@ ROOM_ID = "751028091756896271"
 
 def response(data: dict) -> httpx.Response:
     return httpx.Response(200, json={"ok": True, "data": {"code": 0, **data}})
+
+
+def healthy_transport(handler) -> httpx.MockTransport:
+    def route(request):
+        if request.url.path == "/health":
+            return httpx.Response(200, json={"ok": True})
+        return handler(request)
+
+    return httpx.MockTransport(route)
 
 
 class QueryTests(unittest.TestCase):
@@ -63,7 +72,7 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
             requests.append(request)
             return response({})
 
-        async with StrinovaClient(Settings(), transport=httpx.MockTransport(handler)) as client:
+        async with StrinovaClient(Settings(), transport=healthy_transport(handler)) as client:
             await client.search(nick="测试玩家 & ?")
             await client.search(player_id="123456")
             await client.profile("123456")
@@ -104,7 +113,7 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
             [],
         ):
             with self.subTest(payload=payload):
-                transport = httpx.MockTransport(
+                transport = healthy_transport(
                     lambda _, payload=payload: httpx.Response(200, json=payload)
                 )
                 async with StrinovaClient(Settings(), transport=transport) as client:
@@ -120,12 +129,12 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
             lambda _: httpx.Response(503),
             lambda _: httpx.Response(200, text="<html>unavailable</html>"),
         ):
-            async with StrinovaClient(Settings(), transport=httpx.MockTransport(handler)) as client:
+            async with StrinovaClient(Settings(), transport=healthy_transport(handler)) as client:
                 with self.assertRaises(APIError):
                     await client.profile("123456")
 
     async def test_pending_bridge_error_is_explained_without_leaking_stack_trace(self):
-        transport = httpx.MockTransport(
+        transport = healthy_transport(
             lambda _: httpx.Response(
                 200,
                 json={
@@ -147,6 +156,103 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaisesRegex(QueryError, ".png"):
                 await cli.run(args)
             create.assert_not_awaited()
+
+
+class HealthTests(unittest.IsolatedAsyncioTestCase):
+    async def test_unavailable_health_blocks_every_view_before_player_requests(self):
+        for view in VIEWS:
+            paths = []
+
+            def handler(request, paths=paths):
+                paths.append(request.url.path)
+                return httpx.Response(503)
+
+            async with StrinovaClient(Settings(), transport=httpx.MockTransport(handler)) as client:
+                with self.subTest(view=view), self.assertRaises(ServiceUnavailable):
+                    await fetch_report(client, Query("测试玩家", view=view, room_id=ROOM_ID))
+            self.assertEqual(paths, ["/health"])
+
+    async def test_bad_json_ok_and_bridge_readiness_are_unavailable(self):
+        for payload in (
+            None,
+            [],
+            {},
+            {"ok": False},
+            {"ok": True, "hooked": False},
+            {"ok": True, "lua_ready": False},
+            {"ok": True, "game_tick_seen": False},
+        ):
+            transport = httpx.MockTransport(
+                lambda _, payload=payload: httpx.Response(200, json=payload)
+            )
+            async with StrinovaClient(Settings(), transport=transport) as client:
+                with self.subTest(payload=payload), self.assertRaises(ServiceUnavailable):
+                    await client.check_health()
+
+    async def test_health_timeout_and_connection_failure_block_queries(self):
+        def disconnected(request):
+            raise httpx.ConnectError("internal trace", request=request)
+
+        def timeout(request):
+            raise httpx.ReadTimeout("internal trace", request=request)
+
+        for handler in (disconnected, timeout, lambda _: httpx.Response(200, text="<html>")):
+            async with StrinovaClient(Settings(), transport=httpx.MockTransport(handler)) as client:
+                with self.assertRaises(ServiceUnavailable) as caught:
+                    await client.check_health()
+                self.assertNotIn("internal trace", str(caught.exception))
+
+    async def test_health_recovers_on_next_query_without_persisted_disabled_flag(self):
+        healthy = False
+        paths = []
+
+        def handler(request):
+            paths.append(request.url.path)
+            if request.url.path == "/health":
+                return httpx.Response(200, json={"ok": healthy})
+            return response({"friends": [PLAYER]})
+
+        async with StrinovaClient(Settings(), transport=httpx.MockTransport(handler)) as client:
+            with self.assertRaises(ServiceUnavailable):
+                await resolve_player(client, Query("测试玩家"))
+            healthy = True
+            self.assertEqual(await resolve_player(client, Query("测试玩家")), PLAYER)
+        self.assertEqual(paths, ["/health", "/health", "/v1/friends/search"])
+
+    async def test_health_loss_mid_query_aborts_instead_of_partial_image(self):
+        health_checks = 0
+        paths = []
+
+        def handler(request):
+            nonlocal health_checks
+            paths.append(request.url.path)
+            if request.url.path == "/health":
+                health_checks += 1
+                return httpx.Response(200, json={"ok": health_checks < 3})
+            if request.url.path == "/v1/friends/search":
+                return response({"friends": [PLAYER]})
+            return response({"friend": PLAYER})
+
+        async with StrinovaClient(Settings(), transport=httpx.MockTransport(handler)) as client:
+            with self.assertRaises(ServiceUnavailable):
+                await fetch_report(client, Query("测试玩家"))
+        self.assertEqual(
+            paths, ["/health", "/v1/friends/search", "/health", "/v1/players/123456", "/health"]
+        )
+
+    async def test_health_uses_short_timeout(self):
+        for configured, expected in ((35, 5), (2, 2)):
+            timeouts = []
+
+            def handler(request, timeouts=timeouts):
+                timeouts.append(request.extensions["timeout"]["read"])
+                return httpx.Response(200, json={"ok": True})
+
+            async with StrinovaClient(
+                Settings(timeout=configured), transport=httpx.MockTransport(handler)
+            ) as client:
+                await client.check_health()
+            self.assertEqual(timeouts, [expected])
 
 
 class ServiceTests(unittest.IsolatedAsyncioTestCase):
@@ -254,7 +360,7 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
         with patch.dict("os.environ", {"KANAMIBOT_STRINOVA_ENABLED": "false"}):
             cls.plugin = importlib.import_module("kanamibot.plugins.strinova")
 
-    async def test_plugin_is_off_by_default_and_handler_returns_png(self):
+    async def test_manual_disable_is_preserved_and_healthy_handler_returns_png(self):
         self.assertFalse(self.plugin.ENABLED)
         self.assertFalse(hasattr(self.plugin, "strinova_matcher"))
 
@@ -273,6 +379,7 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
         matcher = Matcher()
         report = Report(Query("测试玩家"), "123456", PLAYER)
         with (
+            patch.object(self.plugin, "check_available", AsyncMock()),
             patch.object(self.plugin, "create_report", AsyncMock(return_value=report)),
             patch.object(self.plugin, "render_png", AsyncMock(return_value=b"\x89PNG\r\n\x1a\n")),
         ):
@@ -282,6 +389,41 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
                 )
         self.assertEqual(matcher.result.type, "image")
         self.assertTrue(matcher.result.data["file"].startswith("base64://"))
+
+    async def test_health_failure_pauses_every_bot_entry_including_help(self):
+        from nonebot.adapters.onebot.v11 import Message
+
+        class Finished(Exception):
+            pass
+
+        for command in (
+            "#卡丘",
+            "#卡丘 help",
+            "#KQ 测试玩家",
+            "#卡丘资料 测试玩家",
+            "#卡丘状态 测试玩家",
+            "#卡丘生涯 测试玩家",
+            "#卡丘战绩 测试玩家",
+            "#卡丘赛季 测试玩家 --season-id 25",
+            f"#卡丘对局 测试玩家 --room-id {ROOM_ID}",
+        ):
+            matcher = SimpleNamespace(send=AsyncMock(), finish=AsyncMock(side_effect=Finished))
+            with (
+                self.subTest(command=command),
+                patch.object(
+                    self.plugin, "check_available", AsyncMock(side_effect=ServiceUnavailable())
+                ),
+                patch.object(self.plugin, "create_report", AsyncMock()) as create,
+                patch.object(self.plugin, "render_png", AsyncMock()) as render,
+            ):
+                with self.assertRaises(Finished):
+                    await self.plugin.handle_strinova(
+                        SimpleNamespace(message=Message(command)), matcher
+                    )
+                self.assertIn("全部查询功能已暂停", matcher.finish.call_args.args[0])
+                matcher.send.assert_not_awaited()
+                create.assert_not_awaited()
+                render.assert_not_awaited()
 
     def test_cli_core_does_not_import_bot_entrypoint(self):
         from kanamibot.strinova import cli

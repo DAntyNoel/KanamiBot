@@ -17,6 +17,11 @@ class APIError(QueryError):
     pass
 
 
+class ServiceUnavailable(APIError):
+    def __init__(self) -> None:
+        super().__init__("卡拉彼丘战绩服务暂不可用，全部查询功能已暂停，恢复后自动可用。")
+
+
 @dataclass(frozen=True)
 class Settings:
     base_url: str = DEFAULT_API_URL
@@ -55,6 +60,7 @@ class StrinovaClient:
             trust_env=False,
             transport=transport,
         )
+        self.health_timeout = min(settings.timeout, 5.0)
 
     async def __aenter__(self) -> StrinovaClient:
         return self
@@ -62,7 +68,21 @@ class StrinovaClient:
     async def __aexit__(self, *_: object) -> None:
         await self.http.aclose()
 
+    async def check_health(self) -> None:
+        try:
+            response = await self.http.get("health", timeout=self.health_timeout)
+            response.raise_for_status()
+            health = response.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            raise ServiceUnavailable() from exc
+        if not isinstance(health, dict) or health.get("ok") is not True:
+            raise ServiceUnavailable()
+        # These fields describe the bridge needed by player queries, when exposed by /health.
+        if any(health.get(flag) is False for flag in ("hooked", "lua_ready", "game_tick_seen")):
+            raise ServiceUnavailable()
+
     async def get(self, path: str, **params: int | str) -> dict[str, Any]:
+        await self.check_health()
         try:
             response = await self.http.get(path.lstrip("/"), params=params)
             response.raise_for_status()

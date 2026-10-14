@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-from .client import APIError, Settings, StrinovaClient
+from .client import APIError, ServiceUnavailable, Settings, StrinovaClient
 from .query import Query, QueryError
 
 
@@ -88,6 +88,8 @@ async def fetch_report(client: StrinovaClient, query: Query) -> Report:
             if field_name is not None and not isinstance(data.get(field_name), expected_type):
                 raise APIError("API 数据结构不符合预期。")
             report.sections[name] = data
+        except ServiceUnavailable:
+            raise
         except APIError as exc:
             report.warnings.append(f"{labels[name]}：{exc}")
 
@@ -105,3 +107,8 @@ async def fetch_report(client: StrinovaClient, query: Query) -> Report:
 async def create_report(query: Query, settings: Settings) -> Report:
     async with StrinovaClient(settings) as client:
         return await fetch_report(client, query)
+
+
+async def check_available(settings: Settings) -> None:
+    async with StrinovaClient(settings) as client:
+        await client.check_health()

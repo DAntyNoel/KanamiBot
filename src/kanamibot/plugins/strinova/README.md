@@ -1,6 +1,6 @@
 # 卡拉彼丘战绩
 
-通过真实 API 查询并生成 HTML/CSS 战绩图片，浅色背景、绿色强调色、白色圆角卡片及战绩行布局参考 [弦外](https://klbq.122999.xyz/)。渲染不依赖参考网站，也不会通过参考站转发查询。没有部署动作，默认不注册 Bot 命令。
+通过真实 API 查询并生成 HTML/CSS 战绩图片，浅色背景、绿色强调色、白色圆角卡片及战绩行布局参考 [弦外](https://klbq.122999.xyz/)。渲染不依赖参考网站，也不会通过参考站转发查询。Bot 命令默认启用，由健康检查控制是否接受查询。
 
 ## 独立运行
 
@@ -43,14 +43,15 @@ uv run python scripts/query_strinova.py "咕谷酱" --view match --room-id 75102
 | `STRINOVA_API_TIMEOUT` | `35` | 单次请求超时秒数，1–120 |
 | `STRINOVA_BROWSER_CHANNEL` | 空 | `chrome` 或 `msedge`；空值使用 Playwright Chromium |
 | `STRINOVA_BROWSER_EXECUTABLE` | 空 | 明确指定浏览器可执行文件，优先于 channel |
-| `KANAMIBOT_STRINOVA_ENABLED` | `false` | 是否注册 Bot 命令，不影响本地脚本 |
+| `KANAMIBOT_STRINOVA_ENABLED` | `true` | 是否注册 Bot 命令，不影响本地脚本 |
 
 CLI 也支持 `--api-url`、`--timeout`、`--browser-channel`、`--browser-executable`。
 API 请求绕过环境 HTTP 代理，确保访问提供的内网地址；总查询超时 180 秒。
 
-## Bot 命令（以后启用时）
+## Bot 命令
 
-将 `KANAMIBOT_STRINOVA_ENABLED=true` 写入 `.env` 并在需要部署时自行启动 Bot。
+重启 Bot 后默认注册以下命令；如需手动关闭，可设置 `KANAMIBOT_STRINOVA_ENABLED=false`。
+已有 `.env` 中显式设置的 `false` 会保留关闭行为。
 无需改动旧仓库或已运行的 NapCat。群模块名为 `strinova`，支持 `enable strinova` / `disable strinova`。
 
 | 命令 | 图片视图 |
@@ -64,6 +65,17 @@ API 请求绕过环境 HTTP 代理，确保访问提供的内网地址；总查�
 | `#卡丘对局 昵称 --room-id 房间ID` | 单局双方玩家统计 |
 
 Bot 和 CLI 共用查询参数，也可用 `--view` 指定视图。Bot 同时最多执行两次查询。
+
+## 服务健康检查
+
+Bot 的全部战绩命令（含帮助入口）以及本地脚本在查询前请求 API 根地址的 `/health`。
+每个后续数据请求也会先复查健康状态。检查超时为 5 秒，若 API 配置超时更短，则采用更短值。
+只有 HTTP 请求成功、响应为 JSON 对象且 `ok=true` 才允许查询；响应中的 `hooked`、
+`lua_ready`、`game_tick_seen` 如明确为 `false`，也视为游戏桥接不可用。
+
+检查失败时自动暂停该插件的全部查询，不请求玩家接口或生成图片，提示服务暂不可用。
+查询过程中检查失败会终止整次查询，不输出部分结果。下一条命令会重新检查，正常后自动恢复。
+该状态不会写入 `.env` 或群模块配置，不影响其他 Bot 插件；无需额外后台监控或重启。
 
 ## 接口与数据处理
 

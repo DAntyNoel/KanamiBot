@@ -14,7 +14,7 @@ from kanamibot.core.group_manager import ModuleRule
 from kanamibot.strinova.client import Settings
 from kanamibot.strinova.query import QueryError, parse_query
 from kanamibot.strinova.render import render_png
-from kanamibot.strinova.service import create_report
+from kanamibot.strinova.service import check_available, create_report
 
 USAGE = (
     "#卡丘 {昵称或ID}\n"
@@ -24,7 +24,7 @@ USAGE = (
     "可选：--player-id ID / --nick 昵称 / --index 1 / --limit 8 / "
     "--game-mode 0 / --room-mode-type 0 / --play-mode 0 / --season-type 1"
 )
-ENABLED = os.getenv("KANAMIBOT_STRINOVA_ENABLED", "false").lower() in ("1", "true", "yes", "on")
+ENABLED = os.getenv("KANAMIBOT_STRINOVA_ENABLED", "true").lower() in ("1", "true", "yes", "on")
 __plugin_meta__ = PluginMetadata(
     name="卡拉彼丘战绩",
     description="通过 Strinova API 查询玩家资料、生涯、赛季与对局，并生成图片。"
@@ -50,12 +50,16 @@ async def handle_strinova(event: MessageEvent, matcher: Matcher) -> None:
     match = COMMAND.fullmatch(event.message.extract_plain_text())
     if match is None:
         return
+    try:
+        settings = Settings.from_env()
+        await check_available(settings)
+    except QueryError as exc:
+        await matcher.finish(str(exc))
     args = (match.group("args") or "").strip()
     if not args or args in ("帮助", "help", "--help"):
         await matcher.finish(USAGE)
     try:
         query = parse_query(args, view=COMMAND_VIEWS.get(match.group("command"), "overview"))
-        settings = Settings.from_env()
     except QueryError as exc:
         await matcher.finish(f"{exc}\n\n{USAGE}")
     if query_gate.locked():
