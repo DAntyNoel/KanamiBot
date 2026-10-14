@@ -8,6 +8,8 @@ from .avatar import AvatarError, load_avatar
 from .client import APIError, ServiceUnavailable, Settings, StrinovaClient
 from .query import Query, QueryError
 
+QUERY_TIMEOUT_SECONDS = 120
+
 
 @dataclass
 class Report:

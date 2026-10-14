@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import importlib
 import io
 import json
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -177,6 +179,43 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
                 await cli.run(args)
             create.assert_not_awaited()
 
+    async def test_cli_two_minute_timeout_cancels_work_without_writing_image(self):
+        from kanamibot.strinova import cli
+
+        self.assertEqual(cli.QUERY_TIMEOUT_SECONDS, 120)
+        cancelled = asyncio.Event()
+
+        async def stalled(*_):
+            try:
+                await asyncio.Future()
+            finally:
+                cancelled.set()
+
+        with tempfile.TemporaryDirectory() as folder:
+            output = Path(folder) / "report.png"
+            args = cli.build_parser().parse_args(["测试玩家", "-o", str(output)])
+            with (
+                patch.object(cli, "QUERY_TIMEOUT_SECONDS", 0.01),
+                patch.object(cli, "create_report", stalled),
+                patch.object(cli, "render_png", AsyncMock()) as render,
+                redirect_stdout(io.StringIO()),
+            ):
+                with self.assertRaises(TimeoutError):
+                    await cli.run(args)
+            self.assertTrue(cancelled.is_set())
+            render.assert_not_awaited()
+            self.assertFalse(output.exists())
+
+        errors = io.StringIO()
+        with (
+            patch.object(cli, "load_dotenv"),
+            patch.object(cli, "run", AsyncMock(side_effect=TimeoutError("private timeout"))),
+            redirect_stderr(errors),
+        ):
+            self.assertEqual(await asyncio.to_thread(cli.main, ["测试玩家"]), 2)
+        self.assertIn("超过 2 分钟", errors.getvalue())
+        self.assertNotIn("private timeout", errors.getvalue())
+
 
 class HealthTests(unittest.IsolatedAsyncioTestCase):
     async def test_unavailable_health_blocks_every_view_before_player_requests(self):
@@ -345,6 +384,7 @@ class RenderingTests(unittest.TestCase):
                 )
                 self.assertIn("测试玩家", html)
                 self.assertIn("#卡丘战绩 测试玩家 对局战绩", html)
+                self.assertNotIn("切换喵", html)
                 self.assertNotIn('src="http', html)
 
     def test_picture_includes_real_avatar_and_roundtrippable_switch_commands(self):
@@ -420,6 +460,12 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
         with patch.dict("os.environ", {"KANAMIBOT_STRINOVA_ENABLED": "false"}):
             cls.plugin = importlib.import_module("kanamibot.plugins.strinova")
 
+    def setUp(self):
+        self.bot = SimpleNamespace(delete_msg=AsyncMock())
+        gate = patch.object(self.plugin, "query_gate", asyncio.Semaphore(2))
+        gate.start()
+        self.addCleanup(gate.stop)
+
     async def test_manual_disable_is_preserved_and_healthy_handler_returns_png(self):
         self.assertFalse(self.plugin.ENABLED)
         self.assertFalse(hasattr(self.plugin, "strinova_matcher"))
@@ -430,7 +476,7 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
             pass
 
         class Matcher:
-            send = AsyncMock()
+            send = AsyncMock(return_value={"message_id": 456})
 
             async def finish(self, message):
                 self.result = message
@@ -445,10 +491,11 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
         ):
             with self.assertRaises(Finished):
                 await self.plugin.handle_strinova(
-                    SimpleNamespace(message=Message("#卡丘 测试玩家")), matcher
+                    SimpleNamespace(message=Message("#卡丘 测试玩家")), matcher, self.bot
                 )
         self.assertEqual(matcher.result.type, "image")
         self.assertTrue(matcher.result.data["file"].startswith("base64://"))
+        self.bot.delete_msg.assert_awaited_once_with(message_id=456)
 
     async def test_health_failure_pauses_every_bot_entry_including_help(self):
         from nonebot.adapters.onebot.v11 import Message
@@ -478,7 +525,7 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
             ):
                 with self.assertRaises(Finished):
                     await self.plugin.handle_strinova(
-                        SimpleNamespace(message=Message(command)), matcher
+                        SimpleNamespace(message=Message(command)), matcher, self.bot
                     )
                 self.assertIn("全部查询功能已暂停", matcher.finish.call_args.args[0])
                 matcher.send.assert_not_awaited()
@@ -510,10 +557,150 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
             ):
                 with self.assertRaises(Finished):
                     await self.plugin.handle_strinova(
-                        SimpleNamespace(message=Message(command)), matcher
+                        SimpleNamespace(message=Message(command)), matcher, self.bot
                     )
                 self.assertEqual(create.call_args.args[0].target, "测试玩家")
                 self.assertEqual(create.call_args.args[0].view, view)
+
+    async def test_query_and_render_failures_recall_prompt_and_release_query_slot(self):
+        from nonebot.adapters.onebot.v11 import Message
+
+        class Finished(Exception):
+            pass
+
+        report = Report(Query("测试玩家"), "123456", PLAYER)
+        for stage, failure, expected in (
+            ("query", APIError("API 请求超时"), "API 请求超时"),
+            ("query", ServiceUnavailable(), "全部查询功能已暂停"),
+            ("render", QueryError("图片渲染失败"), "图片渲染失败"),
+            ("render", RuntimeError("private error"), "图片生成失败"),
+        ):
+            matcher = SimpleNamespace(
+                send=AsyncMock(return_value={"message_id": 789}),
+                finish=AsyncMock(side_effect=Finished),
+            )
+            self.bot.delete_msg.reset_mock()
+            create = AsyncMock(return_value=report)
+            render = AsyncMock(return_value=b"png")
+            (create if stage == "query" else render).side_effect = failure
+            with (
+                self.subTest(stage=stage, failure=type(failure).__name__),
+                patch.object(self.plugin, "check_available", AsyncMock()),
+                patch.object(self.plugin, "create_report", create),
+                patch.object(self.plugin, "render_png", render),
+                patch.object(self.plugin.logger, "exception"),
+            ):
+                with self.assertRaises(Finished):
+                    await self.plugin.handle_strinova(
+                        SimpleNamespace(message=Message("#卡丘战绩 测试玩家")), matcher, self.bot
+                    )
+                self.assertIn(expected, matcher.finish.call_args.args[0])
+                self.assertNotIn("private error", matcher.finish.call_args.args[0])
+                self.bot.delete_msg.assert_awaited_once_with(message_id=789)
+                self.assertEqual(self.plugin.query_gate._value, 2)
+
+    async def test_timeout_cancels_query_or_render_and_recalls_prompt(self):
+        from nonebot.adapters.onebot.v11 import Message
+
+        class Finished(Exception):
+            pass
+
+        self.assertEqual(self.plugin.QUERY_TIMEOUT_SECONDS, 120)
+        report = Report(Query("测试玩家"), "123456", PLAYER)
+        for stage in ("query", "render"):
+            cancelled = asyncio.Event()
+
+            async def stalled(*_, cancelled=cancelled):
+                try:
+                    await asyncio.Future()
+                finally:
+                    cancelled.set()
+
+            matcher = SimpleNamespace(
+                send=AsyncMock(return_value={"message_id": 123}),
+                finish=AsyncMock(side_effect=Finished),
+            )
+            self.bot.delete_msg.reset_mock()
+            create = AsyncMock(return_value=report)
+            render = AsyncMock(return_value=b"png")
+            (create if stage == "query" else render).side_effect = stalled
+            with (
+                self.subTest(stage=stage),
+                patch.object(self.plugin, "QUERY_TIMEOUT_SECONDS", 0.01),
+                patch.object(self.plugin, "check_available", AsyncMock()),
+                patch.object(self.plugin, "create_report", create),
+                patch.object(self.plugin, "render_png", render),
+            ):
+                with self.assertRaises(Finished):
+                    await self.plugin.handle_strinova(
+                        SimpleNamespace(message=Message("#卡丘战绩 测试玩家")), matcher, self.bot
+                    )
+                self.assertTrue(cancelled.is_set())
+                self.assertIn("超过 2 分钟", matcher.finish.call_args.args[0])
+                self.bot.delete_msg.assert_awaited_once_with(message_id=123)
+                self.assertEqual(self.plugin.query_gate._value, 2)
+
+    async def test_cancelled_handler_still_recalls_prompt_and_releases_query_slot(self):
+        from nonebot.adapters.onebot.v11 import Message
+
+        started = asyncio.Event()
+
+        async def stalled(*_):
+            started.set()
+            await asyncio.Future()
+
+        matcher = SimpleNamespace(
+            send=AsyncMock(return_value={"message_id": 123}), finish=AsyncMock()
+        )
+        with (
+            patch.object(self.plugin, "check_available", AsyncMock()),
+            patch.object(self.plugin, "create_report", stalled),
+        ):
+            task = asyncio.create_task(
+                self.plugin.handle_strinova(
+                    SimpleNamespace(message=Message("#卡丘战绩 测试玩家")), matcher, self.bot
+                )
+            )
+            await asyncio.wait_for(started.wait(), timeout=1)
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+        self.bot.delete_msg.assert_awaited_once_with(message_id=123)
+        matcher.finish.assert_not_awaited()
+        self.assertEqual(self.plugin.query_gate._value, 2)
+
+    async def test_recall_failure_does_not_replace_success_or_error_response(self):
+        from nonebot.adapters.onebot.v11 import Message, MessageSegment
+
+        class Finished(Exception):
+            pass
+
+        for failure in (None, APIError("查询失败")):
+            matcher = SimpleNamespace(
+                send=AsyncMock(return_value={"message_id": 123}),
+                finish=AsyncMock(side_effect=Finished),
+            )
+            self.bot.delete_msg = AsyncMock(side_effect=RuntimeError("QQ recall failed"))
+            with (
+                self.subTest(failure=failure),
+                patch.object(self.plugin, "check_available", AsyncMock()),
+                patch.object(
+                    self.plugin,
+                    "create_report",
+                    AsyncMock(
+                        return_value=Report(Query("测试玩家"), "123456", PLAYER),
+                        side_effect=failure,
+                    ),
+                ),
+                patch.object(self.plugin, "render_png", AsyncMock(return_value=b"png")),
+            ):
+                with self.assertRaises(Finished):
+                    await self.plugin.handle_strinova(
+                        SimpleNamespace(message=Message("#卡丘战绩 测试玩家")), matcher, self.bot
+                    )
+                result = matcher.finish.call_args.args[0]
+                self.assertEqual(result, "查询失败" if failure else MessageSegment.image(b"png"))
+                self.assertEqual(self.plugin.query_gate._value, 2)
 
     def test_cli_core_does_not_import_bot_entrypoint(self):
         from kanamibot.strinova import cli

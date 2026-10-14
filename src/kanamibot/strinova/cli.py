@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 from .client import Settings
 from .query import QueryError, add_query_arguments, query_from_args
 from .render import render_html, render_png
-from .service import create_report
+from .service import QUERY_TIMEOUT_SECONDS, create_report
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
@@ -47,7 +47,7 @@ async def run(args: argparse.Namespace) -> Path:
         avatar_url_template=configured.avatar_url_template,
     )
     print(f"正在查询「{query.target}」……", flush=True)
-    async with asyncio.timeout(180):
+    async with asyncio.timeout(QUERY_TIMEOUT_SECONDS):
         report = await create_report(query, settings)
         image = await render_png(report, settings)
     output = requested_output or (
@@ -75,8 +75,11 @@ def main(argv: list[str] | None = None) -> int:
         if not args.nickname and args.nick is None and args.player_id is None:
             args.nickname = [input("请输入玩家昵称或 ID：").strip()]
         output = asyncio.run(run(args))
-    except (QueryError, OSError, EOFError, TimeoutError) as exc:
-        print(f"查询失败：{exc or '查询总耗时超过 180 秒。'}", file=sys.stderr)
+    except TimeoutError:
+        print("查询失败：战绩查询已超过 2 分钟，已取消本次查询，请稍后重试。", file=sys.stderr)
+        return 2
+    except (QueryError, OSError, EOFError) as exc:
+        print(f"查询失败：{exc}", file=sys.stderr)
         return 2
     except KeyboardInterrupt:
         print("查询已取消。", file=sys.stderr)

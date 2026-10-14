@@ -5,7 +5,7 @@ import os
 import re
 
 from nonebot import on_regex
-from nonebot.adapters.onebot.v11 import MessageEvent, MessageSegment
+from nonebot.adapters.onebot.v11 import Bot, MessageEvent, MessageSegment
 from nonebot.internal.matcher import Matcher
 from nonebot.log import logger
 from nonebot.plugin import PluginMetadata
@@ -14,7 +14,7 @@ from kanamibot.core.group_manager import ModuleRule
 from kanamibot.strinova.client import Settings
 from kanamibot.strinova.query import QueryError, parse_query
 from kanamibot.strinova.render import render_png
-from kanamibot.strinova.service import check_available, create_report
+from kanamibot.strinova.service import QUERY_TIMEOUT_SECONDS, check_available, create_report
 
 USAGE = (
     "#卡丘战绩 {昵称或ID}（默认玩家概览）\n"
@@ -47,7 +47,7 @@ COMMAND_VIEWS = {
 query_gate = asyncio.Semaphore(2)
 
 
-async def handle_strinova(event: MessageEvent, matcher: Matcher) -> None:
+async def handle_strinova(event: MessageEvent, matcher: Matcher, bot: Bot) -> None:
     match = COMMAND.fullmatch(event.message.extract_plain_text())
     if match is None:
         return
@@ -66,16 +66,30 @@ async def handle_strinova(event: MessageEvent, matcher: Matcher) -> None:
     if query_gate.locked():
         await matcher.finish("战绩查询正在忙，请稍后再试。")
     async with query_gate:
-        await matcher.send(f"正在查询「{query.target}」的卡丘战绩，请稍候……")
+        receipt = await matcher.send(f"正在查询「{query.target}」的卡丘战绩，最多等待 2 分钟……")
+        message_id = receipt.get("message_id") if isinstance(receipt, dict) else None
         try:
-            async with asyncio.timeout(180):
+            async with asyncio.timeout(QUERY_TIMEOUT_SECONDS):
                 report = await create_report(query, settings)
                 image = await render_png(report, settings)
         except QueryError as exc:
             logger.warning("[strinova] query failed: {}", str(exc))
             await matcher.finish(str(exc))
         except TimeoutError:
-            await matcher.finish("战绩查询超时，请稍后重试。")
+            await matcher.finish("战绩查询已超过 2 分钟，已取消本次查询，请稍后重试。")
+        except Exception:
+            logger.exception("[strinova] unexpected query or rendering failure")
+            await matcher.finish("战绩查询或图片生成失败，请稍后重试。")
+        finally:
+            if message_id is not None:
+                try:
+                    async with asyncio.timeout(5):
+                        await bot.delete_msg(message_id=message_id)
+                except Exception as exc:
+                    # A failed QQ recall must not replace the result or leak the query slot.
+                    logger.warning(
+                        "[strinova] failed to recall query prompt: {}", type(exc).__name__
+                    )
     await matcher.finish(MessageSegment.image(image))
 
 

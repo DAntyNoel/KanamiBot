@@ -34,7 +34,7 @@
     {% endfor %}<span class="tab-end en">STRING SYNC / 01</span>
   </nav>
 
-  <div class="switch-hint"><span class="hint-tag">切换喵</span><div><code>{{ switch_command }}</code><span class="separator">｜</span><code>{{ overview_command }}</code><small>末尾也可填写「引航者资料」或「生涯数据」</small></div></div>
+  <div class="switch-hint"><div><code>{{ switch_command }}</code><span class="separator">｜</span><code>{{ overview_command }}</code><small>末尾也可填写「引航者资料」或「生涯数据」</small></div></div>
   {% if warnings %}<div class="notice">{% for warning in warnings %}<div>{{ warning }}</div>{% endfor %}</div>{% endif %}
 
   {% if view in ['overview','profile'] %}
