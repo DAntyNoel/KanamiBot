@@ -5,14 +5,14 @@ import math
 import shlex
 import sys
 from datetime import timedelta, timezone
-from pathlib import Path
 from typing import Any
 
 from .client import Settings
 from .query import QueryError
+from .resources import PLUGIN_DIR, resource_pack
 from .service import Report
 
-TEMPLATE_DIR = Path(__file__).with_name("templates")
+TEMPLATE_DIR = PLUGIN_DIR / "templates"
 SHANGHAI = timezone(timedelta(hours=8))
 ROLES = {
     101: "米雪儿·李",
@@ -120,7 +120,9 @@ def objects(value: Any) -> list[dict]:
 def role_name(value: Any) -> str:
     if not isinstance(value, int):
         return "角色未提供"
-    return ROLES.get(value, f"角色 #{value}")
+    return resource_pack().records("characters").get(value, {}).get("name_cn") or ROLES.get(
+        value, f"角色 #{value}"
+    )
 
 
 def dictionary(value: Any) -> dict:
@@ -128,11 +130,15 @@ def dictionary(value: Any) -> dict:
 
 
 def rank_name(value: Any) -> str:
-    return RANKS[value] if isinstance(value, int) and 0 <= value < len(RANKS) else "—"
+    named = resource_pack().records("ranks", "rank").get(value, {}).get("name")
+    return named or (RANKS[value] if isinstance(value, int) and 0 <= value < len(RANKS) else "—")
 
 
 def mode_name(row: dict) -> str:
-    # The raw bridge has no dictionary. Preserve unknown enum values rather than guessing names.
+    named = resource_pack().mode_name(row.get("game_mode"))
+    if named:
+        return named
+    # Unknown entries retain their original enum values.
     return " / ".join(
         f"{label} {row[key]}"
         for key, label in (("game_mode", "模式"), ("room_mode_type", "房间"), ("play_mode", "玩法"))
@@ -170,9 +176,11 @@ def match_row(row: dict) -> dict:
         "duration": f"{row['fight_time'] // 60}分{row['fight_time'] % 60:02d}秒"
         if isinstance(row.get("fight_time"), int)
         else "—",
-        "map": f"地图 #{row['map_id']}" if row.get("map_id") else "地图未提供",
+        "map": resource_pack().map_name(row.get("map_id")),
+        "map_image": resource_pack().map_image(row.get("map_id")),
         "mode": mode_name(row),
         "role": role_name(row.get("role_id")),
+        "role_icon": resource_pack().role_image(row.get("role_id")),
         "kda": " / ".join(
             number(row.get(key)) if stats_available else "—"
             for key in ("kill_num", "dead_num", "assists_num")
@@ -209,6 +217,8 @@ def report_context(report: Report) -> dict:
                 "nick": player.get("nick", "未知昵称"),
                 "self": str(player.get("player_id")) == report.player_id,
                 "role": role_name(player.get("final_role_id")),
+                "role_icon": resource_pack().role_image(player.get("final_role_id")),
+                "avatar": resource_pack().data_uri(resource_pack().avatar_path(player.get("icon"))),
                 "kda": " / ".join(
                     number(player.get(key)) for key in ("kill_num", "dead_num", "assists_num")
                 ),
@@ -234,6 +244,25 @@ def report_context(report: Report) -> dict:
     elif any(char.isspace() or char in "'\"\\" for char in target):
         target = shlex.quote(target)
     command = f"#卡丘战绩 {target}"
+    pack = resource_pack()
+    module = dictionary(career.get("role_module"))
+    main_role = module.get("role_id") or next(iter(profile.get("freq_roles") or []), None)
+    visible_matches = [match_row(item) for item in titles[: query.limit]]
+    recent = {
+        "count": len(visible_matches),
+        "wins": sum(item["tone"] == "win" for item in visible_matches),
+        "losses": sum(item["tone"] == "loss" for item in visible_matches),
+        "draws": sum(item["tone"] == "draw" for item in visible_matches),
+    }
+    common_roles = [
+        {
+            "name": role_name(item),
+            "icon": pack.role_image(item),
+            "team": pack.records("characters").get(item, {}).get("team", ""),
+        }
+        for item in (profile.get("freq_roles") or [])[:6]
+    ]
+    collect = dictionary(career.get("collect"))
     return {
         "title": VIEW_NAMES[query.view],
         "view": query.view,
@@ -241,14 +270,20 @@ def report_context(report: Report) -> dict:
         "player_id": report.player_id,
         "initial": str(profile.get("nick") or query.target)[:1],
         "avatar_data_uri": report.avatar_data_uri,
+        "portrait": pack.role_image(main_role or 101, portrait=True),
+        "portrait_name": role_name(main_role) if main_role else "喵喵档案助手",
+        "portrait_team": pack.records("characters").get(main_role, {}).get("team", ""),
+        "rank_badge": pack.rank_image(profile.get("rank")),
+        "backdrop": pack.map_image(titles[0].get("map_id") if titles else 200, background=True),
+        "game_font": pack.data_uri(pack.resolve("fonts/Game-Semibold.ttf")),
+        "number_font": pack.data_uri(pack.resolve("fonts/orbitron-medium.otf")),
         "switch_command": f"{command} 对局战绩",
         "overview_command": f"{command} 玩家概览",
         "level": number(profile.get("level")),
         "rank": rank_name(profile.get("rank")),
         "grade": number(profile.get("grade_score")),
-        "status": f"状态码 {status['online_status']}"
-        if "online_status" in status
-        else "状态未提供",
+        "status": pack.status_name(status.get("online_status")),
+        "online": status.get("online_status") == 1,
         "updated": report.fetched_at.astimezone(SHANGHAI).strftime("%Y-%m-%d %H:%M:%S"),
         "metrics": [
             ("公开对局数", number(total)),
@@ -264,10 +299,22 @@ def report_context(report: Report) -> dict:
             ("战队", dictionary(career.get("clan_show_info")).get("clan_name") or "—"),
             ("获赞", number(dictionary(career.get("player")).get("laud"))),
         ],
-        "freq_roles": [role_name(item) for item in (profile.get("freq_roles") or [])],
+        "freq_roles": common_roles,
+        "collection": [
+            ("角色", number(collect.get("role_own")), number(collect.get("role_max"))),
+            ("时装", number(collect.get("skin_own")), number(collect.get("skin_max"))),
+            (
+                "枪械外观",
+                number(collect.get("weapon_skin_own")),
+                number(collect.get("weapon_skin_max")),
+            ),
+        ]
+        if collect
+        else [],
         "modes": objects(stats.get("battle_infos")),
         "roles": roles,
-        "matches": [match_row(item) for item in titles[: query.limit]],
+        "matches": visible_matches,
+        "recent": recent,
         "match_summary": match_row(selected_match) if selected_match else None,
         "match_teams": teams,
         "room_id": query.room_id,
@@ -283,7 +330,14 @@ def report_context(report: Report) -> dict:
         "season_id": query.season_id,
         "season_type": query.season_type,
         "index": query.index,
-        "filter": f"模式 {query.game_mode} / 房间 {query.room_mode_type} / 玩法 {query.play_mode}",
+        "filter": " / ".join(
+            [
+                pack.mode_name(query.game_mode)
+                or ("全部模式" if query.game_mode == 0 else f"模式 #{query.game_mode}")
+            ]
+            + ([f"房间 {query.room_mode_type}"] if query.room_mode_type else [])
+            + ([f"玩法 {query.play_mode}"] if query.play_mode else [])
+        ),
         "warnings": report.warnings,
     }
 
@@ -300,6 +354,7 @@ def render_html(report: Report) -> str:
         role_name=role_name,
         rank_name=rank_name,
         mode_name=mode_name,
+        role_icon=resource_pack().role_image,
     )
     return env.get_template("report.html").render(
         **report_context(report), css=(TEMPLATE_DIR / "report.css").read_text(encoding="utf-8")

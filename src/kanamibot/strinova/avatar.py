@@ -12,9 +12,10 @@ import httpx
 from PIL import Image, UnidentifiedImageError
 
 from .client import DEFAULT_AVATAR_URL_TEMPLATE
+from .resources import CACHE_DIR, resource_pack
 
 MAX_AVATAR_BYTES = 2 * 1024 * 1024
-DEFAULT_CACHE_DIR = Path(__file__).resolve().parents[3] / "data" / "strinova" / "avatars"
+DEFAULT_CACHE_DIR = CACHE_DIR / "avatars"
 
 
 class AvatarError(ValueError):
@@ -46,6 +47,12 @@ async def load_avatar(
 ) -> str:
     if not isinstance(icon, int) or isinstance(icon, bool) or not 0 < icon <= 2**32 - 1:
         raise AvatarError("API 未提供有效的头像编号。")
+    local = resource_pack().avatar_path(icon)
+    if local is not None:
+        try:
+            return image_data_uri(local.read_bytes())
+        except (OSError, AvatarError):
+            pass
     try:
         url = url_template.format(icon=icon)
         parsed = urlsplit(url)

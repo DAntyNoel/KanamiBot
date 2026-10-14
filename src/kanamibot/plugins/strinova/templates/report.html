@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><title>{{ name }} · {{ title }}</title>
+<style>
+{% if game_font %}@font-face { font-family: GameSans; src: url('{{ game_font }}'); font-weight: 100 900; }{% endif %}
+{% if number_font %}@font-face { font-family: GameNumbers; src: url('{{ number_font }}'); font-weight: 100 900; }{% endif %}
+{{ css | safe }}
+</style></head>
+<body><div id="report">
+  {% if backdrop %}<div class="canvas-backdrop" style="background-image:url('{{ backdrop }}')"></div>{% endif %}
+  <div class="sheet">
+  <header>
+    <div class="brand"><span class="brand-mark"><i></i></span><strong>卡丘战绩档案</strong><span class="en">NAVIGATOR ARCHIVE</span></div>
+    <div class="capture"><span>{{ title }}</span><time>{{ updated }}</time></div>
+  </header>
+
+  <section class="hero">
+    {% if backdrop %}<img class="hero-scene" src="{{ backdrop }}" alt="">{% endif %}
+    <div class="hero-wash"></div>
+    {% if portrait %}<img class="hero-portrait" src="{{ portrait }}" alt="{{ portrait_name }}">{% endif %}
+    <div class="hero-content">
+      <div class="player">
+        <div class="avatar-shell"><div class="avatar">{% if avatar_data_uri %}<img src="{{ avatar_data_uri }}" alt="{{ name }} 的游戏头像">{% else %}{{ initial }}{% endif %}</div><span>MEOW ID</span></div>
+        <div class="player-info"><p class="overline">引航者 · 意识档案</p><h1>{{ name }}</h1><div class="identity"><b>ID {{ player_id }}</b><span>Lv. {{ level }}</span><span class="status {{ 'online' if online else '' }}">{{ status }}</span></div></div>
+      </div>
+      <div class="metrics">{% for label, value in metrics %}<div class="metric"><label>{{ label }}</label><strong>{{ value }}</strong></div>{% endfor %}</div>
+    </div>
+    <div class="portrait-label"><span>{{ portrait_team or '档案助手' }}</span><b>{{ portrait_name }}</b><small>今日也要漂亮取胜喵。</small></div>
+  </section>
+
+  <nav class="tabs">
+    {% for key, label in [('overview','玩家概览'),('profile','引航者资料'),('career','生涯数据'),('standings','对局战绩')] %}
+    <span class="tab {{ 'active' if view == key or (key == 'career' and view == 'history') or (key == 'standings' and view == 'match') or (key == 'profile' and view == 'status') else '' }}">{{ label }}</span>
+    {% endfor %}<span class="tab-end en">STRING SYNC / 01</span>
+  </nav>
+
+  <div class="switch-hint"><span class="hint-tag">切换喵</span><div><code>{{ switch_command }}</code><span class="separator">｜</span><code>{{ overview_command }}</code><small>末尾也可填写「引航者资料」或「生涯数据」</small></div></div>
+  {% if warnings %}<div class="notice">{% for warning in warnings %}<div>{{ warning }}</div>{% endfor %}</div>{% endif %}
+
+  {% if view in ['overview','profile'] %}
+  <div class="overview-grid {{ 'profile-only' if view == 'profile' else '' }}">
+    <section class="panel rank-panel">
+      <div class="section-title"><h2>段位与资料</h2><span class="en">RANK FILE</span></div>
+      <div class="rank-main">{% if rank_badge %}<img src="{{ rank_badge }}" alt="{{ rank }}">{% endif %}<div><span class="rank-name">{{ rank }}</span><strong class="rank-score">{{ grade }}</strong><small>段位积分</small></div></div>
+      <div class="facts">{% for label, value in facts[2:] %}<div class="fact"><label>{{ label }}</label><strong>{{ value }}</strong></div>{% endfor %}</div>
+      {% if collection %}<div class="collection">{% for label, owned, total in collection %}<div><label>{{ label }}</label><b>{{ owned }}</b><small>/ {{ total }}</small></div>{% endfor %}</div>{% endif %}
+    </section>
+    {% if view == 'overview' %}
+    <section class="panel mode-panel">
+      <div class="section-title"><h2>生涯模式统计</h2><span class="caption">按模式分别计算</span></div>
+      {% if modes %}<table class="mode-table"><thead><tr><th>模式</th><th>对局</th><th>胜率</th><th>K/D</th><th>击杀/场</th><th>伤害/场</th></tr></thead><tbody>{% for row in modes %}<tr><td>{{ mode_name(row) }}</td><td>{{ number(row.get('round')) }}</td><td class="accent">{{ percent(row.get('win_rate')) }}</td><td>{{ number(row.get('k_d'),2) }}</td><td>{{ number(row.get('ave_kill'),1) }}</td><td>{{ number(row.get('ave_damage')) }}</td></tr>{% endfor %}</tbody></table>{% else %}<div class="empty">生涯模式数据暂未提供。</div>{% endif %}
+      <div class="role-heading"><span>常用超弦体</span><small>作战搭档已归档喵</small></div>
+      {% if freq_roles %}<div class="role-roster">{% for role in freq_roles %}<div class="role-chip">{% if role.icon %}<img src="{{ role.icon }}" alt="">{% endif %}<span>{{ role.name }}<small>{{ role.team }}</small></span></div>{% endfor %}</div>{% else %}<div class="empty">暂无常用超弦体记录。</div>{% endif %}
+      <p class="caption compact-note">顶部总览来自公开资料快照，可能与生涯数据的缓存时间不同。</p>
+    </section>
+    {% endif %}
+  </div>
+  {% if view == 'profile' and freq_roles %}<section class="panel"><div class="section-title"><h2>常用超弦体</h2></div><div class="role-roster wide">{% for role in freq_roles %}<div class="role-chip">{% if role.icon %}<img src="{{ role.icon }}" alt="">{% endif %}<span>{{ role.name }}<small>{{ role.team }}</small></span></div>{% endfor %}</div></section>{% endif %}
+  {% endif %}
+
+  {% if view == 'status' %}<section class="panel"><div class="section-title"><h2>当前状态快照</h2><span class="en">SIGNAL LOG</span></div><div class="status-facts">{% for label, value in [('在线状态',status),('最近登录',last_login),('最近离线',last_logout),('记录中的开局时间',battle_start),('记录中的比分',battle_scores)] %}<div class="fact"><label>{{ label }}</label><strong>{{ value }}</strong></div>{% endfor %}</div><p class="caption">开局时间与比分可能来自历史缓存，以游戏内状态为准。</p></section>{% endif %}
+
+  {% if view == 'history' %}<section class="panel"><div class="section-title"><h2>历史赛季 {{ season_id }}</h2><span class="en">SEASON FILE</span></div>{% if history_available %}<div class="status-facts">{% for label,value in [('赛季最终段位',rank_name(history.get('final_seg'))),('赛季最终积分',number(history.get('final_grade_score'))),('赛季最高段位',rank_name(history.get('top_seg')))] %}<div class="fact"><label>{{ label }}</label><strong>{{ value }}</strong></div>{% endfor %}</div>{% else %}<div class="empty">该赛季数据暂不可用，详见上方提示。</div>{% endif %}</section>{% endif %}
+
+  {% if view in ['career','history'] %}
+  <section class="panel"><div class="section-title"><h2>{{ '历史赛季统计' if view == 'history' else '生涯模式统计' }}</h2><span class="caption">赛季 {{ season_id }} · 类型 {{ season_type }}</span></div>{% if modes %}<table><thead><tr><th>模式</th><th>对局</th><th>胜率</th><th>K/D</th><th>击杀/场</th><th>伤害/场</th><th>爆头率</th></tr></thead><tbody>{% for row in modes %}<tr><td>{{ mode_name(row) }}</td><td>{{ number(row.get('round')) }}</td><td class="accent">{{ percent(row.get('win_rate')) }}</td><td>{{ number(row.get('k_d'),2) }}</td><td>{{ number(row.get('ave_kill'),1) }}</td><td>{{ number(row.get('ave_damage')) }}</td><td>{{ percent(row.get('head_hit_rate')) }}</td></tr>{% endfor %}</tbody></table>{% else %}<div class="empty">模式统计暂不可用。</div>{% endif %}{% if view == 'career' and warnings %}<p class="caption">赛季统计不可用时，表格展示公开生涯数据。</p>{% endif %}</section>
+  {% if roles %}<section class="panel"><div class="section-title"><h2>常用角色表现</h2><span class="caption">按使用次数排序 · 不同模式分别计算</span></div><table><thead><tr><th>超弦体</th><th>模式</th><th>使用次数</th><th>胜率</th><th>击杀</th><th>死亡</th><th>伤害</th></tr></thead><tbody>{% for row in roles %}<tr><td><span class="table-role">{% if role_icon(row.get('role_id')) %}<img src="{{ role_icon(row.get('role_id')) }}" alt="">{% endif %}{{ role_name(row.get('role_id')) }}</span></td><td>{{ mode_name(row) }}</td><td>{{ number(row.get('count')) }}</td><td>{{ percent(row.get('pure_win_rate')) }}</td><td>{{ number(row.get('kill_num')) }}</td><td>{{ number(row.get('dead_num')) }}</td><td>{{ number(row.get('damage')) }}</td></tr>{% endfor %}</tbody></table><p class="caption">同局可以切换角色，使用次数不能相加作为总对局数。</p></section>{% endif %}
+  {% endif %}
+
+  {% if view in ['overview','standings'] %}
+  <section class="panel standings-panel"><div class="section-title"><h2>最近战绩</h2><div class="recent-summary"><b>{{ recent.wins }}胜</b><span>{{ recent.losses }}负</span>{% if recent.draws %}<span>{{ recent.draws }}平</span>{% endif %}<small>本图 {{ recent.count }} 场 · 第 {{ index }} 页 · {{ filter }}</small></div></div>
+    <div class="match-grid">{% for row in matches %}<article class="match {{ row.tone }}">
+      {% if row.map_image %}<img class="match-map-art" src="{{ row.map_image }}" alt="">{% endif %}<div class="match-wash"></div>
+      <div class="match-top"><div class="result">{{ row.result }}<b>{{ row.score }}</b></div><div class="match-info"><strong>{{ row.map }}</strong><span>{{ row.mode }} · {{ row.time }}</span></div><b class="delta {{ 'positive' if row.positive else '' }}">{{ row.change }}</b></div>
+      <div class="match-bottom"><span class="match-role">{% if row.role_icon %}<img src="{{ row.role_icon }}" alt="">{% endif %}{{ row.role }}</span><strong class="kda">{{ row.kda }}</strong><span class="damage">伤害 {{ row.damage }}</span></div>
+      <div class="match-foot"><span>{{ row.duration }}</span><small>ROOM {{ row.room_id }}</small><span>K / D / A</span></div>
+    </article>{% else %}<div class="empty full">{{ '这一页没有返回对局记录。可以更换页码或模式。' if standings_available else '近期战绩暂不可用，详见上方提示。' }}</div>{% endfor %}</div>
+  </section>
+  {% endif %}
+
+  {% if view == 'match' %}
+  <section class="panel"><div class="section-title"><h2>单局详情</h2><span class="caption">ROOM {{ room_id }}</span></div>{% if match_summary %}<div class="duel-summary"><b class="{{ match_summary.tone }}">{{ match_summary.result }} · {{ match_summary.score }}</b><span>{{ match_summary.map }}</span><span>{{ match_summary.time }}</span><span>{{ match_summary.mode }}</span></div>{% endif %}
+    <div class="team-grid">{% for team, players in match_teams.items() %}<div class="team-panel"><div class="team-title">队伍 {{ team }}<span class="en">TEAM {{ team }}</span></div><table><thead><tr><th>玩家 / 超弦体</th><th>K / D / A</th><th>伤害</th><th>评分</th></tr></thead><tbody>{% for player in players %}<tr class="{{ 'self' if player.self else '' }}"><td><div class="team-player">{% if player.avatar %}<img src="{{ player.avatar }}" alt="">{% elif player.role_icon %}<img src="{{ player.role_icon }}" alt="">{% endif %}<span><b>{{ player.nick }}{% if player.self %} · 查询玩家{% endif %}</b><small>{{ player.role }} <em>{{ player.award }}</em></small></span></div></td><td class="team-kda">{{ player.kda }}</td><td>{{ player.damage }}</td><td>{{ player.score }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<div class="empty full">{{ 'API 未返回该对局的玩家统计。' if match_available else '单局详情暂不可用，详见上方提示。' }}</div>{% endfor %}</div>
+  </section>
+  {% endif %}
+
+  <footer><span>不同数据的缓存周期不同，以游戏内为准。— 表示缺失；未识别条目保留编号。</span><b>记录收好啦喵 · KanamiBot</b></footer>
+  </div>
+</div></body></html>

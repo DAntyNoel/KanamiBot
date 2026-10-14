@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import io
+import json
 import sys
 import tempfile
 import unittest
@@ -16,6 +17,7 @@ from kanamibot.strinova.avatar import AvatarError, image_data_uri, load_avatar
 from kanamibot.strinova.client import APIError, ServiceUnavailable, Settings, StrinovaClient
 from kanamibot.strinova.query import VIEWS, Query, QueryError, parse_query, query_from_args
 from kanamibot.strinova.render import match_row, render_html, report_context
+from kanamibot.strinova.resources import ResourcePack
 from kanamibot.strinova.service import Report, fetch_report, resolve_player
 
 PLAYER = {"player_id": 123456, "nick": "测试玩家", "level": 12, "rank": 22}
@@ -327,6 +329,24 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
 
 
 class RenderingTests(unittest.TestCase):
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        pack = ResourcePack(Path(folder.name))
+        mocked = patch("kanamibot.strinova.render.resource_pack", return_value=pack)
+        mocked.start()
+        self.addCleanup(mocked.stop)
+
+    def test_every_view_renders_without_an_installed_resource_pack(self):
+        for view in VIEWS:
+            with self.subTest(view=view):
+                html = render_html(
+                    Report(Query("测试玩家", view=view, room_id=ROOM_ID), "123456", PLAYER)
+                )
+                self.assertIn("测试玩家", html)
+                self.assertIn("#卡丘战绩 测试玩家 对局战绩", html)
+                self.assertNotIn('src="http', html)
+
     def test_picture_includes_real_avatar_and_roundtrippable_switch_commands(self):
         with io.BytesIO() as buffer:
             Image.new("RGB", (4, 4), "green").save(buffer, format="PNG")
@@ -505,6 +525,33 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
 
 
 class AvatarTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.pack = ResourcePack(Path(folder.name))
+        mocked = patch("kanamibot.strinova.avatar.resource_pack", return_value=self.pack)
+        mocked.start()
+        self.addCleanup(mocked.stop)
+
+    async def test_local_avatar_is_used_without_network_or_external_cache(self):
+        local = self.pack.root / "images/PaperMan/UI/Atlas/DynamicResource/IdCard/Appearance"
+        local.mkdir(parents=True)
+        avatar = local / "T_Dynamic_IdCard_31001183_icon.png"
+        Image.new("RGB", (4, 4), "pink").save(avatar)
+        requests = []
+
+        def unavailable(request):
+            requests.append(request)
+            return httpx.Response(503)
+
+        with tempfile.TemporaryDirectory() as folder:
+            actual = await load_avatar(
+                31001183, cache_dir=Path(folder), transport=httpx.MockTransport(unavailable)
+            )
+            self.assertEqual(actual, image_data_uri(avatar.read_bytes()))
+            self.assertEqual(requests, [])
+            self.assertEqual(list(Path(folder).iterdir()), [])
+
     async def test_real_image_is_embedded_and_cached_by_icon(self):
         with io.BytesIO() as buffer:
             Image.new("RGB", (4, 4), "green").save(buffer, format="PNG")
@@ -553,6 +600,55 @@ class AvatarTests(unittest.IsolatedAsyncioTestCase):
                     lambda _: httpx.Response(200, content=b"x" * (2 * 1024 * 1024 + 1))
                 ),
             )
+
+
+class ResourceTests(unittest.TestCase):
+    def test_paths_stay_inside_pack_and_only_verified_metadata_is_used(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder) / "pack"
+            (root / "mappings").mkdir(parents=True)
+            image = root / "images/PaperMan/avatar.png"
+            image.parent.mkdir(parents=True)
+            Image.new("RGB", (4, 4), "pink").save(image)
+            (Path(folder) / "outside.png").write_bytes(image.read_bytes())
+            (root / "mappings/avatars.json").write_text(
+                json.dumps(
+                    [
+                        {
+                            "id": 1,
+                            "verified": True,
+                            "extracted_paths": {
+                                "IconItem": {"png": "strinova_resources/images/PaperMan/avatar.png"}
+                            },
+                        },
+                        {"id": 2, "verified": False},
+                        {"id": 3},
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            pack = ResourcePack(root)
+            self.assertEqual(pack.avatar_path(1), image.resolve())
+            self.assertEqual(pack.resolve("/Game/PaperMan/avatar.avatar"), image.resolve())
+            self.assertEqual(list(pack.records("avatars")), [1])
+            self.assertIsNone(pack.resolve("../outside.png"))
+            self.assertIsNone(pack.resolve(str(Path(folder) / "outside.png")))
+            self.assertIsNone(pack.data_uri(Path(folder) / "outside.png"))
+            self.assertEqual(pack.mapping("../outside"), {})
+
+    def test_missing_or_malformed_metadata_preserves_unknown_values(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "mappings").mkdir()
+            (root / "mappings/game_modes.json").write_text("[]", encoding="utf-8")
+            (root / "mappings/enums.json").write_text("{bad json", encoding="utf-8")
+            pack = ResourcePack(root)
+            self.assertIsNone(pack.mode_name(5))
+            self.assertEqual(pack.map_name(207), "地图 #207")
+            self.assertEqual(pack.status_name(None), "状态未提供")
+            self.assertEqual(pack.status_name(1), "状态码 1")
+            self.assertIsNone(pack.role_image(101))
+            self.assertIsNone(pack.image_path({"extracted_paths": []}, "IconItem"))
 
 
 if __name__ == "__main__":

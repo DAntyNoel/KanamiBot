@@ -19,3 +19,8 @@ __pycache__/
 .DS_Store
 
 AGENTS.md
+
+# Strinova resource pack, copied game fonts, and generated image caches.
+/src/kanamibot/plugins/strinova/resources/
+/src/kanamibot/plugins/strinova/cache/
+/src/kanamibot/plugins/strinova/*.7z
