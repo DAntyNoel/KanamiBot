@@ -19,11 +19,13 @@ from kanamibot.strinova.service import QUERY_TIMEOUT_SECONDS, check_available, c
 USAGE = (
     "#卡丘战绩 {昵称或ID}（默认玩家概览）\n"
     "#卡丘战绩 {昵称或ID} 对局战绩\n"
+    "#卡丘战绩 {昵称或ID} 对局战绩 排位\n"
+    "模式可填完整名称，或排位 / 枪王 / 生化等简称\n"
     "界面可选：玩家概览 / 引航者资料 / 当前状态 / 生涯数据 / 历史赛季 / 单局详情\n"
     "也支持：#卡丘 / #卡丘资料 / #卡丘状态 / #卡丘生涯 {昵称或ID}\n"
     "#卡丘赛季 {昵称或ID} --season-id 25\n"
     "#卡丘对局 {昵称或ID} --room-id {房间ID}\n"
-    "可选：--player-id ID / --nick 昵称 / --index 1 / --limit 8 / "
+    "可选：--player-id ID / --nick 昵称 / --mode 排位爆破 / --index 1 / --limit 8 / "
     "--game-mode 0 / --room-mode-type 0 / --play-mode 0 / --season-type 1"
 )
 ENABLED = os.getenv("KANAMIBOT_STRINOVA_ENABLED", "true").lower() in ("1", "true", "yes", "on")

@@ -59,6 +59,30 @@ class QueryTests(unittest.TestCase):
         self.assertEqual(parse_query('"Player Name" --index 2').target, "Player Name")
         self.assertEqual(parse_query("Player Name --index 2").target, "Player Name")
 
+    def test_recent_match_modes_accept_names_aliases_and_unambiguous_prefixes(self):
+        for text, expected_view, expected_mode in (
+            ("测试玩家 对局战绩 排位", "standings", 5),
+            ("测试玩家 对局战绩 一般爆破", "standings", 2),
+            ("测试玩家 生化", "overview", 13),
+            ("测试玩家 --mode 枪王", "overview", 30),
+            ("测试玩家 对局战绩 晶源感", "standings", 13),
+            ("测试玩家 --game-mode 31", "overview", 31),
+        ):
+            with self.subTest(text=text):
+                query = parse_query(text)
+                self.assertEqual(
+                    (query.target, query.view, query.game_mode),
+                    ("测试玩家", expected_view, expected_mode),
+                )
+        for text, message in (
+            ("测试玩家 --mode 晶源", "可指"),
+            ("测试玩家 --mode 不存在", "未知战绩模式"),
+            ("测试玩家 --mode 枪王 --game-mode 5", "不一致"),
+            ("测试玩家 生涯数据 --mode 排位", "仅适用于"),
+        ):
+            with self.subTest(text=text), self.assertRaisesRegex(QueryError, message):
+                parse_query(text)
+
     def test_room_id_keeps_integer_precision_and_rejects_path_input(self):
         self.assertEqual(parse_query(f"测试玩家 --view match --room-id {ROOM_ID}").room_id, ROOM_ID)
         for text in (
@@ -315,6 +339,16 @@ class HealthTests(unittest.IsolatedAsyncioTestCase):
 
 
 class ServiceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_named_recent_mode_reaches_standings_api(self):
+        client = SimpleNamespace(
+            search=AsyncMock(return_value={"friends": [PLAYER]}),
+            profile=AsyncMock(return_value={"friend": PLAYER}),
+            standings=AsyncMock(return_value={"titles": []}),
+        )
+        report = await fetch_report(client, parse_query("测试玩家 对局战绩 枪王"))
+        client.standings.assert_awaited_once_with("123456", 1, 30, 0, 0)
+        self.assertEqual(report_context(report)["filter"], "枪王乱斗")
+
     async def test_exact_nickname_selection_and_ambiguous_search(self):
         client = SimpleNamespace(
             search=AsyncMock(
@@ -454,9 +488,7 @@ class RenderingTests(unittest.TestCase):
         report = Report(Query("测试玩家"), "123456", PLAYER, avatar_data_uri=avatar)
         html = render_html(report)
         self.assertIn(f'src="{avatar}"', html)
-        self.assertIn(
-            "#卡丘战绩 玩家名 玩家概览/引航者资料/生涯数据/对局战绩 可切换展示页", html
-        )
+        self.assertIn("#卡丘战绩 玩家名 玩家概览/引航者资料/生涯数据/对局战绩 可切换展示页", html)
         for query in (
             Query("Player Name"),
             Query("12345"),
@@ -509,8 +541,12 @@ class RenderingTests(unittest.TestCase):
         for scores in (None, [], "3-7"):
             self.assertEqual(match_row({"my_team": 2, "scores": scores})["score"], "—")
         row = match_row({"my_team": 2, "scores": [3, 7, 4]})
-        self.assertEqual(row["score"], "3 : 7 : 4")
-        self.assertEqual(row["score_label"], "队伍原始顺序")
+        self.assertEqual((row["score"], row["score_label"]), ("—", "多方对局"))
+        gun_king = match_row(
+            {"game_mode": 30, "my_team": 2, "scores": [739151, 736117, 1161000, 139081, 738063]}
+        )
+        self.assertEqual((gun_king["score"], gun_king["score_label"]), ("—", "无队伍比分"))
+        self.assertEqual(match_row({"my_team": 1, "scores": [739151, 736117]})["score"], "—")
 
     def test_score_order_is_shared_by_overview_standings_and_match_summary(self):
         title = {"my_team": 2, "winner_team": [2], "scores": [3, 7], "room_id": ROOM_ID}

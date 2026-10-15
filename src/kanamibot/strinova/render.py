@@ -8,7 +8,7 @@ from datetime import timedelta, timezone
 from typing import Any
 
 from .client import Settings
-from .query import QueryError
+from .query import GAME_MODE_NAMES, QueryError
 from .resources import PLUGIN_DIR, resource_pack
 from .service import Report
 
@@ -135,7 +135,10 @@ def rank_name(value: Any) -> str:
 
 
 def mode_name(row: dict) -> str:
-    named = resource_pack().mode_name(row.get("game_mode"))
+    game_mode = row.get("game_mode")
+    named = resource_pack().mode_name(game_mode)
+    if not named and type(game_mode) is int:
+        named = GAME_MODE_NAMES.get(game_mode)
     if named:
         return named
     # Unknown entries retain their original enum values.
@@ -159,9 +162,15 @@ def match_score(row: dict) -> tuple[str, str]:
     scores = row.get("scores")
     if not isinstance(scores, list) or not scores:
         return "—", "比分未提供"
+    if row.get("game_mode") == 30:
+        return "—", "无队伍比分"
+    if len(scores) != 2:
+        return "—", "多方对局"
+    if any(type(score) is not int or not 0 <= score <= 999 for score in scores):
+        return "—", "比分未提供"
     team = row.get("my_team")
     # The API array is indexed by team ID: [team 1, team 2], not by the queried player.
-    if len(scores) == 2 and type(team) is int and team in (1, 2):
+    if type(team) is int and team in (1, 2):
         own, opponent = scores[team - 1], scores[2 - team]
         return f"{own} : {opponent}", "我方 : 对方"
     return " : ".join(str(item) for item in scores), "队伍原始顺序"
@@ -351,6 +360,7 @@ def report_context(report: Report) -> dict:
         "filter": " / ".join(
             [
                 pack.mode_name(query.game_mode)
+                or GAME_MODE_NAMES.get(query.game_mode)
                 or ("全部模式" if query.game_mode == 0 else f"模式 #{query.game_mode}")
             ]
             + ([f"房间 {query.room_mode_type}"] if query.room_mode_type else [])
