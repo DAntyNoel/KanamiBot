@@ -83,6 +83,21 @@ class QueryTests(unittest.TestCase):
             with self.subTest(text=text), self.assertRaisesRegex(QueryError, message):
                 parse_query(text)
 
+    def test_recent_match_page_accepts_chinese_suffix_and_option_alias(self):
+        plain = parse_query("测试玩家 对局战绩 第2页")
+        self.assertEqual((plain.view, plain.index, plain.game_mode), ("standings", 2, 0))
+        for text in (
+            "测试玩家 对局战绩 枪王 第2页",
+            "测试玩家 对局战绩 第2页 枪王",
+            "测试玩家 枪王 --page 2",
+            "测试玩家 枪王 --index 2",
+        ):
+            with self.subTest(text=text):
+                query = parse_query(text)
+                self.assertEqual((query.target, query.index, query.game_mode), ("测试玩家", 2, 30))
+        with self.assertRaisesRegex(QueryError, "页码不一致"):
+            parse_query("测试玩家 对局战绩 第2页 --page 3")
+
     def test_room_id_keeps_integer_precision_and_rejects_path_input(self):
         self.assertEqual(parse_query(f"测试玩家 --view match --room-id {ROOM_ID}").room_id, ROOM_ID)
         for text in (
@@ -339,6 +354,55 @@ class HealthTests(unittest.IsolatedAsyncioTestCase):
 
 
 class ServiceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_recent_pages_cover_all_records_across_api_batches(self):
+        for total, page, first, last, has_more, api_pages in (
+            (45, 1, 1, 8, True, [1]),
+            (45, 2, 9, 16, True, [1]),
+            (45, 3, 17, 24, True, [1, 2]),
+            (45, 6, 41, 45, False, [3]),
+            (40, 5, 33, 40, False, [2, 3]),
+        ):
+            with self.subTest(page=page):
+                all_rows = [{"room_id": str(index)} for index in range(1, total + 1)]
+                client = SimpleNamespace(
+                    search=AsyncMock(return_value={"friends": [PLAYER]}),
+                    profile=AsyncMock(return_value={"friend": PLAYER}),
+                    standings=AsyncMock(
+                        side_effect=lambda _, api_page, *filters, rows=all_rows: {
+                            "titles": rows[(api_page - 1) * 20 : api_page * 20]
+                        }
+                    ),
+                )
+                query = parse_query(f"测试玩家 对局战绩 枪王 第{page}页")
+                report = await fetch_report(client, query)
+                self.assertEqual(
+                    [int(row["room_id"]) for row in report.sections["standings"]["titles"]],
+                    list(range(first, last + 1)),
+                )
+                self.assertEqual(report.sections["standings"]["has_more"], has_more)
+                self.assertEqual(
+                    [call.args[1] for call in client.standings.await_args_list], api_pages
+                )
+                self.assertTrue(
+                    all(call.args[2] == 30 for call in client.standings.await_args_list)
+                )
+                context = report_context(report)
+                if page > 1:
+                    previous_query = parse_query(
+                        context["previous_page_command"].removeprefix("#卡丘战绩 ")
+                    )
+                    self.assertEqual(previous_query.index, page - 1)
+                else:
+                    self.assertIsNone(context["previous_page_command"])
+                if has_more:
+                    next_command = context["next_page_command"]
+                    self.assertIn("第" + str(page + 1) + "页", render_html(report))
+                    next_query = parse_query(next_command.removeprefix("#卡丘战绩 "))
+                    self.assertEqual((next_query.index, next_query.game_mode), (page + 1, 30))
+                else:
+                    self.assertIsNone(context["next_page_command"])
+                    self.assertNotIn("还有未显示的战绩", render_html(report))
+
     async def test_named_recent_mode_reaches_standings_api(self):
         client = SimpleNamespace(
             search=AsyncMock(return_value={"friends": [PLAYER]}),
@@ -402,6 +466,38 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
 
 
 class RenderingTests(unittest.TestCase):
+    def test_page_hint_preserves_filters_and_display_limit(self):
+        report = Report(
+            Query(
+                "测试玩家",
+                view="standings",
+                index=2,
+                limit=10,
+                game_mode=5,
+                room_mode_type=2,
+                play_mode=3,
+            ),
+            "123456",
+            PLAYER,
+            sections={
+                "standings": {"titles": [{"room_id": str(i)} for i in range(10)], "has_more": True}
+            },
+        )
+        context = report_context(report)
+        next_command = context["next_page_command"]
+        next_query = parse_query(next_command.removeprefix("#卡丘战绩 "))
+        self.assertEqual(
+            (
+                next_query.index,
+                next_query.limit,
+                next_query.game_mode,
+                next_query.room_mode_type,
+                next_query.play_mode,
+            ),
+            (3, 10, 5, 2, 3),
+        )
+        self.assertIn(next_command, render_html(report))
+
     def setUp(self):
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)

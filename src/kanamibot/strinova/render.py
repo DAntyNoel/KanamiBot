@@ -274,6 +274,27 @@ def report_context(report: Report) -> dict:
     if type(main_role) is not int or main_role <= 0:
         main_role = None
     visible_matches = [match_row(item) for item in titles[: query.limit]]
+    standings = report.sections.get("standings", {})
+    has_more = standings.get("has_more")
+    if type(has_more) is not bool:
+        has_more = len(titles) > query.limit
+    page_view = VIEW_NAMES[query.view] if query.view in ("overview", "standings") else "对局战绩"
+    mode_suffix = (
+        f" {GAME_MODE_NAMES[query.game_mode]}" if query.game_mode in GAME_MODE_NAMES else ""
+    )
+    page_options = ""
+    if query.game_mode and not mode_suffix:
+        page_options += f" --game-mode {query.game_mode}"
+    if query.room_mode_type:
+        page_options += f" --room-mode-type {query.room_mode_type}"
+    if query.play_mode:
+        page_options += f" --play-mode {query.play_mode}"
+    if query.limit != 8:
+        page_options += f" --limit {query.limit}"
+
+    def page_command(index: int) -> str:
+        return f"{command} {page_view}{mode_suffix} 第{index}页{page_options}"
+
     recent = {
         "count": len(visible_matches),
         "wins": sum(item["tone"] == "win" for item in visible_matches),
@@ -342,6 +363,10 @@ def report_context(report: Report) -> dict:
         "roles": roles,
         "matches": visible_matches,
         "recent": recent,
+        "previous_page_command": page_command(query.index - 1) if query.index > 1 else None,
+        "next_page_command": page_command(query.index + 1)
+        if has_more and query.index < 1000
+        else None,
         "match_summary": match_row(selected_match) if selected_match else None,
         "match_teams": teams,
         "room_id": query.room_id,

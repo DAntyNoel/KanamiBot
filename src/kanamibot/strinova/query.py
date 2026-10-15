@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import shlex
 from dataclasses import dataclass
 
@@ -65,7 +66,7 @@ def add_query_arguments(parser: argparse.ArgumentParser, *, view: str = "overvie
     parser.add_argument("--view", choices=VIEWS, help="也可在玩家名后追加中文界面名称")
     parser.add_argument("--season-id", type=int, default=0)
     parser.add_argument("--season-type", type=int, default=1)
-    parser.add_argument("--index", type=int, default=1, help="战绩页码，从 1 开始")
+    parser.add_argument("--index", "--page", type=int, help="最近战绩的图片页码，从 1 开始")
     parser.add_argument("--game-mode", type=int, help="模式编号；0 表示全部模式")
     parser.add_argument("--mode", help="最近战绩的中文模式名、简称或唯一前缀")
     parser.add_argument("--room-mode-type", type=int, default=0)
@@ -140,26 +141,27 @@ def query_from_args(args: argparse.Namespace) -> Query:
     nickname = list(args.nickname)
     view = args.view
     mode = args.mode
-
-    def take_view() -> None:
-        nonlocal view
-        if not nickname or nickname[-1] not in VIEW_LABELS:
-            return
-        if len(nickname) == 1 and args.player_id is None and args.nick is None:
-            return
-        selected = VIEW_LABELS[nickname.pop()]
-        if view is not None and view != selected:
-            raise QueryError("中文界面名称与 --view 不一致，请只指定一种界面。")
-        view = selected
-
-    take_view()
-    if len(nickname) > 1 or ((args.player_id is not None or args.nick is not None) and nickname):
+    index = args.index
+    while nickname and (len(nickname) > 1 or args.player_id is not None or args.nick is not None):
         suffix = nickname[-1]
-        if suffix in GAME_MODE_ALIASES or any(name.startswith(suffix) for name in GAME_MODES):
+        page = re.fullmatch(r"第(\d+)页", suffix)
+        if page:
+            selected = int(page.group(1))
+            if index is not None and index != selected:
+                raise QueryError("页码不一致，请只指定一个页码。")
+            index = selected
+            nickname.pop()
+        elif suffix in VIEW_LABELS:
+            selected_view = VIEW_LABELS[nickname.pop()]
+            if view is not None and view != selected_view:
+                raise QueryError("中文界面名称与 --view 不一致，请只指定一种界面。")
+            view = selected_view
+        elif suffix in GAME_MODE_ALIASES or any(name.startswith(suffix) for name in GAME_MODES):
             if mode is not None:
                 raise QueryError("战绩模式请只指定一次。")
             mode = nickname.pop()
-    take_view()
+        else:
+            break
     resolved_view = view or args.default_view
     if mode is not None and resolved_view not in ("overview", "standings"):
         raise QueryError("模式筛选仅适用于玩家概览和对局战绩。")
@@ -180,7 +182,7 @@ def query_from_args(args: argparse.Namespace) -> Query:
         view=resolved_view,
         season_id=args.season_id,
         season_type=args.season_type,
-        index=args.index,
+        index=index if index is not None else 1,
         game_mode=game_mode,
         room_mode_type=args.room_mode_type,
         play_mode=args.play_mode,

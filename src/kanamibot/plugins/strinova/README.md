@@ -28,6 +28,7 @@ uv run python scripts/query_strinova.py "咕谷酱" --view status
 uv run python scripts/query_strinova.py "咕谷酱" --view career --season-id 0 --season-type 1
 uv run python scripts/query_strinova.py "咕谷酱" --view history --season-id 25
 uv run python scripts/query_strinova.py "咕谷酱" --view standings --index 1 --game-mode 0 --room-mode-type 0 --play-mode 0 --limit 10
+uv run python scripts/query_strinova.py "咕谷酱" 对局战绩 第2页 -o data/strinova/page-2.png
 uv run python scripts/query_strinova.py "咕谷酱" 对局战绩 枪王 -o data/strinova/gun-king.png
 uv run python scripts/query_strinova.py "咕谷酱" --mode 生化 -o data/strinova/infection.png
 uv run python scripts/query_strinova.py "咕谷酱" --view match --room-id 751028091756896271
@@ -70,6 +71,7 @@ API 请求绕过环境 HTTP 代理，确保访问提供的内网地址；查询�
 | `#卡丘生涯 昵称 --season-id 0 --season-type 1` | 生涯及指定赛季统计 |
 | `#卡丘赛季 昵称 --season-id 25` | 历史赛季 |
 | `#卡丘战绩 昵称 对局战绩 --index 1 --limit 8` | 对局列表（分页） |
+| `#卡丘战绩 昵称 对局战绩 第2页` | 最近战绩第 2 页 |
 | `#卡丘战绩 昵称 对局战绩 排位` | 只看排位爆破战绩 |
 | `#卡丘战绩 昵称 枪王` | 概览及枪王乱斗战绩 |
 | `#卡丘战绩 昵称 对局战绩 生化` | 只看晶源感染战绩 |
@@ -77,6 +79,9 @@ API 请求绕过环境 HTTP 代理，确保访问提供的内网地址；查询�
 
 Bot 和 CLI 共用查询参数，也可用 `--view` 指定视图。Bot 同时最多执行两次查询。
 最近战绩可在玩家概览或对局战绩命令末尾追加完整模式名或唯一前缀，也可用 `--mode 模式名`。
+图片默认每页展示 8 场；有后续记录时，图片底部会给出保留当前模式筛选的下一页命令。
+可直接输入 `第2页`、`第3页`，或使用 `--page 2` / `--index 2`。页码按图片实际展示的场次连续翻页，
+`--limit` 调整每页场次时，翻页命令会保留相同的条数。
 例如「一般」匹配一般爆破，「枪王」匹配枪王乱斗，「生化」是晶源感染的别名；
 「排位」固定匹配排位爆破。前缀对应多个模式时会提示补全；原有 `--game-mode` 编号仍可使用。
 枪王乱斗等无双队比分的对局卡片保留胜负和个人数据，不展示原始多项 `scores`。

@@ -74,6 +74,7 @@
       <div class="match-bottom"><span class="match-role">{% if row.role_icon %}<img src="{{ row.role_icon }}" alt="">{% endif %}{{ row.role }}</span><strong class="kda">{{ row.kda }}</strong><span class="damage">伤害 {{ row.damage }}</span></div>
       <div class="match-foot"><span>{{ row.duration }}</span><small>ROOM {{ row.room_id }}</small>{% if row.score_label != '我方 : 对方' %}<span>{{ row.score_label }}</span>{% endif %}</div>
     </article>{% else %}<div class="empty full">{{ '这一页没有返回对局记录。可以更换页码或模式。' if standings_available else '近期战绩暂不可用，详见上方提示。' }}</div>{% endfor %}</div>
+    {% if standings_available and (previous_page_command or next_page_command) %}<div class="page-hint">{% if previous_page_command %}<span>上一页：<code>{{ previous_page_command }}</code></span>{% endif %}{% if next_page_command %}<span>还有未显示的战绩，下一页：<code>{{ next_page_command }}</code></span>{% endif %}</div>{% endif %}
   </section>
   {% endif %}
 

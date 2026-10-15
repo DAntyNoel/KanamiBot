@@ -9,6 +9,8 @@ from .client import APIError, ServiceUnavailable, Settings, StrinovaClient
 from .query import Query, QueryError
 
 QUERY_TIMEOUT_SECONDS = 120
+# The standings API indexes batches of 20; image pages use the query's smaller limit.
+STANDINGS_BATCH_SIZE = 20
 
 
 @dataclass
@@ -49,6 +51,27 @@ async def resolve_player(client: StrinovaClient, query: Query) -> dict:
     raise QueryError(f"请使用完整昵称或 --player-id 明确选择玩家：\n{candidates}")
 
 
+async def fetch_standings_page(client: StrinovaClient, player_id: str, query: Query) -> dict:
+    start = (query.index - 1) * query.limit
+    api_index, offset = divmod(start, STANDINGS_BATCH_SIZE)
+    api_index += 1
+    matches: list[dict] = []
+    # One extra record confirms whether the image can offer a next-page command.
+    while len(matches) <= query.limit:
+        data = await client.standings(
+            player_id, api_index, query.game_mode, query.room_mode_type, query.play_mode
+        )
+        titles = data.get("titles")
+        if not isinstance(titles, list):
+            raise APIError("API 数据结构不符合预期。")
+        matches.extend(titles[offset : offset + query.limit + 1 - len(matches)])
+        if len(titles) < STANDINGS_BATCH_SIZE or len(matches) > query.limit or api_index >= 1000:
+            break
+        api_index += 1
+        offset = 0
+    return {"titles": matches[: query.limit], "has_more": len(matches) > query.limit}
+
+
 async def fetch_report(client: StrinovaClient, query: Query) -> Report:
     profile = await resolve_player(client, query)
     player_id = str(profile.get("player_id", ""))
@@ -62,7 +85,9 @@ async def fetch_report(client: StrinovaClient, query: Query) -> Report:
         jobs["battle"] = lambda: client.battle_data(player_id, query.season_id, query.season_type)
     if query.view == "history":
         jobs["history"] = lambda: client.history(player_id, query.season_id)
-    if query.view in ("overview", "standings", "match"):
+    if query.view in ("overview", "standings"):
+        jobs["standings"] = lambda: fetch_standings_page(client, player_id, query)
+    if query.view == "match":
         jobs["standings"] = lambda: client.standings(
             player_id, query.index, query.game_mode, query.room_mode_type, query.play_mode
         )
