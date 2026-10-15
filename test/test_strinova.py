@@ -442,7 +442,7 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
         html = render_html(report)
         self.assertIn("请求超时", html)
         self.assertIn("这一页没有返回对局记录", html)
-        self.assertIn("公开对局数", html)
+        self.assertIn("对局数", html)
         self.assertNotIn("0.0%", html)
 
     async def test_profile_identity_mismatch_is_rejected(self):
@@ -466,6 +466,91 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
 
 
 class RenderingTests(unittest.TestCase):
+    def test_overview_metrics_aggregate_career_counters_without_mixing_denominators(self):
+        rows = [
+            {
+                "game_mode": 2,
+                "round": 10,
+                "total_kill": 20,
+                "total_damage": 3000,
+                "total_dead_count": 10,
+                "kill_head_num": 5,
+                "head_hit_rate": 0.95,
+            },
+            {
+                "game_mode": 5,
+                "round": 20,
+                "total_kill": 60,
+                "total_damage": 12000,
+                "total_dead_count": 20,
+                "k_d": 1.73,
+                "kill_head_num": 12,
+                "head_hit_rate": 0.95,
+            },
+            {
+                "game_mode": 17,
+                "round": 5,
+                "total_kill": 5,
+                "total_damage": 1000,
+                "total_dead_count": 5,
+                "kill_head_num": 1,
+                "head_hit_rate": 0.95,
+            },
+            {
+                "game_mode": 30,
+                "round": 5,
+                "total_kill": 100,
+                "total_damage": 5000,
+                "total_dead_count": 50,
+                "kill_head_num": 15,
+                "head_hit_rate": 0.95,
+            },
+        ]
+        report = Report(
+            Query("测试玩家"),
+            "123456",
+            {**PLAYER, "total_games": 40, "win_games": 25, "mvp_count": 7, "avr_kill": 0},
+            sections={"career": {"career_info": {"battle_infos": rows}}},
+        )
+        self.assertEqual(
+            report_context(report)["metrics"],
+            [
+                ("对局数", "40"),
+                ("胜率", "62.5%"),
+                ("胜场", "25"),
+                ("MVP数", "7"),
+                ("场均击杀", "4.6"),
+                ("场均伤害", "525"),
+                ("排位爆破KD", "1.73"),
+                ("头部击败率", "17.8%"),
+            ],
+        )
+
+    def test_missing_career_counters_stay_unavailable_in_overview(self):
+        report = Report(Query("测试玩家"), "123456", PLAYER)
+        self.assertEqual(
+            report_context(report)["metrics"][4:],
+            [("场均击杀", "—"), ("场均伤害", "—"), ("排位爆破KD", "—"), ("头部击败率", "—")],
+        )
+        report.sections["career"] = {
+            "career_info": {
+                "battle_infos": [
+                    {
+                        "game_mode": 30,
+                        "round": 3,
+                        "total_kill": 9,
+                        "total_damage": 3000,
+                        "kill_head_num": 2,
+                    }
+                ]
+            }
+        }
+        metrics = dict(report_context(report)["metrics"])
+        self.assertEqual((metrics["场均击杀"], metrics["场均伤害"]), ("3.0", "1,000"))
+        self.assertEqual(metrics["排位爆破KD"], "—")
+        profile_report = Report(Query("测试玩家", view="profile"), "123456", PLAYER)
+        self.assertEqual(len(report_context(profile_report)["metrics"]), 4)
+
     def test_page_hint_preserves_filters_and_display_limit(self):
         report = Report(
             Query(

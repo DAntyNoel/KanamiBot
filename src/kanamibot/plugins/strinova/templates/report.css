@@ -30,6 +30,7 @@ h1 { margin:0 0 3px; font-size:30px; line-height:1.2; overflow-wrap:anywhere; fo
 .metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; margin-top:11px; border-top:1px solid #aebfcd; padding-top:8px; }
 .metric { min-width:0; padding-left:8px; border-left:2px solid #9fb9cb; }.metric:nth-child(2) { border-color:var(--pink); }
 .metric label { display:block; color:var(--muted); font-size:12px; margin-bottom:3px; }.metric strong { font-family:GameNumbers,GameSans,sans-serif; font-size:28px; font-weight:500; line-height:1.2; }.metric:nth-child(2) strong { color:var(--accent); }
+.metrics.expanded { row-gap:12px; }.metrics.expanded .metric strong { font-size:25px; }.metrics.expanded .metric:nth-child(6) { border-color:var(--pink); }
 .switch-hint { display:flex; flex-wrap:wrap; column-gap:16px; row-gap:2px; margin-bottom:7px; padding:5px 8px; border-left:3px solid var(--pink); background:#eff4f6d9; font-size:11px; line-height:1.6; }.switch-hint code { font-family:inherit; color:#266178; overflow-wrap:anywhere; }
 .notice { margin-bottom:7px; padding:7px 9px; border:1px solid #d7b876; background:#fff3dfef; border-radius:3px; color:#80602e; font-size:13px; line-height:1.5; overflow-wrap:anywhere; }
 .panel { position:relative; min-width:0; background:#f4f7f9df; border:1px solid var(--line); border-radius:4px; padding:10px; margin-bottom:7px; }

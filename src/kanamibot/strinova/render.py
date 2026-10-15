@@ -117,6 +117,25 @@ def objects(value: Any) -> list[dict]:
     return [item for item in value if isinstance(item, dict)] if isinstance(value, list) else []
 
 
+def aggregate_ratio(rows: list[dict], numerator: str, denominator: str) -> float | None:
+    if not rows:
+        return None
+    numerator_total = denominator_total = 0.0
+    for row in rows:
+        top, bottom = row.get(numerator), row.get(denominator)
+        if any(
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(value)
+            or value < 0
+            for value in (top, bottom)
+        ):
+            return None
+        numerator_total += top
+        denominator_total += bottom
+    return numerator_total / denominator_total if denominator_total > 0 else None
+
+
 def role_name(value: Any) -> str:
     if not isinstance(value, int):
         return "角色未提供"
@@ -217,6 +236,13 @@ def report_context(report: Report) -> dict:
     query, profile = report.query, report.profile
     career = report.sections.get("career", {}).get("career_info", {})
     career = career if isinstance(career, dict) else {}
+    raw_career_modes = career.get("battle_infos")
+    career_modes = objects(raw_career_modes)
+    metric_modes = (
+        career_modes
+        if isinstance(raw_career_modes, list) and len(career_modes) == len(raw_career_modes)
+        else []
+    )
     stats = (
         report.sections.get("history")
         if query.view == "history"
@@ -311,6 +337,33 @@ def report_context(report: Report) -> dict:
         if type(item) is int and item > 0
     ]
     collect = dictionary(career.get("collect"))
+    ranked_blast = [row for row in metric_modes if row.get("game_mode") == 5]
+    ranked_blast_kd = ranked_blast[0].get("k_d") if len(ranked_blast) == 1 else None
+    if (
+        isinstance(ranked_blast_kd, bool)
+        or not isinstance(ranked_blast_kd, (int, float))
+        or not math.isfinite(ranked_blast_kd)
+        or ranked_blast_kd < 0
+    ):
+        ranked_blast_kd = None
+    metrics = [
+        ("对局数", number(total)),
+        ("胜率", percent(win_rate)),
+        ("胜场", number(wins)),
+        ("MVP数", number(profile.get("mvp_count"))),
+    ]
+    if query.view == "overview":
+        metrics.extend(
+            [
+                ("场均击杀", number(aggregate_ratio(metric_modes, "total_kill", "round"), 1)),
+                ("场均伤害", number(aggregate_ratio(metric_modes, "total_damage", "round"))),
+                ("排位爆破KD", number(ranked_blast_kd, 2)),
+                (
+                    "头部击败率",
+                    percent(aggregate_ratio(metric_modes, "kill_head_num", "total_kill")),
+                ),
+            ]
+        )
     return {
         "title": VIEW_NAMES[query.view],
         "view": query.view,
@@ -333,12 +386,7 @@ def report_context(report: Report) -> dict:
         "status": pack.status_name(status.get("online_status")),
         "online": status.get("online_status") == 1,
         "updated": report.fetched_at.astimezone(SHANGHAI).strftime("%Y-%m-%d %H:%M:%S"),
-        "metrics": [
-            ("公开对局数", number(total)),
-            ("胜率", percent(win_rate)),
-            ("胜利场次", number(wins)),
-            ("MVP", number(profile.get("mvp_count"))),
-        ],
+        "metrics": metrics,
         "facts": [
             ("排位段位", rank_name(profile.get("rank"))),
             ("段位积分", number(profile.get("grade_score"))),
