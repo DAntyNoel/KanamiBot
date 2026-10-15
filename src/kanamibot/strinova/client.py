@@ -117,6 +117,8 @@ class StrinovaClient:
         if not isinstance(data, dict):
             raise APIError("API 数据结构不符合预期。")
         code = data.get("code")
+        if code == 8603:
+            raise APIError("开启了隐私保护")
         if code != 0:
             raise APIError(f"数据暂不可用或未公开（业务代码 {code}）。")
         return data
