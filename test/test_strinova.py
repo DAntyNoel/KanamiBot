@@ -529,68 +529,6 @@ class RenderingTests(unittest.TestCase):
                 self.assertIn("7 : 3", html)
                 self.assertNotIn("我方 : 对方", html)
 
-    def test_career_snapshot_difference_preserves_both_original_counts(self):
-        mode = {"game_mode": 5, "round": 2, "total_win_count": 2, "win_rate": 1.0}
-        titles = [
-            {"room_id": str(index), "game_mode": 5, "my_team": 1, "winner_team": winners}
-            for index, winners in enumerate(([1], [1], [2]), 1)
-        ]
-        report = Report(
-            Query("测试玩家"), "123456", PLAYER,
-            sections={
-                "career": {"career_info": {"battle_infos": [mode]}},
-                "standings": {"titles": titles},
-            },
-        )
-        context = report_context(report)
-        self.assertEqual(context["modes"], [mode])
-        self.assertEqual(context["modes"][0]["round"], 2)
-        self.assertEqual(context["recent"], {"count": 3, "wins": 2, "losses": 1, "draws": 0})
-        html = render_html(report)
-        self.assertIn("生涯快照 2 场 / 100.0%", html)
-        self.assertIn("本页记录 3 场 / 2 胜 1 负", html)
-        self.assertIn("生涯汇总与对局记录不一致", html)
-        report.query = Query("测试玩家", limit=2)
-        self.assertEqual(report_context(report)["mode_stat_differences"], [])
-        report.query = Query("测试玩家", view="history", season_id=25)
-        self.assertEqual(report_context(report)["mode_stat_differences"], [])
-
-    def test_snapshot_comparison_counts_unique_matches_in_the_same_mode_and_scope(self):
-        mode = {"game_mode": 5, "round": 2, "total_win_count": 2, "win_rate": 1.0}
-        win = {"game_mode": 5, "my_team": 1, "winner_team": [1]}
-        titles = [
-            {**win, "room_id": "1"}, {**win, "room_id": 1},
-            {**win, "room_id": "2"}, {**win, "room_id": "3", "game_mode": 7},
-            {**win, "room_id": None},
-        ]
-        report = Report(
-            Query("测试玩家"), "123456", PLAYER,
-            sections={
-                "career": {"career_info": {"battle_infos": [mode]}},
-                "standings": {"titles": titles},
-            },
-        )
-        self.assertEqual(report_context(report)["mode_stat_differences"], [])
-        mode["round"] = 1
-        mode["total_win_count"] = 1
-        mode["play_mode"] = 2
-        self.assertEqual(report_context(report)["mode_stat_differences"], [])
-
-    def test_snapshot_wins_are_checked_without_deriving_them_from_rounded_rates(self):
-        mode = {"game_mode": 5, "round": 10, "win_rate": 1.0}
-        report = Report(
-            Query("测试玩家"), "123456", PLAYER,
-            sections={
-                "career": {"career_info": {"battle_infos": [mode]}},
-                "standings": {"titles": [
-                    {"room_id": "1", "game_mode": 5, "my_team": 1, "winner_team": [2]},
-                ]},
-            },
-        )
-        self.assertEqual(report_context(report)["mode_stat_differences"], [])
-        mode["total_win_count"] = 10
-        self.assertEqual(len(report_context(report)["mode_stat_differences"]), 1)
-
     def test_external_nickname_is_escaped_and_match_highlights_query_player(self):
         report = Report(
             Query("测试玩家", view="match", room_id=ROOM_ID),

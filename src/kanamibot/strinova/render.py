@@ -204,48 +204,6 @@ def match_row(row: dict) -> dict:
     }
 
 
-def mode_stat_differences(modes: list[dict], titles: list[dict]) -> list[str]:
-    """Explain incompatible snapshots without replacing aggregates with a partial page."""
-    notes = []
-    for mode in modes:
-        total = mode.get("round")
-        if type(mode.get("game_mode")) is not int or type(total) is not int or total < 0:
-            continue
-        records = {}
-        for title in titles:
-            room_id = title.get("room_id")
-            if (
-                title.get("game_mode") != mode["game_mode"]
-                or type(room_id) not in (int, str)
-                or not str(room_id).isascii()
-                or not str(room_id).isdecimal()
-                or int(room_id) <= 0
-                or any(
-                    mode.get(field) not in (None, 0) and title.get(field) != mode[field]
-                    for field in ("room_mode_type", "play_mode")
-                )
-            ):
-                continue
-            records[str(room_id)] = title
-        results = [match_result(title)[1] for title in records.values()]
-        wins, losses = results.count("win"), results.count("loss")
-        reported_wins = mode.get("total_win_count")
-        incompatible_results = type(reported_wins) is int and 0 <= reported_wins <= total and (
-            wins > reported_wins or losses > total - reported_wins
-        )
-        if len(records) <= total and not incompatible_results:
-            continue
-        summary = f"{wins} 胜 {losses} 负"
-        for tone, label in (("draw", "平"), ("unknown", "场结果未知")):
-            if count := results.count(tone):
-                summary += f" {count} {label}"
-        notes.append(
-            f"{mode_name(mode)}：生涯快照 {total} 场 / {percent(mode.get('win_rate'))}，"
-            f"本页记录 {len(records)} 场 / {summary}。"
-        )
-    return notes
-
-
 def report_context(report: Report) -> dict:
     query, profile = report.query, report.profile
     career = report.sections.get("career", {}).get("career_info", {})
@@ -323,7 +281,6 @@ def report_context(report: Report) -> dict:
         if type(item) is int and item > 0
     ]
     collect = dictionary(career.get("collect"))
-    modes = objects(stats.get("battle_infos"))
     return {
         "title": VIEW_NAMES[query.view],
         "view": query.view,
@@ -372,10 +329,7 @@ def report_context(report: Report) -> dict:
         ]
         if collect
         else [],
-        "modes": modes,
-        "mode_stat_differences": mode_stat_differences(modes, titles[: query.limit])
-        if query.view == "overview"
-        else [],
+        "modes": objects(stats.get("battle_infos")),
         "roles": roles,
         "matches": visible_matches,
         "recent": recent,
