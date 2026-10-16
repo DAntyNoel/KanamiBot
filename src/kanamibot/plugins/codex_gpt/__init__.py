@@ -26,7 +26,7 @@ from kanamibot.core.utils.image import download_all_images_from_event
 from .client import CodexGPTClient, CodexGPTError, CodexGPTImageTextResponse
 from .config import load_config
 from .diagnostics import CodexGPTDebugLogger
-from .session import SessionStore
+from .session import ImageSessionStore, SessionStore
 
 __plugin_meta__ = PluginMetadata(
     name="Codex GPT",
@@ -58,6 +58,7 @@ debug.log(
     debug_log_file=str(config.debug_log_file),
     image_size=config.image_size,
     image_timeout_seconds=config.image_timeout_seconds,
+    image_max_context_chars=config.image_max_context_chars,
     stream=config.stream,
     active_reply=config.active_reply,
     active_reply_probability=config.active_reply_probability,
@@ -83,6 +84,7 @@ else:
     )
 client = CodexGPTClient(config, debug=debug)
 store = SessionStore(config)
+image_store = ImageSessionStore(config.image_max_context_chars)
 image_storage = AdvancedMediaStorageSystem(
     "gptimage2",
     data_root=DATA_DIR / "codex_gpt" / "images",
@@ -143,8 +145,8 @@ async def handle_codex_image(bot: Bot, event: MessageEvent):
 
     if prompt.lower() in CLEAR_ALIASES:
         debug.log("image.session_clear", session_id=session_id)
-        await store.clear(session_id)
-        await codex_image.finish(_reply(event) + "已新建对话，上下文清空。")
+        await image_store.clear(session_id)
+        await codex_image.finish(_reply(event) + "已清空图片上下文。")
         return
 
     input_images = await _download_event_images(event, session_id, bot)
@@ -351,6 +353,7 @@ async def _run_image(
         debug.log("image.status_message_failed", session_id=session_id, error=_safe_error(exc))
 
     try:
+        request_prompt = await image_store.build_prompt(session_id, prompt)
         input_records = _store_codex_image_assets(
             source="qq",
             images=input_images,
@@ -372,9 +375,10 @@ async def _run_image(
             model=config.image_model,
             prompt_chars=len(prompt),
             image_count=len(input_images),
+            context_chars=max(0, len(request_prompt) - len(prompt)),
         )
         image = await client.create_image(
-            prompt=prompt, model=config.image_model, images=input_images
+            prompt=request_prompt, model=config.image_model, images=input_images
         )
 
         if status_message_id is not None:
@@ -389,6 +393,11 @@ async def _run_image(
             mime_type=image.mime_type,
             revised_prompt=image.revised_prompt,
             text=image.text,
+        )
+        await image_store.add_turn(
+            session_id,
+            prompt,
+            image.revised_prompt or image.text,
         )
         await codex_image.send(_reply(event) + MessageSegment.image(image.data))
         if image.text:
@@ -406,6 +415,7 @@ async def _run_image(
         if status_message_id is not None:
             await _delete_message(bot, status_message_id)
         text = exc.text.strip()
+        await image_store.add_turn(session_id, prompt, text)
         debug.log(
             "image.text_response",
             session_id=session_id,
