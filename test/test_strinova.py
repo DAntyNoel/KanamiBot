@@ -56,6 +56,8 @@ class QueryTests(unittest.TestCase):
     def test_numeric_nickname_can_be_explicit_and_names_can_contain_spaces(self):
         self.assertFalse(parse_query("--nick 12345").by_id)
         self.assertTrue(parse_query("12345").by_id)
+        self.assertEqual(parse_query("12345 2").index, 2)
+        self.assertEqual(parse_query('"Player 2" 对局战绩').target, "Player 2")
         self.assertEqual(parse_query('"Player Name" --index 2').target, "Player Name")
         self.assertEqual(parse_query("Player Name --index 2").target, "Player Name")
 
@@ -86,6 +88,26 @@ class QueryTests(unittest.TestCase):
     def test_recent_match_page_accepts_chinese_suffix_and_option_alias(self):
         plain = parse_query("测试玩家 对局战绩 第2页")
         self.assertEqual((plain.view, plain.index, plain.game_mode), ("standings", 2, 0))
+        for text, expected_view, expected_mode, expected_page in (
+            ("测试玩家 2", "overview", 0, 2),
+            ("测试玩家 排位 2", "overview", 5, 2),
+            ("测试玩家 排位", "overview", 5, 1),
+            ("测试玩家 对局战绩 2", "standings", 0, 2),
+            ("测试玩家 对局战绩 排位 2", "standings", 5, 2),
+            ("测试玩家 2 排位", "overview", 5, 2),
+            ("--nick 12345 2", "overview", 0, 2),
+        ):
+            with self.subTest(text=text):
+                query = parse_query(text)
+                self.assertEqual(
+                    (query.target, query.view, query.game_mode, query.index),
+                    (
+                        "12345" if text.startswith("--nick") else "测试玩家",
+                        expected_view,
+                        expected_mode,
+                        expected_page,
+                    ),
+                )
         for text in (
             "测试玩家 对局战绩 枪王 第2页",
             "测试玩家 对局战绩 第2页 枪王",
@@ -97,6 +119,8 @@ class QueryTests(unittest.TestCase):
                 self.assertEqual((query.target, query.index, query.game_mode), ("测试玩家", 2, 30))
         with self.assertRaisesRegex(QueryError, "页码不一致"):
             parse_query("测试玩家 对局战绩 第2页 --page 3")
+        with self.assertRaisesRegex(QueryError, "页码不一致"):
+            parse_query("测试玩家 排位 2 --page 3")
 
     def test_room_id_keeps_integer_precision_and_rejects_path_input(self):
         self.assertEqual(parse_query(f"测试玩家 --view match --room-id {ROOM_ID}").room_id, ROOM_ID)
@@ -373,7 +397,7 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
                         }
                     ),
                 )
-                query = parse_query(f"测试玩家 对局战绩 枪王 第{page}页")
+                query = parse_query(f"测试玩家 对局战绩 枪王 {page}")
                 report = await fetch_report(client, query)
                 self.assertEqual(
                     [int(row["room_id"]) for row in report.sections["standings"]["titles"]],
@@ -396,7 +420,7 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
                     self.assertIsNone(context["previous_page_command"])
                 if has_more:
                     next_command = context["next_page_command"]
-                    self.assertIn("第" + str(page + 1) + "页", render_html(report))
+                    self.assertIn(" " + str(page + 1) + "</code>", render_html(report))
                     next_query = parse_query(next_command.removeprefix("#卡丘战绩 "))
                     self.assertEqual((next_query.index, next_query.game_mode), (page + 1, 30))
                 else:
@@ -582,6 +606,7 @@ class RenderingTests(unittest.TestCase):
             (3, 10, 5, 2, 3),
         )
         self.assertIn(next_command, render_html(report))
+        self.assertIn("排位爆破 3 --room-mode-type 2 --play-mode 3 --limit 10", next_command)
 
     def setUp(self):
         folder = tempfile.TemporaryDirectory()

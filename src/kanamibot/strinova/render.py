@@ -304,7 +304,7 @@ def report_context(report: Report) -> dict:
     has_more = standings.get("has_more")
     if type(has_more) is not bool:
         has_more = len(titles) > query.limit
-    page_view = VIEW_NAMES[query.view] if query.view in ("overview", "standings") else "对局战绩"
+    page_view = " 对局战绩" if query.view == "standings" else ""
     mode_suffix = (
         f" {GAME_MODE_NAMES[query.game_mode]}" if query.game_mode in GAME_MODE_NAMES else ""
     )
@@ -319,7 +319,7 @@ def report_context(report: Report) -> dict:
         page_options += f" --limit {query.limit}"
 
     def page_command(index: int) -> str:
-        return f"{command} {page_view}{mode_suffix} 第{index}页{page_options}"
+        return f"{command}{page_view}{mode_suffix} {index}{page_options}"
 
     recent = {
         "count": len(visible_matches),

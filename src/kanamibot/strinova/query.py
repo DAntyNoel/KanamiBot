@@ -144,9 +144,9 @@ def query_from_args(args: argparse.Namespace) -> Query:
     index = args.index
     while nickname and (len(nickname) > 1 or args.player_id is not None or args.nick is not None):
         suffix = nickname[-1]
-        page = re.fullmatch(r"第(\d+)页", suffix)
+        page = re.fullmatch(r"第(\d+)页|(\d+)", suffix)
         if page:
-            selected = int(page.group(1))
+            selected = int(page.group(1) or page.group(2))
             if index is not None and index != selected:
                 raise QueryError("页码不一致，请只指定一个页码。")
             index = selected
