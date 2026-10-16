@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import base64
+import io
 import json
 from collections import OrderedDict
 from functools import lru_cache
 from pathlib import Path
 from threading import RLock
 from typing import Any
+
+from PIL import Image
 
 PLUGIN_DIR = Path(__file__).resolve().parents[1] / "plugins" / "strinova"
 RESOURCE_DIR = PLUGIN_DIR / "resources"
@@ -21,6 +24,7 @@ class ResourcePack:
         self._mappings: dict[str, Any] = {}
         self._records: dict[tuple[str, str | None], dict[int, dict]] = {}
         self._images: OrderedDict[Path, str] = OrderedDict()
+        self._rank_images: OrderedDict[tuple[Path, Path, bool], str] = OrderedDict()
         self._image_bytes = 0
         self._lock = RLock()
 
@@ -140,8 +144,43 @@ class ResourcePack:
                 return original
         return self.image(row, "CareerIcon" if portrait else "IconRoleHud")
 
-    def rank_image(self, rank_id: int) -> str | None:
-        return self.image(self.records("ranks", "rank").get(rank_id, {}), "IconDivision")
+    def rank_image(self, rank_id: int, *, leisure: bool = False) -> str | None:
+        if type(rank_id) is not int:
+            return None
+        row = self.records("ranks", "leisure_rank" if leisure else "rank").get(rank_id, {})
+        badge = self.image_path(row, "IconDivision")
+        level = self.image_path(row, "IconDivisionLevel")
+        if badge is None or level is None:
+            return self.data_uri(badge)
+        key = (badge, level, leisure)
+        with self._lock:
+            if key in self._rank_images:
+                self._rank_images.move_to_end(key)
+                return self._rank_images[key]
+        try:
+            with Image.open(badge) as source, Image.open(level) as numeral:
+                canvas = source.convert("RGBA")
+                overlay = numeral.convert("RGBA")
+            # Ranked numerals sit below the emblem; cup numerals sit on the trophy face.
+            height = max(1, round(canvas.height * (0.106 if leisure else 0.18)))
+            width = max(1, round(overlay.width * height / overlay.height))
+            overlay = overlay.resize((width, height), Image.Resampling.LANCZOS)
+            position = (
+                (canvas.width - width) // 2,
+                round(canvas.height * (0.28 if leisure else 0.75)),
+            )
+            canvas.alpha_composite(overlay, position)
+            with io.BytesIO() as output:
+                canvas.save(output, format="PNG")
+                encoded = base64.b64encode(output.getvalue()).decode("ascii")
+                value = "data:image/png;base64," + encoded
+        except (OSError, ValueError):
+            return self.data_uri(badge)
+        with self._lock:
+            self._rank_images[key] = value
+            while len(self._rank_images) > 96:
+                self._rank_images.popitem(last=False)
+        return value
 
     def map_name(self, map_id: int | None) -> str:
         return self.records("maps").get(map_id, {}).get("name") or (

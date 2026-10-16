@@ -40,7 +40,7 @@
   <div class="overview-grid {{ 'profile-only' if view == 'profile' else '' }}">
     <section class="panel rank-panel">
       <div class="section-title"><h2>段位与资料</h2><span class="en">RANK FILE</span></div>
-      <div class="rank-main">{% if rank_badge %}<img src="{{ rank_badge }}" alt="{{ rank }}">{% endif %}<div><span class="rank-name">{{ rank }}</span><strong class="rank-score">{{ grade }}</strong><small>段位积分</small></div></div>
+      <div class="rank-list">{% for card in rank_cards %}<div class="rank-main">{% if card.badge %}<img src="{{ card.badge }}" alt="{{ card.label }} {{ card.name }}">{% endif %}<div><label class="rank-label">{{ card.label }}</label><span class="rank-name">{{ card.name }}</span><div class="rank-points"><strong class="rank-score">{{ card.score }}</strong><small>段位积分</small></div></div></div>{% endfor %}</div>
       <div class="facts">{% for label, value in facts[2:] %}<div class="fact"><label>{{ label }}</label><strong>{{ value }}</strong></div>{% endfor %}</div>
       {% if collection %}<div class="collection">{% for label, owned, total in collection %}<div><label>{{ label }}</label><b>{{ owned }}</b><small>/ {{ total }}</small></div>{% endfor %}</div>{% endif %}
     </section>

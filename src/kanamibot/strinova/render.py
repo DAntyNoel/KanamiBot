@@ -79,6 +79,15 @@ RANKS = [
     "无限超弦",
     "奇点",
 ]
+LEISURE_RANKS = (
+    ["—"]
+    + [
+        f"{tier}{level}"
+        for tier in ("青铜", "白银", "黄金", "铂金", "翡翠", "钻石", "大师", "传奇")
+        for level in ("V", "IV", "III", "II", "I")
+    ]
+    + ["王者"]
+)
 VIEW_NAMES = {
     "overview": "玩家概览",
     "profile": "引航者资料",
@@ -148,9 +157,13 @@ def dictionary(value: Any) -> dict:
     return value if isinstance(value, dict) else {}
 
 
-def rank_name(value: Any) -> str:
-    named = resource_pack().records("ranks", "rank").get(value, {}).get("name")
-    return named or (RANKS[value] if isinstance(value, int) and 0 <= value < len(RANKS) else "—")
+def rank_name(value: Any, *, leisure: bool = False) -> str:
+    if type(value) is not int:
+        return "—"
+    group = "leisure_rank" if leisure else "rank"
+    named = resource_pack().records("ranks", group).get(value, {}).get("name")
+    ranks = LEISURE_RANKS if leisure else RANKS
+    return named or (ranks[value] if 0 <= value < len(ranks) else f"段位 #{value}")
 
 
 def mode_name(row: dict) -> str:
@@ -364,6 +377,8 @@ def report_context(report: Report) -> dict:
                 ),
             ]
         )
+    leisure_rank = profile.get("leisure_rank", career.get("cur_leisure_rank"))
+    leisure_score = profile.get("leisure_score", career.get("cur_leisure_score"))
     return {
         "title": VIEW_NAMES[query.view],
         "view": query.view,
@@ -374,15 +389,26 @@ def report_context(report: Report) -> dict:
         "portrait": pack.role_image(main_role, portrait=True) if main_role else None,
         "portrait_name": role_name(main_role) if main_role else "",
         "portrait_team": "常用角色",
-        "rank_badge": pack.rank_image(profile.get("rank")),
+        "rank_cards": [
+            {
+                "label": "排位段位",
+                "name": rank_name(profile.get("rank")),
+                "badge": pack.rank_image(profile.get("rank")),
+                "score": number(profile.get("grade_score")),
+            },
+            {
+                "label": "挑战赛段位",
+                "name": rank_name(leisure_rank, leisure=True),
+                "badge": pack.rank_image(leisure_rank, leisure=True),
+                "score": number(leisure_score),
+            },
+        ],
         "backdrop": pack.map_image(titles[0].get("map_id") if titles else 200, background=True),
         "game_font": pack.data_uri(pack.resolve("fonts/Game-Semibold.ttf")),
         "number_font": pack.data_uri(pack.resolve("fonts/orbitron-medium.otf")),
         "switch_command": f"{command} 对局战绩",
         "overview_command": f"{command} 玩家概览",
         "level": number(profile.get("level")),
-        "rank": rank_name(profile.get("rank")),
-        "grade": number(profile.get("grade_score")),
         "status": pack.status_name(status.get("online_status")),
         "online": status.get("online_status") == 1,
         "updated": report.fetched_at.astimezone(SHANGHAI).strftime("%Y-%m-%d %H:%M:%S"),

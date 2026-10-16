@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import importlib
 import io
 import json
@@ -18,7 +19,7 @@ from PIL import Image
 from kanamibot.strinova.avatar import AvatarError, image_data_uri, load_avatar
 from kanamibot.strinova.client import APIError, ServiceUnavailable, Settings, StrinovaClient
 from kanamibot.strinova.query import VIEWS, Query, QueryError, parse_query, query_from_args
-from kanamibot.strinova.render import match_row, render_html, report_context
+from kanamibot.strinova.render import match_row, rank_name, render_html, report_context
 from kanamibot.strinova.resources import ResourcePack
 from kanamibot.strinova.service import Report, fetch_report, resolve_player
 
@@ -490,6 +491,57 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
 
 
 class RenderingTests(unittest.TestCase):
+    def test_rank_cards_keep_ranked_and_challenge_names_and_scores_separate(self):
+        with tempfile.TemporaryDirectory() as folder:
+            pack = ResourcePack(Path(folder))
+            with patch("kanamibot.strinova.render.resource_pack", return_value=pack):
+                for view in ("overview", "profile"):
+                    report = Report(
+                        Query("测试玩家", view=view),
+                        "123456",
+                        {**PLAYER, "grade_score": 2139, "leisure_rank": 22, "leisure_score": 5000},
+                    )
+                    cards = report_context(report)["rank_cards"]
+                    self.assertEqual(
+                        [(card["label"], card["name"], card["score"]) for card in cards],
+                        [("排位段位", "束缚电子II", "2,139"), ("挑战赛段位", "翡翠IV", "5,000")],
+                    )
+                    html = render_html(report)
+                    self.assertIn("挑战赛段位", html)
+                    self.assertIn("翡翠IV", html)
+                    self.assertNotIn('src="None"', html)
+
+    def test_challenge_rank_uses_only_current_career_fallback_and_preserves_zero(self):
+        report = Report(
+            Query("测试玩家"),
+            "123456",
+            PLAYER.copy(),
+            sections={
+                "career": {
+                    "career_info": {
+                        "cur_leisure_rank": 11,
+                        "cur_leisure_score": 0,
+                        "top_history_leisure_rank": 41,
+                        "top_history_leisure_score": 99999,
+                    }
+                }
+            },
+        )
+        self.assertEqual(report_context(report)["rank_cards"][1]["name"], "黄金V")
+        self.assertEqual(report_context(report)["rank_cards"][1]["score"], "0")
+        report.profile.update(leisure_rank=1, leisure_score=0)
+        self.assertEqual(report_context(report)["rank_cards"][1]["name"], "青铜V")
+        report.profile.update(leisure_rank=None, leisure_score=None)
+        self.assertEqual(report_context(report)["rank_cards"][1]["name"], "—")
+        self.assertEqual(report_context(report)["rank_cards"][1]["score"], "—")
+        report.sections = {}
+        report.profile = PLAYER.copy()
+        self.assertEqual(report_context(report)["rank_cards"][1]["name"], "—")
+        self.assertEqual(report_context(report)["rank_cards"][1]["score"], "—")
+        for invalid in (True, [], {}, "22"):
+            self.assertEqual(rank_name(invalid, leisure=True), "—")
+        self.assertEqual(rank_name(999, leisure=True), "段位 #999")
+
     def test_overview_metrics_aggregate_career_counters_without_mixing_denominators(self):
         rows = [
             {
@@ -1140,6 +1192,57 @@ class AvatarTests(unittest.IsolatedAsyncioTestCase):
 
 
 class ResourceTests(unittest.TestCase):
+    def test_rank_badges_compose_transparent_numerals_and_handle_missing_layers(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "mappings").mkdir()
+            (root / "images").mkdir()
+            Image.new("RGBA", (256, 256), "blue").save(root / "images/badge.png")
+            Image.new("RGBA", (68, 64), (255, 0, 0, 128)).save(root / "images/level.png")
+            row = {
+                "id": 22,
+                "verified": True,
+                "extracted_paths": {
+                    "IconDivision": {"png": "images/badge.png"},
+                    "IconDivisionLevel": {"png": "images/level.png"},
+                },
+            }
+            rows = {
+                "rank": [
+                    row,
+                    {
+                        **row,
+                        "id": 29,
+                        "extracted_paths": {"IconDivision": {"png": "images/badge.png"}},
+                    },
+                ],
+                "leisure_rank": [row],
+            }
+            (root / "mappings/ranks.json").write_text(json.dumps(rows), encoding="utf-8")
+            pack = ResourcePack(root)
+
+            def decoded(uri):
+                return Image.open(io.BytesIO(base64.b64decode(uri.split(",", 1)[1])))
+
+            ranked = pack.rank_image(22)
+            with decoded(ranked) as image:
+                self.assertEqual(image.size, (256, 256))
+                self.assertEqual(image.getpixel((128, 210)), (128, 0, 127, 255))
+                self.assertEqual(image.getpixel((128, 80)), (0, 0, 255, 255))
+            with decoded(pack.rank_image(22, leisure=True)) as image:
+                self.assertEqual(image.getpixel((128, 80)), (128, 0, 127, 255))
+                self.assertEqual(image.getpixel((128, 210)), (0, 0, 255, 255))
+            self.assertEqual(pack.rank_image(22), ranked)
+            self.assertEqual(pack.rank_image(29), pack.data_uri(root / "images/badge.png"))
+            for invalid in (None, True, "22", 999, [], {}):
+                self.assertIsNone(pack.rank_image(invalid))
+            (root / "images/level.png").write_bytes(b"broken image")
+            self.assertEqual(
+                ResourcePack(root).rank_image(22), pack.data_uri(root / "images/badge.png")
+            )
+            (root / "images/badge.png").unlink()
+            self.assertIsNone(ResourcePack(root).rank_image(22))
+
     def test_wiki_original_overrides_only_portrait_and_preserves_game_fallback(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
