@@ -282,6 +282,11 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
 
 
 class HealthTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        sleep_patch = patch("kanamibot.strinova.client.asyncio.sleep", new_callable=AsyncMock)
+        self.sleep = sleep_patch.start()
+        self.addCleanup(sleep_patch.stop)
+
     async def test_unavailable_health_blocks_every_view_before_player_requests(self):
         for view in VIEWS:
             paths = []
@@ -293,7 +298,7 @@ class HealthTests(unittest.IsolatedAsyncioTestCase):
             async with StrinovaClient(Settings(), transport=httpx.MockTransport(handler)) as client:
                 with self.subTest(view=view), self.assertRaises(ServiceUnavailable):
                     await fetch_report(client, Query("测试玩家", view=view, room_id=ROOM_ID))
-            self.assertEqual(paths, ["/health"])
+            self.assertEqual(paths, ["/health"] * 5)
 
     async def test_bad_json_ok_and_bridge_readiness_are_unavailable(self):
         for payload in (
@@ -340,7 +345,7 @@ class HealthTests(unittest.IsolatedAsyncioTestCase):
                 await resolve_player(client, Query("测试玩家"))
             healthy = True
             self.assertEqual(await resolve_player(client, Query("测试玩家")), PLAYER)
-        self.assertEqual(paths, ["/health", "/health", "/v1/friends/search"])
+        self.assertEqual(paths, ["/health"] * 6 + ["/v1/friends/search"])
 
     async def test_health_loss_mid_query_aborts_instead_of_partial_image(self):
         health_checks = 0
@@ -360,8 +365,86 @@ class HealthTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(ServiceUnavailable):
                 await fetch_report(client, Query("测试玩家"))
         self.assertEqual(
-            paths, ["/health", "/v1/friends/search", "/health", "/v1/players/123456", "/health"]
+            paths,
+            ["/health", "/v1/friends/search", "/health", "/v1/players/123456"]
+            + ["/health"] * 5,
         )
+
+    async def test_five_failures_use_exponential_delays_within_two_minutes(self):
+        requests = []
+
+        def handler(request):
+            requests.append(request)
+            return httpx.Response(503)
+
+        async with StrinovaClient(Settings(), transport=httpx.MockTransport(handler)) as client:
+            with self.assertRaises(ServiceUnavailable):
+                await client.check_health()
+            delays = [call.args[0] for call in self.sleep.await_args_list]
+            self.assertEqual(len(requests), 5)
+            self.assertEqual(delays, [5, 10, 20, 40])
+            self.assertLessEqual(sum(delays) + len(requests) * client.health_timeout, 120)
+
+    async def test_any_success_including_fifth_check_resumes_player_request(self):
+        for recover_at in range(1, 6):
+            self.sleep.reset_mock()
+            paths = []
+
+            def handler(request, paths=paths, recover_at=recover_at):
+                paths.append(request.url.path)
+                if request.url.path == "/health":
+                    return httpx.Response(200, json={"ok": len(paths) == recover_at})
+                return response({"friends": [PLAYER]})
+
+            with self.subTest(recover_at=recover_at):
+                async with StrinovaClient(
+                    Settings(), transport=httpx.MockTransport(handler)
+                ) as client:
+                    self.assertEqual(await resolve_player(client, Query("测试玩家")), PLAYER)
+                self.assertEqual(paths, ["/health"] * recover_at + ["/v1/friends/search"])
+                self.assertEqual(
+                    [call.args[0] for call in self.sleep.await_args_list],
+                    [5, 10, 20, 40][: recover_at - 1],
+                )
+
+    async def test_whole_health_request_timeout_retries_five_times(self):
+        cancelled = 0
+
+        async def stalled(request):
+            nonlocal cancelled
+            try:
+                await asyncio.Future()
+            finally:
+                cancelled += 1
+
+        async with StrinovaClient(Settings(), transport=httpx.MockTransport(stalled)) as client:
+            client.health_timeout = 0.01
+            with self.assertRaises(ServiceUnavailable):
+                await client.check_health()
+        self.assertEqual(cancelled, 5)
+        self.assertEqual(self.sleep.await_count, 4)
+
+    async def test_cancelling_health_retry_propagates_without_unavailable_verdict(self):
+        started = asyncio.Event()
+        paths = []
+
+        async def stalled_delay(_):
+            started.set()
+            await asyncio.Future()
+
+        def handler(request):
+            paths.append(request.url.path)
+            return httpx.Response(503)
+
+        self.sleep.side_effect = stalled_delay
+        async with StrinovaClient(Settings(), transport=httpx.MockTransport(handler)) as client:
+            task = asyncio.create_task(client.check_health())
+            await asyncio.wait_for(started.wait(), timeout=1)
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+        self.assertEqual(paths, ["/health"])
+        self.sleep.assert_awaited_once_with(5)
 
     async def test_health_uses_short_timeout(self):
         for configured, expected in ((35, 5), (2, 2)):

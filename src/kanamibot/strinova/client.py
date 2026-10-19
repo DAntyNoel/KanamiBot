@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import math
 import os
 from dataclasses import dataclass
@@ -11,6 +12,8 @@ import httpx
 from .query import QueryError, numeric_id
 
 DEFAULT_API_URL = "http://10.38.20.220:19080"
+HEALTH_CHECK_ATTEMPTS = 5
+HEALTH_RETRY_DELAY_SECONDS = 5
 DEFAULT_AVATAR_URL_TEMPLATE = (
     "https://cdn.jsdelivr.net/gh/Celest151/StrinovaData@main/"
     "PaperMan/UI/Atlas/DynamicResource/IdCard/Appearance/T_Dynamic_IdCard_{icon}_icon.png"
@@ -76,11 +79,24 @@ class StrinovaClient:
         await self.http.aclose()
 
     async def check_health(self) -> None:
+        # Four exponential waits (75s) plus five checks (at most 25s) stay under two minutes.
+        for attempt in range(HEALTH_CHECK_ATTEMPTS):
+            try:
+                await self._check_health_once()
+                return
+            except ServiceUnavailable:
+                if attempt == HEALTH_CHECK_ATTEMPTS - 1:
+                    raise
+            await asyncio.sleep(HEALTH_RETRY_DELAY_SECONDS * 2**attempt)
+
+    async def _check_health_once(self) -> None:
         try:
-            response = await self.http.get("health", timeout=self.health_timeout)
-            response.raise_for_status()
-            health = response.json()
-        except (httpx.HTTPError, ValueError) as exc:
+            # Bound the entire check, not each separate HTTP timeout phase.
+            async with asyncio.timeout(self.health_timeout):
+                response = await self.http.get("health", timeout=self.health_timeout)
+                response.raise_for_status()
+                health = response.json()
+        except (TimeoutError, httpx.HTTPError, ValueError) as exc:
             raise ServiceUnavailable() from exc
         if not isinstance(health, dict) or health.get("ok") is not True:
             raise ServiceUnavailable()
