@@ -100,11 +100,28 @@ Bot 查询超过 2 分钟会取消并发送超时提示。查询成功、失败�
 
 资源根目录固定为 `src/kanamibot/plugins/strinova/resources/`，缓存为同一插件下的 `cache/`。
 原始资源包、复制的字体、下载头像和验收图片均由 `.gitignore` 忽略，不进入公开仓库。
-模板和 CSS 位于插件内的 `templates/`，作为源码提交。其他机器需另行复制资源目录。
+模板和 CSS 位于插件内的 `templates/`，作为源码提交。其他机器可按下述方式同步资源。
 
-当前已将用户提供的 `data.7z` 解压到该目录，直接包含 `images/`、`mappings/`、`tables/`、
-`snapshots/` 和 `fonts/`。将已有资源目录复制到插件下即可，不运行资源包中的脚本。
-从用户提供的游戏字体目录复制了 `Game-Semibold.ttf`（方正兰亭黑 Pro Global Semibold）
+游戏资源上游为 [kqhub-win/calabiyau-resource](https://github.com/kqhub-win/calabiyau-resource)，
+使用其 `data/` 中的已生成资源，不执行上游的解包脚本。当前同步的游戏版本、提交、
+数据树及导入内容校验值记录在 [resource_source.json](resource_source.json)，与同步脚本一起提交；
+游戏图片、配置表和字体继续忽略，不进入本仓库。
+
+```powershell
+# 首次获取上游；仓库访问权限使用本机 Git 凭据。
+git clone --depth 1 https://github.com/kqhub-win/calabiyau-resource.git data/strinova/calabiyau-resource
+# 后续更新时先拉取上游。
+git -C data/strinova/calabiyau-resource pull --ff-only
+.\.venv\Scripts\python.exe scripts/update_strinova_resources.py --source data/strinova/calabiyau-resource
+```
+
+同步全部 `mappings/*.json`、`tables/*.json`、版本及构建报告，并按已验证映射复制战绩页
+使用的头像、角色、地图和段位 PNG。导入前逐个核对 Git blob 校验值、JSON 和 PNG 格式；
+缺少文件或校验失败时保留现有资源，目录替换失败会回滚。重复导入同一版本不会改写资源。
+原有 `fonts/`、Wiki 高清立绘及其他本地资源保留。脚本不启动或重启 Bot、NapCat，
+也不修改 `.env`；运行中的 Bot 若已缓存旧资源，需在下次重启新框架 Bot 后加载新版本。
+
+本地字体从用户提供的游戏字体目录复制了 `Game-Semibold.ttf`（方正兰亭黑 Pro Global Semibold）
 及 `orbitron-*.otf`；界面中文使用前者，数值使用 `orbitron-medium.otf`。
 运行时仅从插件目录加载字体，不依赖原字体目录。
 
