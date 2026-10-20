@@ -174,7 +174,7 @@ def main(argv: list[str] | None = None) -> int:
     print(
         f"资源已更新至 {state['game_version']} / {state['commit'][:12]}："
         f"{state['mappings']} 份映射、{state['tables']} 张配置表、"
-        f"{state['images']} 张图片，变更 {changed} 个文件。"
+        f"{state['images']} 张图片，变更 {changed} 个文件。下次查询自动加载，无需重启 Bot。"
     )
     return 0
 

@@ -1,4 +1,4 @@
-"""Read the user-supplied game resource pack without importing the NoneBot plugin."""
+"""Read and hot-reload local game resources without importing the NoneBot plugin."""
 
 from __future__ import annotations
 
@@ -24,20 +24,45 @@ class ResourcePack:
         self._mappings: dict[str, Any] = {}
         self._records: dict[tuple[str, str | None], dict[int, dict]] = {}
         self._images: OrderedDict[Path, str] = OrderedDict()
-        self._rank_images: OrderedDict[tuple[Path, Path, bool], str] = OrderedDict()
+        self._rank_images: OrderedDict[tuple[int, bool], str] = OrderedDict()
         self._image_bytes = 0
         self._lock = RLock()
+        self._revision = self._directory_revision()
+
+    def _directory_revision(self) -> tuple[int, int, int] | None:
+        try:
+            stat = self.root.stat()
+        except OSError:
+            return None
+        return stat.st_dev, stat.st_ino, stat.st_mtime_ns
+
+    def _refresh(self) -> None:
+        # The updater promotes a complete directory. Its identity changes even if
+        # the game version and individual file timestamps stay the same.
+        revision = self._directory_revision()
+        if revision is None or revision == self._revision:
+            return
+        self._mappings.clear()
+        self._records.clear()
+        self._images.clear()
+        self._rank_images.clear()
+        self._image_bytes = 0
+        self._revision = revision
 
     def mapping(self, name: str) -> Any:
         if not name.replace("_", "").isalnum():
             return {}
         with self._lock:
+            self._refresh()
             if name not in self._mappings:
                 try:
                     value = json.loads(
                         (self.root / "mappings" / f"{name}.json").read_text(encoding="utf-8")
                     )
-                except (OSError, ValueError):
+                except OSError:
+                    # Do not retain misses during the updater's directory swap.
+                    return {}
+                except ValueError:
                     value = {}
                 if len(self._mappings) >= 16:
                     self._mappings.pop(next(iter(self._mappings)))
@@ -46,6 +71,7 @@ class ResourcePack:
 
     def records(self, name: str, group: str | None = None) -> dict[int, dict]:
         with self._lock:
+            self._refresh()
             key = (name, group)
             if key not in self._records:
                 entries = self.mapping(name)
@@ -96,24 +122,25 @@ class ResourcePack:
         if not path.is_relative_to(self.root):
             return None
         with self._lock:
+            self._refresh()
             if path in self._images:
                 self._images.move_to_end(path)
                 return self._images[path]
-        mime = {
-            ".png": "image/png",
-            ".jpg": "image/jpeg",
-            ".webp": "image/webp",
-            ".ttf": "font/ttf",
-            ".otf": "font/otf",
-        }.get(path.suffix.lower())
-        try:
-            if mime is None or path.stat().st_size > 24 * 1024 * 1024:
+            mime = {
+                ".png": "image/png",
+                ".jpg": "image/jpeg",
+                ".webp": "image/webp",
+                ".ttf": "font/ttf",
+                ".otf": "font/otf",
+            }.get(path.suffix.lower())
+            try:
+                if mime is None or path.stat().st_size > 24 * 1024 * 1024:
+                    return None
+                value = f"data:{mime};base64,{base64.b64encode(path.read_bytes()).decode('ascii')}"
+            except OSError:
                 return None
-            value = f"data:{mime};base64,{base64.b64encode(path.read_bytes()).decode('ascii')}"
-        except OSError:
-            return None
-        # Keep fonts and frequently used artwork hot without retaining a whole resource pack.
-        with self._lock:
+            # Hold the lock through reads and cache writes so an in-flight old
+            # image cannot repopulate a cache another reader has just refreshed.
             existing = self._images.pop(path, None)
             self._image_bytes -= len(existing) if existing else 0
             self._images[path] = value
@@ -121,7 +148,7 @@ class ResourcePack:
             while self._image_bytes > 32 * 1024 * 1024 or len(self._images) > 128:
                 _, removed = self._images.popitem(last=False)
                 self._image_bytes -= len(removed)
-        return value
+            return value
 
     def image(self, row: dict, *fields: str) -> str | None:
         return self.data_uri(self.image_path(row, *fields))
@@ -147,40 +174,40 @@ class ResourcePack:
     def rank_image(self, rank_id: int, *, leisure: bool = False) -> str | None:
         if type(rank_id) is not int:
             return None
-        row = self.records("ranks", "leisure_rank" if leisure else "rank").get(rank_id, {})
-        badge = self.image_path(row, "IconDivision")
-        level = self.image_path(row, "IconDivisionLevel")
-        if badge is None or level is None:
-            return self.data_uri(badge)
-        key = (badge, level, leisure)
         with self._lock:
+            self._refresh()
+            key = (rank_id, leisure)
             if key in self._rank_images:
                 self._rank_images.move_to_end(key)
                 return self._rank_images[key]
-        try:
-            with Image.open(badge) as source, Image.open(level) as numeral:
-                canvas = source.convert("RGBA")
-                overlay = numeral.convert("RGBA")
-            # Ranked numerals sit below the emblem; cup numerals sit on the trophy face.
-            height = max(1, round(canvas.height * (0.106 if leisure else 0.18)))
-            width = max(1, round(overlay.width * height / overlay.height))
-            overlay = overlay.resize((width, height), Image.Resampling.LANCZOS)
-            position = (
-                (canvas.width - width) // 2,
-                round(canvas.height * (0.28 if leisure else 0.75)),
-            )
-            canvas.alpha_composite(overlay, position)
-            with io.BytesIO() as output:
-                canvas.save(output, format="PNG")
-                encoded = base64.b64encode(output.getvalue()).decode("ascii")
-                value = "data:image/png;base64," + encoded
-        except (OSError, ValueError):
-            return self.data_uri(badge)
-        with self._lock:
+            row = self.records("ranks", "leisure_rank" if leisure else "rank").get(rank_id, {})
+            badge = self.image_path(row, "IconDivision")
+            level = self.image_path(row, "IconDivisionLevel")
+            if badge is None or level is None:
+                return self.data_uri(badge)
+            try:
+                with Image.open(badge) as source, Image.open(level) as numeral:
+                    canvas = source.convert("RGBA")
+                    overlay = numeral.convert("RGBA")
+                # Ranked numerals sit below the emblem; cup numerals sit on the trophy face.
+                height = max(1, round(canvas.height * (0.106 if leisure else 0.18)))
+                width = max(1, round(overlay.width * height / overlay.height))
+                overlay = overlay.resize((width, height), Image.Resampling.LANCZOS)
+                position = (
+                    (canvas.width - width) // 2,
+                    round(canvas.height * (0.28 if leisure else 0.75)),
+                )
+                canvas.alpha_composite(overlay, position)
+                with io.BytesIO() as output:
+                    canvas.save(output, format="PNG")
+                    encoded = base64.b64encode(output.getvalue()).decode("ascii")
+                    value = "data:image/png;base64," + encoded
+            except (OSError, ValueError):
+                return self.data_uri(badge)
             self._rank_images[key] = value
             while len(self._rank_images) > 96:
                 self._rank_images.popitem(last=False)
-        return value
+            return value
 
     def map_name(self, map_id: int | None) -> str:
         return self.records("maps").get(map_id, {}).get("name") or (
