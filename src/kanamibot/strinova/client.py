@@ -112,6 +112,8 @@ class StrinovaClient:
         except httpx.TimeoutException as exc:
             raise APIError("API 请求超时，请稍后重试。") from exc
         except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 504:
+                raise APIError("查询超时，后端服务无响应") from exc
             raise APIError(f"API 返回 HTTP {exc.response.status_code}。") from exc
         except httpx.RequestError as exc:
             raise APIError("无法连接战绩 API，请检查网络和 STRINOVA_API_URL。") from exc

@@ -210,14 +210,25 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
         def timeout(request):
             raise httpx.ReadTimeout("internal error", request=request)
 
-        for handler in (
-            timeout,
-            lambda _: httpx.Response(503),
-            lambda _: httpx.Response(200, text="<html>unavailable</html>"),
+        for handler, expected in (
+            (timeout, "API 请求超时，请稍后重试。"),
+            (lambda _: httpx.Response(503), "API 返回 HTTP 503。"),
+            (
+                lambda _: httpx.Response(
+                    504,
+                    json={"ok": False, "error": "query has no waiters or its deadline expired"},
+                ),
+                "查询超时，后端服务无响应",
+            ),
+            (
+                lambda _: httpx.Response(200, text="<html>unavailable</html>"),
+                "API 返回了非 JSON 数据。",
+            ),
         ):
             async with StrinovaClient(Settings(), transport=healthy_transport(handler)) as client:
-                with self.assertRaises(APIError):
+                with self.subTest(expected=expected), self.assertRaises(APIError) as caught:
                     await client.profile("123456")
+                self.assertEqual(str(caught.exception), expected)
 
     async def test_pending_bridge_error_is_explained_without_leaking_stack_trace(self):
         transport = healthy_transport(
