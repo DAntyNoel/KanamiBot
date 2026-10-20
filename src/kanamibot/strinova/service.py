@@ -1,16 +1,21 @@
 from __future__ import annotations
 
+import asyncio
+import math
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
 from .avatar import AvatarError, load_avatar
 from .client import APIError, ServiceUnavailable, Settings, StrinovaClient
-from .query import Query, QueryError
+from .query import Query, QueryError, numeric_id
 
 QUERY_TIMEOUT_SECONDS = 120
 # The standings API indexes batches of 20; image pages use the query's smaller limit.
 STANDINGS_BATCH_SIZE = 20
+# Detail enrichment is optional and shares a small budget across the visible page.
+STANDINGS_DETAIL_TIMEOUT_SECONDS = 5
+STANDINGS_DETAIL_BUDGET_SECONDS = 10
 
 
 @dataclass
@@ -69,7 +74,52 @@ async def fetch_standings_page(client: StrinovaClient, player_id: str, query: Qu
             break
         api_index += 1
         offset = 0
-    return {"titles": matches[: query.limit], "has_more": len(matches) > query.limit}
+    titles = [row.copy() for row in matches[: query.limit] if isinstance(row, dict)]
+    try:
+        async with asyncio.timeout(STANDINGS_DETAIL_BUDGET_SECONDS):
+            await _fill_missing_roles(client, player_id, titles)
+    except TimeoutError:
+        pass
+    return {"titles": titles, "has_more": len(matches) > query.limit}
+
+
+async def _fill_missing_roles(client: StrinovaClient, player_id: str, titles: list[dict]) -> None:
+    for row in titles:
+        # Zero is the list API's missing-detail sentinel, not a character ID.
+        if type(row.get("role_id")) is not int or row["role_id"] != 0:
+            continue
+        try:
+            room_id = numeric_id(str(row.get("room_id", "")), "房间 ID")
+            async with asyncio.timeout(STANDINGS_DETAIL_TIMEOUT_SECONDS):
+                data = await client.match(player_id, room_id)
+        except ServiceUnavailable:
+            raise
+        except (QueryError, TimeoutError):
+            continue
+        # Only use this room's queried player; other players may have different roles.
+        if not isinstance(data, dict) or str(data.get("room_id")) != room_id:
+            continue
+        details = data.get("standings")
+        players = details.get("players") if isinstance(details, dict) else None
+        if not isinstance(players, list):
+            continue
+        own = [
+            item
+            for item in players
+            if isinstance(item, dict) and str(item.get("player_id")) == player_id
+        ]
+        if len(own) != 1:
+            continue
+        role_id = own[0].get("final_role_id")
+        if type(role_id) is not int or role_id <= 0:
+            continue
+        row["role_id"] = role_id
+        stats = {key: own[0].get(key) for key in ("kill_num", "dead_num", "assists_num", "damage")}
+        if all(
+            type(value) in (int, float) and math.isfinite(value) and value >= 0
+            for value in stats.values()
+        ):
+            row.update(stats, bridge_stats_status="detail")
 
 
 async def fetch_report(client: StrinovaClient, query: Query) -> Report:

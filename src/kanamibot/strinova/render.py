@@ -146,7 +146,7 @@ def aggregate_ratio(rows: list[dict], numerator: str, denominator: str) -> float
 
 
 def role_name(value: Any) -> str:
-    if not isinstance(value, int):
+    if type(value) is not int or value <= 0:
         return "角色未提供"
     return resource_pack().records("characters").get(value, {}).get("name_cn") or ROLES.get(
         value, f"角色 #{value}"

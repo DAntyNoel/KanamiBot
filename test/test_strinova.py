@@ -19,9 +19,9 @@ from PIL import Image
 from kanamibot.strinova.avatar import AvatarError, image_data_uri, load_avatar
 from kanamibot.strinova.client import APIError, ServiceUnavailable, Settings, StrinovaClient
 from kanamibot.strinova.query import VIEWS, Query, QueryError, parse_query, query_from_args
-from kanamibot.strinova.render import match_row, rank_name, render_html, report_context
+from kanamibot.strinova.render import match_row, rank_name, render_html, report_context, role_name
 from kanamibot.strinova.resources import ResourcePack
-from kanamibot.strinova.service import Report, fetch_report, resolve_player
+from kanamibot.strinova.service import Report, fetch_report, fetch_standings_page, resolve_player
 
 PLAYER = {"player_id": 123456, "nick": "测试玩家", "level": 12, "rank": 22}
 ROOM_ID = "751028091756896271"
@@ -584,7 +584,177 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("该赛季数据暂不可用", render_html(report))
 
 
+class StandingsRoleRecoveryTests(unittest.IsolatedAsyncioTestCase):
+    @staticmethod
+    def detail(room_id="3", **own):
+        return {
+            "room_id": room_id,
+            "standings": {
+                "players": [
+                    {"player_id": 999, "final_role_id": 101},
+                    {
+                        **PLAYER,
+                        "final_role_id": 146,
+                        "kill_num": 0,
+                        "dead_num": 2,
+                        "assists_num": 3,
+                        "damage": 0,
+                        **own,
+                    },
+                ]
+            },
+        }
+
+    async def test_only_visible_zero_roles_use_same_player_detail_and_preserve_real_zero_stats(
+        self,
+    ):
+        rows = [
+            {
+                "room_id": str(i),
+                "role_id": 137 if i == 4 else 0,
+                "bridge_stats_status": "unavailable",
+            }
+            for i in range(1, 7)
+        ]
+        client = SimpleNamespace(
+            standings=AsyncMock(return_value={"titles": rows}),
+            match=AsyncMock(return_value=self.detail()),
+        )
+        page = await fetch_standings_page(
+            client, "123456", Query("测试玩家", view="standings", index=2, limit=2)
+        )
+        self.assertEqual([row["room_id"] for row in page["titles"]], ["3", "4"])
+        self.assertTrue(page["has_more"])
+        client.match.assert_awaited_once_with("123456", "3")
+        self.assertEqual(rows[2]["role_id"], 0)
+        row = page["titles"][0]
+        self.assertEqual((row["role_id"], row["bridge_stats_status"]), (146, "detail"))
+        rendered = match_row(row)
+        self.assertEqual(
+            (rendered["role"], rendered["kda"], rendered["damage"]), ("星绘", "0 / 2 / 3", "0")
+        )
+
+    async def test_failed_detail_keeps_list_and_partial_detail_does_not_invent_stats(self):
+        rows = [
+            {"room_id": str(i), "role_id": 0, "bridge_stats_status": "unavailable"} for i in (1, 2)
+        ]
+        client = SimpleNamespace(
+            standings=AsyncMock(return_value={"titles": rows}),
+            match=AsyncMock(
+                side_effect=[APIError("查询超时，后端服务无响应"), self.detail("2", damage=None)]
+            ),
+        )
+        page = await fetch_standings_page(client, "123456", Query("测试玩家"))
+        self.assertEqual(page["titles"][0], rows[0])
+        row = page["titles"][1]
+        self.assertEqual(row["role_id"], 146)
+        self.assertEqual(match_row(row)["kda"], "— / — / —")
+        self.assertNotIn("damage", row)
+
+    async def test_mismatched_or_invalid_detail_is_not_used(self):
+        invalid = [
+            self.detail("4"),
+            self.detail(player_id=999),
+            {"room_id": "3", "standings": {"players": []}},
+            {"room_id": "3", "standings": {"players": [PLAYER, PLAYER]}},
+            {"room_id": "3", "standings": None},
+            *[self.detail(final_role_id=role) for role in (0, -1, True, "146", None)],
+        ]
+        for detail in invalid:
+            with self.subTest(detail=detail):
+                row = {"room_id": "3", "role_id": 0, "bridge_stats_status": "unavailable"}
+                client = SimpleNamespace(
+                    standings=AsyncMock(return_value={"titles": [row]}),
+                    match=AsyncMock(return_value=detail),
+                )
+                page = await fetch_standings_page(client, "123456", Query("测试玩家"))
+                self.assertEqual(page["titles"], [row])
+
+    async def test_service_unavailable_still_aborts_query(self):
+        client = SimpleNamespace(
+            standings=AsyncMock(return_value={"titles": [{"room_id": "3", "role_id": 0}]}),
+            match=AsyncMock(side_effect=ServiceUnavailable()),
+        )
+        with self.assertRaises(ServiceUnavailable):
+            await fetch_standings_page(client, "123456", Query("测试玩家"))
+
+    async def test_per_detail_timeout_allows_next_visible_row(self):
+        async def detail(_, room_id):
+            if room_id == "2":
+                await asyncio.Event().wait()
+            return self.detail(room_id)
+
+        client = SimpleNamespace(
+            standings=AsyncMock(
+                return_value={"titles": [{"room_id": str(i), "role_id": 0} for i in (2, 3)]}
+            ),
+            match=AsyncMock(side_effect=detail),
+        )
+        with patch("kanamibot.strinova.service.STANDINGS_DETAIL_TIMEOUT_SECONDS", 0.01):
+            page = await asyncio.wait_for(
+                fetch_standings_page(client, "123456", Query("测试玩家")), 1
+            )
+        self.assertEqual([row["role_id"] for row in page["titles"]], [0, 146])
+
+    async def test_page_budget_keeps_recovered_rows_and_stops_remaining_requests(self):
+        async def detail(_, room_id):
+            if room_id != "3":
+                await asyncio.Event().wait()
+            return self.detail(room_id)
+
+        client = SimpleNamespace(
+            standings=AsyncMock(
+                return_value={"titles": [{"room_id": str(i), "role_id": 0} for i in (3, 4, 5)]}
+            ),
+            match=AsyncMock(side_effect=detail),
+        )
+        with patch("kanamibot.strinova.service.STANDINGS_DETAIL_BUDGET_SECONDS", 0.02):
+            page = await asyncio.wait_for(
+                fetch_standings_page(client, "123456", Query("测试玩家")), 1
+            )
+        self.assertEqual([row["role_id"] for row in page["titles"]], [146, 0, 0])
+        self.assertEqual([call.args[1] for call in client.match.await_args_list], ["3", "4"])
+
+    async def test_caller_cancellation_propagates(self):
+        started = asyncio.Event()
+
+        async def detail(*_):
+            started.set()
+            await asyncio.Event().wait()
+
+        client = SimpleNamespace(
+            standings=AsyncMock(return_value={"titles": [{"room_id": "3", "role_id": 0}]}),
+            match=AsyncMock(side_effect=detail),
+        )
+        task = asyncio.create_task(fetch_standings_page(client, "123456", Query("测试玩家")))
+        await asyncio.wait_for(started.wait(), 1)
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+
+
 class RenderingTests(unittest.TestCase):
+    def test_missing_character_id_is_not_presented_as_character_zero(self):
+        for invalid in (0, -1, True, None, "146"):
+            self.assertEqual(role_name(invalid), "角色未提供")
+        self.assertEqual(role_name(146), "星绘")
+        self.assertEqual(role_name(999), "角色 #999")
+        for view in ("overview", "standings", "career", "match"):
+            with self.subTest(view=view):
+                report = Report(
+                    Query("测试玩家", view=view, room_id=ROOM_ID),
+                    "123456",
+                    {**PLAYER, "freq_roles": [0]},
+                    sections={
+                        "standings": {"titles": [{"role_id": 0}]},
+                        "career": {"career_info": {"role_employs": [{"role_id": 0, "count": 1}]}},
+                        "match": {"standings": {"players": [{**PLAYER, "final_role_id": 0}]}},
+                    },
+                )
+                html = render_html(report)
+                self.assertNotIn("角色 #0", html)
+                self.assertIn("角色未提供", html)
+
     def test_rank_cards_keep_ranked_and_challenge_names_and_scores_separate(self):
         with tempfile.TemporaryDirectory() as folder:
             pack = ResourcePack(Path(folder))
