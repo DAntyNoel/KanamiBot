@@ -5,7 +5,18 @@ import re
 import shlex
 from dataclasses import dataclass
 
-VIEWS = ("overview", "profile", "status", "career", "history", "standings", "match")
+VIEWS = (
+    "overview",
+    "profile",
+    "status",
+    "career",
+    "history",
+    "standings",
+    "match",
+    "card",
+    "seasons",
+    "replay",
+)
 VIEW_LABELS = {
     "玩家概览": "overview",
     "引航者资料": "profile",
@@ -15,6 +26,9 @@ VIEW_LABELS = {
     "历史赛季": "history",
     "对局战绩": "standings",
     "单局详情": "match",
+    "玩家名片": "card",
+    "赛季列表": "seasons",
+    "对局录像": "replay",
 }
 GAME_MODES = {
     "无限团竞": 1,
@@ -109,19 +123,19 @@ class Query:
 
     def __post_init__(self) -> None:
         if (
-            not self.target.strip()
+            (not self.target.strip() and self.view not in ("seasons", "replay"))
             or len(self.target) > 64
             or any(ord(char) < 32 for char in self.target)
         ):
             raise QueryError("请输入 1–64 个字符的玩家昵称或 ID。")
         if self.by_id:
-            numeric_id(self.target, "玩家 ID", 2**32 - 1)
+            numeric_id(self.target, "玩家 ID")
         if self.view not in VIEWS:
             raise QueryError("不支持的查询视图。")
         if self.index < 1 or self.index > 1000 or not 1 <= self.limit <= 20:
             raise QueryError("页码必须为 1–1000，展示条数必须为 1–20。")
         if any(
-            not 0 <= value <= 2**31 - 1
+            not 0 <= value <= 2**32 - 1
             for value in (
                 self.season_id,
                 self.season_type,
@@ -132,9 +146,15 @@ class Query:
         ):
             raise QueryError("赛季和模式参数必须为非负整数。")
         if self.room_id is not None:
-            numeric_id(self.room_id, "房间 ID")
-        if self.view == "match" and self.room_id is None:
-            raise QueryError("单局查询需要 --room-id {房间ID}。")
+            object.__setattr__(self, "room_id", numeric_id(self.room_id, "房间 ID"))
+        if self.view in ("match", "replay") and self.room_id is None:
+            raise QueryError("单局或录像查询需要 --room-id {房间ID}。")
+        if self.season_id and self.view not in ("career", "history"):
+            raise QueryError("--season-id 仅适用于生涯数据和历史赛季；对局列表不支持赛季筛选。")
+        if self.season_type != 1 and self.view in ("career", "history"):
+            raise QueryError("当前 PC 接口仅支持主赛季（--season-type 1）。")
+        if self.game_mode and self.view not in ("overview", "standings", "career", "history"):
+            raise QueryError("模式筛选仅适用于玩家概览、对局战绩、生涯数据和历史赛季。")
 
 
 def query_from_args(args: argparse.Namespace) -> Query:
@@ -163,8 +183,8 @@ def query_from_args(args: argparse.Namespace) -> Query:
         else:
             break
     resolved_view = view or args.default_view
-    if mode is not None and resolved_view not in ("overview", "standings"):
-        raise QueryError("模式筛选仅适用于玩家概览和对局战绩。")
+    if mode is not None and resolved_view not in ("overview", "standings", "career", "history"):
+        raise QueryError("模式筛选仅适用于玩家概览、对局战绩、生涯数据和历史赛季。")
     game_mode = args.game_mode if args.game_mode is not None else 0
     if mode is not None:
         selected_mode = resolve_game_mode(mode)

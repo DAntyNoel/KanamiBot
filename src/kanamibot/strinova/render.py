@@ -96,6 +96,9 @@ VIEW_NAMES = {
     "history": "历史赛季",
     "standings": "对局战绩",
     "match": "单局详情",
+    "card": "玩家名片",
+    "seasons": "赛季列表",
+    "replay": "对局录像",
 }
 
 
@@ -151,6 +154,40 @@ def role_name(value: Any) -> str:
     return resource_pack().records("characters").get(value, {}).get("name_cn") or ROLES.get(
         value, f"角色 #{value}"
     )
+
+
+def resource_name(group: str, value: Any) -> str:
+    if type(value) is not int or value <= 0:
+        return "—"
+    return resource_pack().records(group).get(value, {}).get("name") or f"资源 #{value}"
+
+
+def card_entries(value: Any, group: str) -> list[str] | None:
+    if not isinstance(value, list):
+        return None
+    entries = []
+    for item in value:
+        if not isinstance(item, dict):
+            entries.append(resource_name(group, item))
+            continue
+        if group == "divisions":
+            entries.append(
+                " · ".join(
+                    f"{label} {number(item.get(key))}"
+                    for key, label in (
+                        ("game_mode", "模式"),
+                        ("division", "段位"),
+                        ("score", "分数"),
+                        ("rank", "排名"),
+                    )
+                    if key in item
+                )
+                or "展示条目（字段暂未识别）"
+            )
+            continue
+        name = resource_name(group, item.get("id", item.get("card_id")))
+        entries.append(name + (f" · 等级 {number(item['level'])}" if "level" in item else ""))
+    return entries
 
 
 def dictionary(value: Any) -> dict:
@@ -219,6 +256,8 @@ def match_row(row: dict) -> dict:
         "unavailable",
         "failed",
         "timeout",
+        "deferred",
+        "privacy",
     )
     return {
         "result": result,
@@ -242,6 +281,11 @@ def match_row(row: dict) -> dict:
         "change": f"{change:+d}" if change is not None else "—",
         "positive": change is not None and change > 0,
         "room_id": str(row.get("room_id", "—")),
+        "stats_note": {
+            "deferred": "统计等待补全",
+            "privacy": "统计受隐私保护",
+            "unavailable": "统计暂不可用",
+        }.get(row.get("bridge_stats_status"), ""),
     }
 
 
@@ -256,12 +300,14 @@ def report_context(report: Report) -> dict:
         if isinstance(raw_career_modes, list) and len(career_modes) == len(raw_career_modes)
         else []
     )
-    stats = (
-        report.sections.get("history")
-        if query.view == "history"
-        else (report.sections.get("battle") or career)
-    )
+    stats = report.sections.get("history") or report.sections.get("battle") or career
     stats = stats or {}
+    season = report.sections.get("season", {})
+    if query.view in ("career", "history") and not season:
+        stats = {}
+    mode_rows = objects(stats.get("battle_infos"))
+    if query.game_mode and query.view in ("career", "history"):
+        mode_rows = [row for row in mode_rows if row.get("game_mode") == query.game_mode]
     total, wins = profile.get("total_games"), profile.get("win_games")
     win_rate = (
         wins / total if isinstance(total, int) and total > 0 and isinstance(wins, int) else None
@@ -293,9 +339,12 @@ def report_context(report: Report) -> dict:
     )
     status = report.sections.get("status", {}).get("friend", profile)
     status = status if isinstance(status, dict) else profile
-    roles = sorted(
-        objects(stats.get("role_employs")), key=lambda row: row.get("count", 0), reverse=True
-    )[:8]
+    roles = objects(stats.get("role_employs"))
+    if query.game_mode and query.view in ("career", "history"):
+        roles = [row for row in roles if row.get("game_mode") == query.game_mode]
+    roles.sort(key=lambda row: row.get("count") or 0, reverse=True)
+    role_count = len(roles)
+    roles = roles[(query.index - 1) * query.limit : query.index * query.limit]
     target = query.target
     if query.by_id:
         target = report.player_id
@@ -306,7 +355,11 @@ def report_context(report: Report) -> dict:
     command = f"#卡丘战绩 {target}"
     pack = resource_pack()
     frequent_roles = profile.get("freq_roles")
-    if not isinstance(frequent_roles, list) or not frequent_roles:
+    if query.view in ("career", "history"):
+        frequent_roles = stats.get("freq_roles")
+    if query.view not in ("career", "history") and (
+        not isinstance(frequent_roles, list) or not frequent_roles
+    ):
         frequent_roles = career.get("freq_roles")
     frequent_roles = frequent_roles if isinstance(frequent_roles, list) else []
     main_role = frequent_roles[0] if frequent_roles else None
@@ -317,7 +370,11 @@ def report_context(report: Report) -> dict:
     has_more = standings.get("has_more")
     if type(has_more) is not bool:
         has_more = len(titles) > query.limit
-    page_view = " 对局战绩" if query.view == "standings" else ""
+    page_view = {
+        "standings": " 对局战绩",
+        "career": " 生涯数据",
+        "history": " 历史赛季",
+    }.get(query.view, "")
     mode_suffix = (
         f" {GAME_MODE_NAMES[query.game_mode]}" if query.game_mode in GAME_MODE_NAMES else ""
     )
@@ -330,6 +387,9 @@ def report_context(report: Report) -> dict:
         page_options += f" --play-mode {query.play_mode}"
     if query.limit != 8:
         page_options += f" --limit {query.limit}"
+    if query.view in ("career", "history"):
+        has_more = role_count > query.index * query.limit
+        page_options += f" --season-id {season.get('season_id', query.season_id)}"
 
     def page_command(index: int) -> str:
         return f"{command}{page_view}{mode_suffix} {index}{page_options}"
@@ -377,6 +437,44 @@ def report_context(report: Report) -> dict:
                 ),
             ]
         )
+    if query.view in ("career", "history"):
+
+        def total_stat(key: str) -> int | float | None:
+            values = [row.get(key) for row in mode_rows]
+            if not values or any(type(value) not in (int, float) for value in values):
+                return None
+            return sum(values)
+
+        rounds, season_wins = total_stat("round"), total_stat("total_win_count")
+        metrics = [
+            ("赛季对局", number(rounds)),
+            ("赛季胜场", number(season_wins)),
+            (
+                "赛季胜率",
+                percent(season_wins / rounds) if season_wins is not None and rounds else "—",
+            ),
+            ("赛季击杀", number(total_stat("total_kill"))),
+        ]
+    card = dictionary(report.sections.get("card", {}).get("player_info"))
+    season_rows = objects(report.sections.get("seasons", {}).get("seasons"))
+    season_rows.sort(key=lambda row: (row.get("season_type") or 0, -(row.get("season_id") or 0)))
+    is_current = season.get("is_current") is True
+    rank_prefix = "cur" if is_current else "final"
+    season_facts = [
+        ("当前段位" if is_current else "最终段位", rank_name(stats.get(f"{rank_prefix}_seg"))),
+        ("最高段位", rank_name(stats.get("top_seg"))),
+        ("当前星数" if is_current else "最终星数", number(stats.get(f"{rank_prefix}_stars"))),
+        ("最高星数", number(stats.get("top_stars"))),
+        (
+            "当前段位分" if is_current else "最终段位分",
+            number(stats.get(f"{rank_prefix}_division_score")),
+        ),
+        ("最高段位分", number(stats.get("top_division_score"))),
+        ("当前排名" if is_current else "最终排名", number(stats.get(f"{rank_prefix}_rank_pos"))),
+        ("最高排名", number(stats.get("top_rank_pos"))),
+        ("最终评价分", number(stats.get("final_grade_score"))),
+        ("最高评价分", number(stats.get("top_grade_score"))),
+    ]
     leisure_rank = profile.get("leisure_rank", career.get("cur_leisure_rank"))
     leisure_score = profile.get("leisure_score", career.get("cur_leisure_score"))
     return {
@@ -433,8 +531,9 @@ def report_context(report: Report) -> dict:
         ]
         if collect
         else [],
-        "modes": objects(stats.get("battle_infos")),
+        "modes": mode_rows,
         "roles": roles,
+        "role_count": role_count,
         "matches": visible_matches,
         "recent": recent,
         "previous_page_command": page_command(query.index - 1) if query.index > 1 else None,
@@ -445,7 +544,7 @@ def report_context(report: Report) -> dict:
         "match_teams": teams,
         "room_id": query.room_id,
         "match_available": "match" in report.sections,
-        "history_available": "history" in report.sections,
+        "history_available": bool(season),
         "standings_available": "standings" in report.sections,
         "career_available": bool(career) or "battle" in report.sections,
         "history": report.sections.get("history", {}),
@@ -453,7 +552,24 @@ def report_context(report: Report) -> dict:
         "last_logout": timestamp(status.get("logout_time")),
         "battle_start": timestamp(status.get("battle_start_time")),
         "battle_scores": status.get("battle_scores") or "—",
-        "season_id": query.season_id,
+        "season_id": season.get("season_id", query.season_id),
+        "season_name": season.get("name") or "",
+        "season_current": is_current,
+        "season_facts": season_facts,
+        "season_rows": season_rows,
+        "card_available": bool(card),
+        "card_facts": [
+            ("名片头像", resource_name("avatars", card.get("avatar_id"))),
+            ("名片边框", resource_name("borders", card.get("border_id"))),
+            ("排位段位", rank_name(card.get("rank"))),
+            ("段位排名", number(card.get("rank_pos"))),
+            ("名片展示类型", number(card.get("card_show"))),
+            ("信用等级", number(card.get("credit_id_level"))),
+        ],
+        "card_medals": card_entries(card.get("medals"), "medals"),
+        "card_crystals": card_entries(card.get("crystal_cards"), "crystal_cards"),
+        "card_divisions": card_entries(card.get("division_list"), "divisions"),
+        "replay_url": report.sections.get("replay", {}).get("download_url"),
         "season_type": query.season_type,
         "index": query.index,
         "filter": " / ".join(

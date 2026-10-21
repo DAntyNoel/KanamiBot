@@ -2,6 +2,10 @@
 
 通过真实 API 查询并生成 HTML/CSS 战绩图片，信息层次参考 [弦外](https://klbq.122999.xyz/)，导航及栏目标题参考游戏官方个人信息界面。采用 840px 紧凑画布、短导航栏、深色栏目标题和红色强调，主要正文为 13–15px，使用地图背景及完整缩放的角色立绘。渲染不依赖参考网站，也不会通过参考站转发查询。Bot 命令默认启用，由健康检查控制是否接受查询。
 
+已适配上游 `0.4.6 / 20261021-season-fix`（2026-10-21）：支持完整赛季目录、
+当前与历史主赛季统计、历史角色表现、玩家名片与录像下载地址。赛季号从实时目录获取，
+不硬编码当前赛季，也不将历史查询失败回退成当前数据。
+
 ## 独立运行
 
 在仓库根目录安装依赖和浏览器（Python 3.12）：
@@ -26,7 +30,11 @@ uv run python scripts/query_strinova.py "丹提诺艾丨3601" --html-output data
 uv run python scripts/query_strinova.py --player-id 3586568 --view profile
 uv run python scripts/query_strinova.py "咕谷酱" --view status
 uv run python scripts/query_strinova.py "咕谷酱" --view career --season-id 0 --season-type 1
-uv run python scripts/query_strinova.py "咕谷酱" --view history --season-id 25
+uv run python scripts/query_strinova.py --view seasons
+uv run python scripts/query_strinova.py "咕谷酱" --view history
+uv run python scripts/query_strinova.py "咕谷酱" --view history --season-id 17 --mode 一般爆破
+uv run python scripts/query_strinova.py "咕谷酱" --view card
+uv run python scripts/query_strinova.py --view replay --room-id 751028091756896271
 uv run python scripts/query_strinova.py "咕谷酱" --view standings --index 1 --game-mode 0 --room-mode-type 0 --play-mode 0 --limit 10
 uv run python scripts/query_strinova.py "咕谷酱" 对局战绩 第2页 -o data/strinova/page-2.png
 uv run python scripts/query_strinova.py "咕谷酱" 对局战绩 枪王 -o data/strinova/gun-king.png
@@ -44,7 +52,8 @@ uv run python scripts/query_strinova.py "咕谷酱" --view match --room-id 75102
 | 配置 | 默认值 | 用途 |
 | --- | --- | --- |
 | `STRINOVA_API_URL` | `http://10.38.20.220:19080` | 真实 API 根地址，不能加 `/v1` |
-| `STRINOVA_API_TIMEOUT` | `35` | 单次请求超时秒数，1–120 |
+| `STRINOVA_API_KEY` | 空 | 上游启用鉴权时使用的 `X-API-Key`，同时用于 `/health` |
+| `STRINOVA_API_TIMEOUT` | `90` | 单次请求超时秒数，1–120；覆盖上游排队和执行预算 |
 | `STRINOVA_BROWSER_CHANNEL` | 空 | `chrome` 或 `msedge`；空值使用 Playwright Chromium |
 | `STRINOVA_BROWSER_EXECUTABLE` | 空 | 明确指定浏览器可执行文件，优先于 channel |
 | `STRINOVA_AVATAR_URL_TEMPLATE` | 空，使用公开资源镜像 | 本地头像不存在时的下载地址，使用 `{icon}` 替换头像编号 |
@@ -52,6 +61,8 @@ uv run python scripts/query_strinova.py "咕谷酱" --view match --room-id 75102
 
 CLI 也支持 `--api-url`、`--timeout`、`--browser-channel`、`--browser-executable`。
 API 请求绕过环境 HTTP 代理，确保访问提供的内网地址；查询和图片生成合计超时为 2 分钟。
+鉴权 key 从环境读取，不放在命令行或 URL 中，不进入图片。已有 `.env` 显式设置的超时继续生效。
+`--view seasons` 和 `--view replay --room-id ...` 无需输入昵称；录像模式同时输出可复制的下载地址。
 
 ## Bot 命令
 
@@ -69,7 +80,12 @@ API 请求绕过环境 HTTP 代理，确保访问提供的内网地址；查询�
 | `#卡丘资料 昵称` | 玩家资料 |
 | `#卡丘状态 昵称` | 当前状态快照 |
 | `#卡丘生涯 昵称 --season-id 0 --season-type 1` | 生涯及指定赛季统计 |
-| `#卡丘赛季 昵称 --season-id 25` | 历史赛季 |
+| `#卡丘赛季列表` | 实时赛季目录，无需玩家名 |
+| `#卡丘赛季 昵称` | 最近已结束主赛季的完整统计 |
+| `#卡丘赛季 昵称 --season-id 17` | 指定主赛季的统计和角色表现 |
+| `#卡丘赛季 昵称 --season-id 17 --mode 排位` | 指定赛季的排位爆破汇总和角色表现 |
+| `#卡丘名片 昵称` / `#卡丘战绩 昵称 玩家名片` | 名片装饰资源、勋章、晶卡、段位展示 |
+| `#卡丘录像 房间ID` | 查询录像下载地址，附可复制文本 |
 | `#卡丘战绩 昵称 对局战绩 --index 1 --limit 8` | 对局列表（分页） |
 | `#卡丘战绩 昵称 2` | 概览及最近战绩第 2 页 |
 | `#卡丘战绩 昵称 排位 2` | 概览及排位爆破战绩第 2 页 |
@@ -82,6 +98,7 @@ API 请求绕过环境 HTTP 代理，确保访问提供的内网地址；查询�
 
 Bot 和 CLI 共用查询参数，也可用 `--view` 指定视图。Bot 同时最多执行两次查询。
 最近战绩可在玩家概览或对局战绩命令末尾追加完整模式名或唯一前缀，也可用 `--mode 模式名`。
+生涯数据和历史赛季也支持模式名筛选，同时筛选汇总和角色记录；角色记录保留模式与角色两个维度。
 图片默认每页展示 8 场；有后续记录时，图片底部会给出保留当前模式筛选的下一页命令。
 页码可直接写为末尾数字，例如 `#卡丘战绩 昵称 排位 2`。原有 `第2页`、`第3页`
 及 `--page 2` / `--index 2` 仍可使用。页码按图片实际展示的场次连续翻页，
@@ -92,7 +109,8 @@ Bot 和 CLI 共用查询参数，也可用 `--view` 指定视图。Bot 同时最
 Bot 查询超过 2 分钟会取消并发送超时提示。查询成功、失败、超时或任务被取消时，
 都会撤回「正在查询」消息；撤回失败只记录日志，不影响返回结果或释放查询名额。
 玩家名后可以追加「玩家概览」「引航者资料」「当前状态」「生涯数据」「历史赛季」
-「对局战绩」或「单局详情」切换图片界面。历史赛季及单局详情仍需对应的赛季、房间参数。
+「对局战绩」「单局详情」或「玩家名片」切换图片界面。单局详情需房间参数；
+历史赛季省略 `--season-id` 时选择目录中最近已结束的主赛季，不保证该玩家在该季有记录。
 图片提示栏统一显示「#卡丘战绩 玩家名 玩家概览/引航者资料/生涯数据/对局战绩 可切换展示页」。昵称含空格或本身以界面名称结尾时，
 请将完整昵称放在引号内。中文界面名称与 `--view` 同时填写时必须一致。
 
@@ -194,16 +212,32 @@ Bot 的全部战绩命令（含帮助入口）以及本地脚本在查询前请�
 客户端完整覆盖以下 GET 路由：
 
 - `/v1/friends/search?nick=...`、`/v1/friends/search?player_id=...`
-- `/v1/players/{player_id}`、`/status`、`/career`
+- `/v1/players/{player_id}`、`/status`、`/career`、`/card`
+- `/v1/career/seasons`
 - `/v1/players/{player_id}/career/battle-data?season_id=...&season_type=...`
 - `/v1/players/{player_id}/career/history?season_id=...`
 - `/v1/players/{player_id}/standings?index=...&game_mode=...&room_mode_type=...&play_mode=...`
 - `/v1/players/{player_id}/standings/{room_id}`
+- `/v1/replays/{room_id}`
+- `/v1/me`、`/v1/me/personalization`、`/v1/career/icons`（供本地客户端调用，不作为群聊命令暴露上游登录账号资源）
 
-检查 HTTP、外层 `ok` 与内层业务 `code`，只接受 `ok=true` 且 `code=0`。
+检查 HTTP、外层 `ok` 与内层业务 `code`。普通游戏回包要求 `code=0`；
+赛季目录、当前账号及其资源缓存允许按文档省略 `code`，出现非零 code 仍报错。
+401 明确提示检查 `STRINOVA_API_KEY`，不将鉴权失败重试成服务离线。
+8603 保留「开启了隐私保护」；8609、8610、8611 分别提示战区限制、查看频繁和当日限额，
+8704 提示录像版本不匹配。未知业务码保留原值，不猜测原因，不额外密集重试。
 搜索失败直接报错；后续某项不可用时保留其他结果，在图片中说明缺失。
-概览请求资料、状态、生涯和对局列表；生涯视图额外请求赛季统计。赛季统计失败时显示生涯数据并注明来源。
-对局列表当前页出现 `role_id=0` 时，按顺序补查对应单局详情，只采用同房间、同玩家的
+概览请求资料、状态、生涯和对局列表；查询确认隐私或战区限制后停止后续受保护查询。
+生涯/赛季视图先查询目录：当前赛季只取 `/career`，已结束赛季只取 `/career/history`，
+一份完整回包同时提供模式汇总、角色记录及段位，不连续重复请求汇总接口。
+`/career/battle-data` 作为客户端的独立汇总方法保留，支持当前/历史赛季。
+当前赛季 ID 即使由历史赛季命令传入，也会路由到当前生涯接口；未来或不存在的赛季给出提示。
+当前 PC 适配仅支持 `season_type=1`。战绩列表没有赛季筛选，传入 `--season-id` 时明确提示使用生涯或历史赛季视图。
+历史回包必须匹配玩家和赛季，`player_id=0` 不作为任意目标的通配符；
+名片、资料、状态和战绩的身份字段也会核对，录像必须匹配房间且提供有效 HTTP(S) 下载地址。
+新版战绩列表提供 `bridge_enrichment` 时尊重上游补全预算和缓存，不在本地重复补查；
+`deferred/privacy/unavailable` 统计显示 `—`，已验证 `detail/detail_cache` 中真实的 0 保留。
+兼容旧桥接时，对局列表当前页出现 `role_id=0`，按顺序补查对应单局详情，只采用同房间、同玩家的
 `final_role_id`；详情中的完整击杀、死亡、助攻和伤害也一并补齐。每场补查最多 5 秒，
 当前页共享 10 秒补查预算，并受整次查询总时限约束。补查失败时保留已有战绩，
 缺失角色显示「角色未提供」，有效但未知的角色编号仍保留原编号。
@@ -215,7 +249,13 @@ Bot 的全部战绩命令（含帮助入口）以及本地脚本在查询前请�
 缺失统计显示 `—`；胜负通过 `my_team` 与 `winner_team` 判断。
 近期对局和单局摘要的 API 比分数组按队伍 1、队伍 2 排列，图片根据 `my_team` 调整为
 「我方 : 对方」，图片不额外显示该顺序文字；队伍字段缺失或不是两队时保留原始数组顺序并注明，不猜测。
-房间 ID 始终保留为整数字符串，避免 JavaScript 浮点精度损失。
+玩家和房间 ID 支持完整正 uint64，始终保留为整数字符串，避免 JavaScript 浮点精度损失。
+赛季及模式参数支持 uint32。赛季图片展示最终/当前与最高段位、星数、段位分、排名，
+增加胜场、累计 K/D/A、MVP、单场最高统计，角色记录按使用次数排序并保留全部返回条目。
+角色记录按 `--limit` 分页，图片给出保留玩家、赛季和模式的下一页命令，支持末尾数字翻页。
+例如 `#卡丘赛季 昵称 2 --season-id 17`。角色使用次数、胜场、回合与上游原始胜率分别展示。
+名片头像与边框使用上游 `avatar_id/border_id`，复用本地已验证名称；无法识别的装饰保留资源编号。
+录像仅查询地址，不自动下载或进入游戏回放。
 
 当前原始 API 不带前端使用的地图、模式和在线状态字典，使用本地资源包的已验证映射。
 资源包缺失或条目未知时保留编号；角色与排位段位还有已核对的内置中文名称作为回退。

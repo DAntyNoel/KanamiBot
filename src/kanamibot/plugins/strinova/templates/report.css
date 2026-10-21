@@ -70,3 +70,7 @@ table { width:100%; border-collapse:collapse; font-size:13px; font-variant-numer
 .duel-summary { display:flex; flex-wrap:wrap; align-items:center; gap:10px; padding:5px 7px; margin-bottom:7px; background:#dbe7f0; font-size:12px; }.duel-summary b { font-size:16px; font-weight:500; }.duel-summary .win { color:#007c92; }.duel-summary .loss { color:#a5546e; }.duel-summary span { color:#4f6c83; font-size:11px; }
 .empty { padding:8px 6px; font-size:13px; color:#607a91; text-align:center; line-height:1.5; }.full { grid-column:1/-1; }
 footer { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:1px; font-size:9px; line-height:1.45; color:#5d7389; }footer b { flex-shrink:0; color:#5d7389; font-weight:400; }
+/* API-provided resource identifiers and replay addresses can be long. */
+.resource-items { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 0; }
+.resource-items code, .replay-url { overflow-wrap: anywhere; word-break: break-word; }
+.replay-url { display: block; padding: 16px; background: #f3f5f6; color: #ba3944; }

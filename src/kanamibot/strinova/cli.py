@@ -45,8 +45,10 @@ async def run(args: argparse.Namespace) -> Path:
         browser_channel=args.browser_channel or configured.browser_channel,
         browser_executable=args.browser_executable or configured.browser_executable,
         avatar_url_template=configured.avatar_url_template,
+        api_key=configured.api_key,
     )
-    print(f"正在查询「{query.target}」的卡丘战绩……", flush=True)
+    target = query.target or ("赛季目录" if query.view == "seasons" else query.room_id)
+    print(f"正在查询「{target}」的卡丘战绩……", flush=True)
     async with asyncio.timeout(QUERY_TIMEOUT_SECONDS):
         report = await create_report(query, settings)
         image = await render_png(report, settings)
@@ -54,7 +56,8 @@ async def run(args: argparse.Namespace) -> Path:
         PROJECT_ROOT
         / "data"
         / "strinova"
-        / f"{report.player_id}-{query.view}-{datetime.now():%Y%m%d-%H%M%S-%f}.png"
+        / f"{report.player_id or query.room_id or 'catalog'}-{query.view}-"
+        f"{datetime.now():%Y%m%d-%H%M%S-%f}.png"
     )
     output = output.expanduser().resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -65,6 +68,9 @@ async def run(args: argparse.Namespace) -> Path:
         print(f"HTML 已保存：{html_output}")
     for warning in report.warnings:
         print(f"部分数据不可用：{warning}", file=sys.stderr)
+    replay = report.sections.get("replay", {})
+    if replay.get("download_url"):
+        print(f"录像下载地址：{replay['download_url']}")
     return output
 
 
@@ -72,7 +78,12 @@ def main(argv: list[str] | None = None) -> int:
     load_dotenv(PROJECT_ROOT / ".env", override=False)
     args = build_parser().parse_args(argv)
     try:
-        if not args.nickname and args.nick is None and args.player_id is None:
+        if (
+            not args.nickname
+            and args.nick is None
+            and args.player_id is None
+            and args.view not in ("seasons", "replay")
+        ):
             args.nickname = [input("请输入玩家昵称或 ID：").strip()]
         output = asyncio.run(run(args))
     except TimeoutError:

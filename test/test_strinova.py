@@ -81,7 +81,7 @@ class QueryTests(unittest.TestCase):
             ("测试玩家 --mode 晶源", "可指"),
             ("测试玩家 --mode 不存在", "未知战绩模式"),
             ("测试玩家 --mode 枪王 --game-mode 5", "不一致"),
-            ("测试玩家 生涯数据 --mode 排位", "仅适用于"),
+            ("测试玩家 玩家名片 --mode 排位", "仅适用于"),
         ):
             with self.subTest(text=text), self.assertRaisesRegex(QueryError, message):
                 parse_query(text)
@@ -377,8 +377,7 @@ class HealthTests(unittest.IsolatedAsyncioTestCase):
                 await fetch_report(client, Query("测试玩家"))
         self.assertEqual(
             paths,
-            ["/health", "/v1/friends/search", "/health", "/v1/players/123456"]
-            + ["/health"] * 5,
+            ["/health", "/v1/friends/search", "/health", "/v1/players/123456"] + ["/health"] * 5,
         )
 
     async def test_five_failures_use_exponential_delays_within_two_minutes(self):
@@ -578,6 +577,12 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
             search=AsyncMock(return_value={"friends": [PLAYER]}),
             profile=AsyncMock(return_value={"friend": PLAYER}),
             history=AsyncMock(side_effect=APIError("业务代码 2")),
+            seasons=AsyncMock(
+                return_value={
+                    "current_main_season_id": 26,
+                    "seasons": [{"season_id": 25, "season_type": 1, "available": True}],
+                }
+            ),
         )
         report = await fetch_report(client, Query("测试玩家", view="history", season_id=25))
         self.assertEqual(report_context(report)["modes"], [])
@@ -746,6 +751,7 @@ class RenderingTests(unittest.TestCase):
                     "123456",
                     {**PLAYER, "freq_roles": [0]},
                     sections={
+                        "season": {"season_id": 18, "is_current": True},
                         "standings": {"titles": [{"role_id": 0}]},
                         "career": {"career_info": {"role_employs": [{"role_id": 0, "count": 1}]}},
                         "match": {"standings": {"players": [{**PLAYER, "final_role_id": 0}]}},
@@ -1197,6 +1203,42 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
                 matcher.send.assert_not_awaited()
                 create.assert_not_awaited()
                 render.assert_not_awaited()
+
+    async def test_new_commands_and_copyable_replay_address(self):
+        from nonebot.adapters.onebot.v11 import Message
+
+        class Finished(Exception):
+            pass
+
+        for command, view, target in (
+            ("#卡丘赛季列表", "seasons", ""),
+            ("#卡丘名片 测试玩家", "card", "测试玩家"),
+            (f"#卡丘录像 {ROOM_ID}", "replay", ""),
+            (f"#卡丘录像 --room-id {ROOM_ID}", "replay", ""),
+        ):
+            matcher = SimpleNamespace(send=AsyncMock(), finish=AsyncMock(side_effect=Finished))
+            query = Query(target, view=view, room_id=ROOM_ID if view == "replay" else None)
+            sections = {"replay": {"download_url": "https://example.invalid/demo.replay"}}
+            report = Report(query, "", PLAYER, sections=sections if view == "replay" else {})
+            with (
+                self.subTest(command=command),
+                patch.object(self.plugin, "check_available", AsyncMock()),
+                patch.object(
+                    self.plugin, "create_report", AsyncMock(return_value=report)
+                ) as create,
+                patch.object(self.plugin, "render_png", AsyncMock(return_value=b"png")),
+            ):
+                with self.assertRaises(Finished):
+                    await self.plugin.handle_strinova(
+                        SimpleNamespace(message=Message(command)), matcher, self.bot
+                    )
+            actual = create.call_args.args[0]
+            self.assertEqual((actual.view, actual.target), (view, target))
+            if view == "replay":
+                self.assertEqual(actual.room_id, ROOM_ID)
+                message = matcher.finish.call_args.args[0]
+                self.assertEqual(message[0].type, "image")
+                self.assertIn("https://example.invalid/demo.replay", message.extract_plain_text())
 
     async def test_main_command_defaults_to_overview_and_accepts_chinese_switch(self):
         from nonebot.adapters.onebot.v11 import Message
