@@ -8,7 +8,7 @@ from typing import Any
 
 from .avatar import AvatarError, load_avatar
 from .client import APIError, IdentityMismatch, ServiceUnavailable, Settings, StrinovaClient
-from .query import Query, QueryError, numeric_id
+from .query import SEASON_LABEL, Query, QueryError, numeric_id
 
 QUERY_TIMEOUT_SECONDS = 120
 # The standings API indexes batches of 20; image pages use the query's smaller limit.
@@ -154,6 +154,32 @@ async def fetch_season_data(client: StrinovaClient, report: Report) -> dict:
     report.sections["seasons"] = catalog
     current = catalog.get("current_main_season_id")
     season_id = query.season_id
+    if query.season_label is not None:
+        label = SEASON_LABEL.fullmatch(query.season_label)
+        matches = []
+        for row in rows:
+            if not isinstance(row, dict) or row.get("season_type") != 1:
+                continue
+            name = row.get("name")
+            code = SEASON_LABEL.match(name) if isinstance(name, str) else None
+            if (
+                code is not None
+                and code["series"].upper() == label["series"].upper()
+                and int(code["number"]) == int(label["number"])
+                and (label["year"] is None or code["year"] == label["year"])
+                and type(row.get("season_id")) is int
+                and row["season_id"] > 0
+            ):
+                matches.append(row["season_id"])
+        if not matches:
+            raise QueryError(f"未找到赛季「{query.season_label}」，请先查询 #卡丘赛季列表。")
+        if len(matches) != 1:
+            raise QueryError(
+                f"赛季简称「{query.season_label}」对应多个赛季，请用 --season-id 指定。"
+            )
+        if season_id and season_id != matches[0]:
+            raise QueryError("赛季简称与 --season-id 不一致，请只指定一个赛季。")
+        season_id = matches[0]
     if query.view == "history" and season_id == 0:
         past = [
             row["season_id"]

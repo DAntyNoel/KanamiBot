@@ -54,6 +54,55 @@ def fake_client():
 
 
 class NewQueryTests(unittest.TestCase):
+    def test_history_command_season_shortcuts_are_distinct_from_pages(self):
+        for text, expected_id, expected_label, expected_page, expected_mode in (
+            ("测试玩家 14", 14, None, 1, 0),
+            ("测试玩家 14 排位", 14, None, 1, 5),
+            ("测试玩家 排位 14 --page 2", 14, None, 2, 5),
+            ("测试玩家 14 第2页", 14, None, 2, 0),
+            ("测试玩家 SP3", 0, "SP3", 1, 0),
+            ("测试玩家 sp2 排位 第2页", 0, "SP2", 2, 5),
+            ("测试玩家 S1 --index 2", 0, "S1", 2, 0),
+            ("测试玩家 s8", 0, "S8", 1, 0),
+            ("测试玩家 26SP3", 0, "26SP3", 1, 0),
+            ("测试玩家 14 --season-id 14", 14, None, 1, 0),
+        ):
+            with self.subTest(text=text):
+                query = parse_query(text, view="history", season_shortcuts=True)
+                self.assertEqual(query.target, "测试玩家")
+                self.assertEqual(
+                    (query.season_id, query.season_label, query.index, query.game_mode),
+                    (expected_id, expected_label, expected_page, expected_mode),
+                )
+        for text in ("测试玩家 14", "测试玩家 历史赛季 14"):
+            query = parse_query(text)
+            self.assertEqual((query.index, query.season_id, query.season_label), (14, 0, None))
+
+    def test_history_shortcuts_preserve_player_identity_and_reject_conflicts(self):
+        for text, target, by_id, season_id in (
+            ('"Player 14"', "Player 14", False, 0),
+            ('"Player SP3" 14', "Player SP3", False, 14),
+            ("--nick 12345 14", "12345", False, 14),
+            ("--player-id 12345 14", "12345", True, 14),
+            ("12345", "12345", True, 0),
+        ):
+            with self.subTest(text=text):
+                query = parse_query(text, view="history", season_shortcuts=True)
+                self.assertEqual(
+                    (query.target, query.by_id, query.season_id), (target, by_id, season_id)
+                )
+        for text in (
+            "测试玩家 14 --season-id 15",
+            "测试玩家 14 15",
+            "测试玩家 SP3 SP2",
+            "测试玩家 SP3 --view overview",
+            "测试玩家 14 第2页 --page 3",
+            "测试玩家 4294967296",
+        ):
+            with self.subTest(text=text), self.assertRaises(QueryError):
+                parse_query(text, view="history", season_shortcuts=True)
+        self.assertEqual(parse_query("测试玩家 SP3").target, "测试玩家 SP3")
+
     def test_new_views_uint64_and_season_mode_filters(self):
         self.assertTrue(parse_query(PLAYER["player_id"]).by_id)
         self.assertEqual(parse_query("--view seasons").target, "")
@@ -164,6 +213,56 @@ class NewClientTests(unittest.IsolatedAsyncioTestCase):
 
 
 class SeasonRoutingTests(unittest.IsolatedAsyncioTestCase):
+    async def test_short_season_names_resolve_to_catalog_ids_and_preserve_pagination(self):
+        for label, season_id in (("SP3", 16), ("sp2", 15), ("S1", 1), ("S8", 8), ("26SP3", 16)):
+            client = fake_client()
+            client.seasons.return_value = {
+                "current_main_season_id": 18,
+                "seasons": [
+                    {"season_id": sid, "season_type": 1, "available": True, "name": name}
+                    for sid, name in (
+                        (1, "S1.测试"), (8, "S8.测试"), (15, "26SP2.测试"), (16, "26SP3.测试")
+                    )
+                ],
+            }
+            client.history.return_value["season_id"] = season_id
+            client.history.return_value["role_employs"] *= 20
+            with self.subTest(label=label):
+                report = await fetch_report(
+                    client, parse_query(f"测试玩家 {label}", view="history", season_shortcuts=True)
+                )
+                client.history.assert_awaited_once_with(PLAYER["player_id"], season_id)
+                client.career.assert_not_awaited()
+                context = report_context(report)
+                self.assertEqual(context["season_id"], season_id)
+                next_query = parse_query(context["next_page_command"].removeprefix("#卡丘战绩 "))
+                self.assertEqual((next_query.season_id, next_query.index), (season_id, 2))
+
+    async def test_unknown_ambiguous_and_conflicting_season_labels_never_fall_back(self):
+        for names, label, season_id, error in (
+            (["26SP3.测试"], "SP9", 0, "未找到"),
+            (["26SP3.测试", "27SP3.测试"], "SP3", 0, "多个赛季"),
+            (["26SP3.测试"], "SP3", 14, "不一致"),
+        ):
+            client = fake_client()
+            client.seasons.return_value = {
+                "current_main_season_id": 18,
+                "seasons": [
+                    {"season_id": 16 + index, "season_type": 1, "available": True, "name": name}
+                    for index, name in enumerate(names)
+                ],
+            }
+            options = f" --season-id {season_id}" if season_id else ""
+            with self.subTest(label=label, error=error), self.assertRaisesRegex(QueryError, error):
+                await fetch_report(
+                    client,
+                    parse_query(
+                        f"测试玩家 {label}{options}", view="history", season_shortcuts=True
+                    ),
+                )
+            client.history.assert_not_awaited()
+            client.career.assert_not_awaited()
+
     async def test_role_pages_preserve_season_filters_and_limit(self):
         client = fake_client()
         client.history.return_value["role_employs"] = [

@@ -1410,6 +1410,36 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
                 else:
                     matcher.send.assert_not_awaited()
 
+    async def test_season_shortcuts_are_only_enabled_for_the_season_command(self):
+        from nonebot.adapters.onebot.v11 import Message
+
+        class Finished(Exception):
+            pass
+
+        for command, season_id, label, page in (
+            ("#卡丘赛季 测试玩家 14", 14, None, 1),
+            ("#卡丘赛季 测试玩家 SP3", 0, "SP3", 1),
+            ("#卡丘赛季 测试玩家 14 第2页", 14, None, 2),
+            ("#卡丘战绩 测试玩家 14", 0, None, 14),
+            ("#卡丘战绩 测试玩家 历史赛季 14", 0, None, 14),
+        ):
+            matcher = SimpleNamespace(send=AsyncMock(), finish=AsyncMock(side_effect=Finished))
+            with (
+                self.subTest(command=command),
+                patch.object(self.plugin, "check_available", AsyncMock()),
+                patch.object(self.plugin, "create_report", AsyncMock()) as create,
+                patch.object(self.plugin, "render_png", AsyncMock(return_value=b"png")),
+            ):
+                with self.assertRaises(Finished):
+                    await self.plugin.handle_strinova(
+                        SimpleNamespace(message=Message(command)), matcher, self.bot
+                    )
+                query = create.call_args.args[0]
+                self.assertEqual(query.target, "测试玩家")
+                self.assertEqual(
+                    (query.season_id, query.season_label, query.index), (season_id, label, page)
+                )
+
     async def test_query_and_render_failures_recall_prompt_and_release_query_slot(self):
         from nonebot.adapters.onebot.v11 import Message
 

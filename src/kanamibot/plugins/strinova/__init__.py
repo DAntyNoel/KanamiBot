@@ -29,6 +29,9 @@ USAGE = (
     "#卡丘赛季列表（查询可用赛季）\n"
     "#卡丘赛季 {昵称或ID}（默认最近已结束主赛季）\n"
     "#卡丘赛季 {昵称或ID} --season-id 17\n"
+    "#卡丘赛季 {昵称或ID} 14（等价于 --season-id 14）\n"
+    "#卡丘赛季 {昵称或ID} SP3 / SP2 / S1 / S8（按赛季简称选择）\n"
+    "赛季查询翻页请用 第2页 / --page 2；战绩查询末尾数字仍为页码\n"
     "#卡丘名片 {昵称或ID}\n"
     "可选：--player-id ID / --nick 昵称 / --mode 排位爆破 / --page 2 / --limit 8 / "
     "--game-mode 0 / --room-mode-type 0 / --play-mode 0 / --season-type 1"
@@ -72,7 +75,12 @@ async def handle_strinova(event: MessageEvent, matcher: Matcher, bot: Bot) -> No
     if (not args and view != "seasons") or args in ("帮助", "help", "--help"):
         await matcher.finish(USAGE)
     try:
-        query = parse_query(args, view=view, allowed_views=QQ_VIEWS)
+        query = parse_query(
+            args,
+            view=view,
+            allowed_views=QQ_VIEWS,
+            season_shortcuts=command == "卡丘赛季",
+        )
     except QueryError as exc:
         await matcher.finish(f"{exc}\n\n{USAGE}")
     if query_gate.locked():

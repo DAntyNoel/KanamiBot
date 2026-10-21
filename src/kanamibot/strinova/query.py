@@ -60,6 +60,7 @@ GAME_MODES = {
 }
 GAME_MODE_NAMES = {code: name for name, code in GAME_MODES.items()}
 GAME_MODE_ALIASES = {"生化": "晶源感染", "排位": "排位爆破"}
+SEASON_LABEL = re.compile(r"(?P<year>[0-9]{2,4})?(?P<series>SP|S)(?P<number>[0-9]+)", re.I)
 
 
 class QueryError(ValueError):
@@ -83,7 +84,7 @@ def add_query_arguments(
     identity.add_argument("--nick", help="明确按昵称查询，包括纯数字昵称")
     parser.set_defaults(default_view=view, allowed_views=allowed_views)
     parser.add_argument("--view", choices=allowed_views, help="也可在玩家名后追加中文界面名称")
-    parser.add_argument("--season-id", type=int, default=0)
+    parser.add_argument("--season-id", type=int)
     parser.add_argument("--season-type", type=int, default=1)
     parser.add_argument("--index", "--page", type=int, help="最近战绩的图片页码，从 1 开始")
     parser.add_argument("--game-mode", type=int, help="模式编号；0 表示全部模式")
@@ -125,6 +126,7 @@ class Query:
     play_mode: int = 0
     room_id: str | None = None
     limit: int = 8
+    season_label: str | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -137,6 +139,10 @@ class Query:
             numeric_id(self.target, "玩家 ID")
         if self.view not in VIEWS:
             raise QueryError("不支持的查询视图。")
+        if self.season_label is not None and (
+            self.view != "history" or SEASON_LABEL.fullmatch(self.season_label) is None
+        ):
+            raise QueryError("赛季简称仅适用于历史赛季查询，请使用 SP3、S8 等格式。")
         if self.index < 1 or self.index > 1000 or not 1 <= self.limit <= 20:
             raise QueryError("页码必须为 1–1000，展示条数必须为 1–20。")
         if any(
@@ -162,15 +168,26 @@ class Query:
             raise QueryError("模式筛选仅适用于玩家概览、对局战绩、生涯数据和历史赛季。")
 
 
-def query_from_args(args: argparse.Namespace) -> Query:
+def query_from_args(args: argparse.Namespace, *, season_shortcuts: bool = False) -> Query:
     nickname = list(args.nickname)
     view = args.view
     mode = args.mode
     index = args.index
+    season_id = args.season_id
+    season_label = None
+    numeric_suffixes: list[int] = []
     while nickname and (len(nickname) > 1 or args.player_id is not None or args.nick is not None):
         suffix = nickname[-1]
         page = re.fullmatch(r"第(\d+)页|(\d+)", suffix)
-        if page:
+        if season_shortcuts and SEASON_LABEL.fullmatch(suffix):
+            selected_label = nickname.pop().upper()
+            if season_label is not None and season_label != selected_label:
+                raise QueryError("赛季不一致，请只指定一个赛季。")
+            season_label = selected_label
+        elif page and season_shortcuts and page.group(2) is not None:
+            numeric_suffixes.append(int(page.group(2)))
+            nickname.pop()
+        elif page:
             selected = int(page.group(1) or page.group(2))
             if index is not None and index != selected:
                 raise QueryError("页码不一致，请只指定一个页码。")
@@ -190,6 +207,15 @@ def query_from_args(args: argparse.Namespace) -> Query:
     resolved_view = view or args.default_view
     if resolved_view not in args.allowed_views:
         raise QueryError("不支持的查询视图。")
+    for selected in numeric_suffixes:
+        if resolved_view == "history":
+            if season_id is not None and season_id != selected:
+                raise QueryError("赛季不一致，请只指定一个赛季。")
+            season_id = selected
+        else:
+            if index is not None and index != selected:
+                raise QueryError("页码不一致，请只指定一个页码。")
+            index = selected
     if mode is not None and resolved_view not in ("overview", "standings", "career", "history"):
         raise QueryError("模式筛选仅适用于玩家概览、对局战绩、生涯数据和历史赛季。")
     game_mode = args.game_mode if args.game_mode is not None else 0
@@ -207,7 +233,7 @@ def query_from_args(args: argparse.Namespace) -> Query:
         target=target,
         by_id=by_id,
         view=resolved_view,
-        season_id=args.season_id,
+        season_id=season_id if season_id is not None else 0,
         season_type=args.season_type,
         index=index if index is not None else 1,
         game_mode=game_mode,
@@ -215,15 +241,22 @@ def query_from_args(args: argparse.Namespace) -> Query:
         play_mode=args.play_mode,
         room_id=args.room_id,
         limit=args.limit,
+        season_label=season_label,
     )
 
 
 def parse_query(
-    text: str, *, view: str = "overview", allowed_views: tuple[str, ...] = VIEWS
+    text: str,
+    *,
+    view: str = "overview",
+    allowed_views: tuple[str, ...] = VIEWS,
+    season_shortcuts: bool = False,
 ) -> Query:
     parser = QueryParser(add_help=False)
     add_query_arguments(parser, view=view, allowed_views=allowed_views)
     try:
-        return query_from_args(parser.parse_args(shlex.split(text)))
+        return query_from_args(
+            parser.parse_args(shlex.split(text)), season_shortcuts=season_shortcuts
+        )
     except ValueError as exc:
         raise QueryError(str(exc)) from exc
