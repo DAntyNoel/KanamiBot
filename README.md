@@ -23,8 +23,9 @@ uv run erbs-assets download --directory files/erbs-assets
 uv run erbs-assets check --directory files/erbs-assets
 ```
 
-ERBS 图片资源不会在 Bot 运行时下载，也不会提交到 Git。更新游戏版本资源时执行
-`uv run erbs-assets update --directory files/erbs-assets`。
+ERBS 图片使用 Skia 原生绘制，复用本地资源，并按需缓存查询结果引用的 DAK.GG 图片。
+资源缓存不会提交到 Git。也可使用 `uv run erbs-assets update --directory files/erbs-assets`
+预先更新资源。
 
 启动：
 
@@ -52,6 +53,23 @@ uv sync
 - `files/napcat_runtime/`：NapCat 运行时目录，启动后生成。
 - `logs/`：运行日志。
 - `vendor/`：NapCat 安装与辅助脚本。
+
+## 永恒轮回查询
+
+`/er 帮助` 查看全部命令，`#ER 昵称` 保留玩家概览快捷查询。
+`/er 雷达 [昵称]` 查看 ERCraft 六轴评分，原有战绩、段位、统计、队友、多查和对比继续可用。
+新增命令同时支持 `/er 查询玩家 ...` 和 `/查询玩家 ...` 两种写法：
+
+- `/查询玩家 昵称 [排位/普通/钴协议/全部]`
+- `/查询角色 席琳 [排位/钴协议] [灭钻/星陨/无暇等段位]`
+- `/查询角色装备 席琳 [排位/钴协议] [段位]`
+- `/角色数据 [段位]`
+- `/段位统计 [亚1/国服/全球等服务器]`
+- `/永恒多少分 [服务器]`
+- `/查询装备 名称或ID或拼音`
+
+含空格的昵称请用双引号括起。六轴评分缺少必要数据时会保留缺失原因。
+查询由新框架 KanamiBot 的 `er_dak` 模块开关和冷却控制，默认绘图无需浏览器。
 
 ## 卡拉彼丘战绩图片
 

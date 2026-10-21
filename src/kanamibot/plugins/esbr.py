@@ -4,6 +4,7 @@ import asyncio
 import os
 import re
 import shutil
+import sys
 from pathlib import Path
 
 from nonebot import on_regex
@@ -83,6 +84,13 @@ async def render_player_overview(
     timeout: float = ERBS_TIMEOUT_SECONDS,
 ) -> bytes:
     active_executable = executable or os.getenv(ERBS_EXECUTABLE_ENV, DEFAULT_ERBS_EXECUTABLE)
+    # Bot startup uses an absolute Python path without activating the virtualenv.
+    if active_executable == DEFAULT_ERBS_EXECUTABLE and not shutil.which(active_executable):
+        bundled_executable = Path(sys.executable).with_name(
+            "erbs.exe" if os.name == "nt" else "erbs"
+        )
+        if bundled_executable.is_file():
+            active_executable = str(bundled_executable)
     active_workdir = resolve_erbs_workdir(active_executable, workdir)
     try:
         process = await asyncio.create_subprocess_exec(
@@ -114,8 +122,7 @@ async def render_player_overview(
     if process.returncode != 0:
         stderr_text = stderr.decode("utf-8", errors="replace").strip()
         detail = (
-            f"erbs overview exited with {process.returncode}: "
-            f"{stderr_text or '<empty stderr>'}"
+            f"erbs overview exited with {process.returncode}: {stderr_text or '<empty stderr>'}"
         )
         raise ERBSQueryError(
             _failure_message(process.returncode or 1, player_name),

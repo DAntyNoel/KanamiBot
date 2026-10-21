@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = "==3.12.*"
 
 [[package]]
@@ -167,24 +167,26 @@ source = { editable = "src/kanamibot/plugins/ERBS-plugin" }
 dependencies = [
     { name = "httpx" },
     { name = "platformdirs" },
+    { name = "pypinyin" },
     { name = "rapidfuzz" },
 ]
 
 [package.optional-dependencies]
 render = [
-    { name = "jinja2" },
-    { name = "playwright" },
+    { name = "skia-python" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "httpx", specifier = ">=0.27.0" },
-    { name = "jinja2", marker = "extra == 'render'", specifier = ">=3.1.4" },
+    { name = "jinja2", marker = "extra == 'legacy-render'", specifier = ">=3.1.4" },
     { name = "platformdirs", specifier = ">=4.2.0" },
-    { name = "playwright", marker = "extra == 'render'", specifier = ">=1.45.0" },
+    { name = "playwright", marker = "extra == 'legacy-render'", specifier = ">=1.45.0" },
+    { name = "pypinyin", specifier = ">=0.53.0" },
     { name = "rapidfuzz", specifier = ">=3.9.0" },
+    { name = "skia-python", marker = "extra == 'render'", specifier = ">=138.0" },
 ]
-provides-extras = ["render"]
+provides-extras = ["render", "legacy-render"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -826,6 +828,15 @@ wheels = [
 ]
 
 [[package]]
+name = "pybind11"
+version = "3.1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/76/f3/95b0f40b31df41dbfe6bb0857419c9442c15839cbac4796f1c26ae0b6081/pybind11-3.1.0.tar.gz", hash = "sha256:a1cc06b524ab3edca51f8ad3895f9c4fa20b8b19283173dff4ae781449dc9639", size = 603746, upload-time = "2026-08-06T23:33:00.675Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/33/fd/8762f7ee3e4e4be6d1d846cffb4916dd9bb02b2f800d3603718a0efe494c/pybind11-3.1.0-py3-none-any.whl", hash = "sha256:b8488090f8acffbcb6b5d6a85571a6827a0a2981ffb75e5a0b27b87c4a6b7dd0", size = 319402, upload-time = "2026-08-06T23:32:59.047Z" },
+]
+
+[[package]]
 name = "pycryptodomex"
 version = "3.23.0"
 source = { registry = "https://pypi.org/simple" }
@@ -944,6 +955,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/f3/91/9c6ee907786a473bf81c5f53cf703ba0957b23ab84c264080fb5a450416f/pyparsing-3.3.2.tar.gz", hash = "sha256:c777f4d763f140633dcb6d8a3eda953bf7a214dc4eff598413c070bcdc117cbc", size = 6851574, upload-time = "2026-01-21T03:57:59.36Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/10/bd/c038d7cc38edc1aa5bf91ab8068b63d4308c66c4c8bb3cbba7dfbc049f9c/pyparsing-3.3.2-py3-none-any.whl", hash = "sha256:850ba148bd908d7e2411587e247a1e4f0327839c40e2e5e6d05a007ecc69911d", size = 122781, upload-time = "2026-01-21T03:57:55.912Z" },
+]
+
+[[package]]
+name = "pypinyin"
+version = "0.55.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/b4/a4/784cf98c09e0dc22776b0d7d8a4a5b761218bcae4608c2416ce1e167c8af/pypinyin-0.55.0.tar.gz", hash = "sha256:b5711b3a0c6f76e67408ec6b2e3c4987a3a806b7c528076e7c7b86fcf0eaa66b", size = 839836, upload-time = "2025-07-20T12:01:50.657Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b9/7b/4cabc76fcc21c3c7d5c671d8783984d30ac9d3bb387c4ba784fca3cdfa3a/pypinyin-0.55.0-py2.py3-none-any.whl", hash = "sha256:d53b1e8ad2cdb815fb2cb604ed3123372f5a28c6f447571244aca36fc62a286f", size = 840203, upload-time = "2025-07-20T12:01:48.535Z" },
 ]
 
 [[package]]
@@ -1085,6 +1105,23 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/94/e7/b2c673351809dca68a0e064b6af791aa332cf192da575fd474ed7d6f16a2/six-1.17.0.tar.gz", hash = "sha256:ff70335d468e7eb6ec65b95b99d3a2836546063f63acc5171de367e834932a81", size = 34031, upload-time = "2024-12-04T17:35:28.174Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b7/ce/149a00dd41f10bc29e5921b496af8b574d8413afcd5e30dfa0ed46c2cc5e/six-1.17.0-py2.py3-none-any.whl", hash = "sha256:4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274", size = 11050, upload-time = "2024-12-04T17:35:26.475Z" },
+]
+
+[[package]]
+name = "skia-python"
+version = "144.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+    { name = "pybind11" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a9/36/ab40ef2e3fe8d34051593c0be4327949ef0836bcd758cfef6be42612f164/skia_python-144.1-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:3c39bdd0d17665cbdb1b071779ec8ad9cd1dc61c583772fbfb9e2cf471756231", size = 12734052, upload-time = "2026-10-20T11:31:53.636Z" },
+    { url = "https://files.pythonhosted.org/packages/e8/9c/308084fee96a51f16194660392a2e1bb166b144ab8962670ddefa2c990a4/skia_python-144.1-cp312-cp312-macosx_11_0_x86_64.whl", hash = "sha256:89b24f1cb56c3a3a42d30eb3aed91d89061dc236290d4ada9e0ba6aa788c0ba6", size = 12828399, upload-time = "2026-10-20T11:31:55.95Z" },
+    { url = "https://files.pythonhosted.org/packages/be/78/b58be9cbd7367f9c7f0659b13f325009969210c77aa8804643d81227ceae/skia_python-144.1-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:18cd0166e08b22cfaad72dfc80462975aabad4cbfe7cd71eb1a2960485a61bcc", size = 14254488, upload-time = "2026-10-20T11:31:58.394Z" },
+    { url = "https://files.pythonhosted.org/packages/a6/43/0a1a964baa6e45d829927c9e1286691c240d4ab2f8ebfb2235455abc7999/skia_python-144.1-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:b8d0b6995f95308edbf0ef57e1f31ee9bb5ac5d428c1e0ab8e5e9deda2783698", size = 14744055, upload-time = "2026-10-20T11:32:01.309Z" },
+    { url = "https://files.pythonhosted.org/packages/57/81/d5a42fab7e2c71cd32b0352c35b4e47abb558110024e59ac73594f735707/skia_python-144.1-cp312-cp312-win_amd64.whl", hash = "sha256:d0615a47a85fcc9259efbef35a441ea66ffe182e587342243c61ec8dc5bb0a78", size = 11146312, upload-time = "2026-10-20T11:32:03.695Z" },
+    { url = "https://files.pythonhosted.org/packages/4c/3b/70cd191b0894799aa5e5686df745ecd21affd16661baff41d3e3fe234926/skia_python-144.1-cp312-cp312-win_arm64.whl", hash = "sha256:ea4f1f42bfa903470d0a314c7bd37332d6af69bdf30503dde653b912d62f34ba", size = 10788058, upload-time = "2026-10-20T11:32:06.011Z" },
 ]
 
 [[package]]

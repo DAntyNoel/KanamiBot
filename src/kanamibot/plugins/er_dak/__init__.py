@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import re
+import shlex
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -12,13 +14,26 @@ from nonebot.log import logger
 from nonebot.plugin import PluginMetadata
 
 from kanamibot.core import ModuleRule
-from kanamibot.core.paths import FILES_DIR
+from kanamibot.core.paths import DEFAULT_FONT_PATH, FILES_DIR
 
 from .parser import ParsedCommand, parse_command, parse_match_args
 from .store import get_binding, remove_binding, set_binding
 
 MODULE_NAME = "er_dak"
-COMMAND_PATTERN = r"^/?(?:er|永恒|永轮)(?:\s+.*)?$"
+DAK_ACTIONS = (
+    "查询玩家",
+    "查玩家",
+    "查询角色装备",
+    "查询角色",
+    "角色数据统计",
+    "角色数据",
+    "段位统计",
+    "永恒多少分",
+    "查询装备",
+)
+COMMAND_PATTERN = (
+    r"^(?:/?(?:er|永恒|永轮)(?:\s+.*)?|/(?:" + "|".join(DAK_ACTIONS) + r")(?:\s+.*)?)$"
+)
 HELP_TEXT = """永恒轮回查询
 /er 绑定 <昵称> | 解绑
 /er 查询/段位/统计/近期/实验体/皮肤/队友 [昵称]
@@ -26,8 +41,14 @@ HELP_TEXT = """永恒轮回查询
 /er 多查 <昵称1> <昵称2> [昵称3]
 /er 对比 <昵称1> <昵称2>
 /er 最佳局/英雄池/出装习惯 [昵称]
+/er 雷达 [昵称]（ERCraft 六轴评分）
 /er 排行榜 [页]
 /er 角色强度 <角色> [武器] | 物品 <名称> | 路线 <角色> [武器]
+/er 查询玩家 <昵称> [排位/普通/钴协议/全部]
+/er 查询角色/查询角色装备 <角色> [排位/钴协议] [段位]
+/er 角色数据 [段位] | 段位统计/永恒多少分 [服务器]
+/er 查询装备 <名称/ID/拼音>
+新增查询也可直接使用 /查询玩家 等命令；含空格的昵称请加双引号。
 /er 来源"""
 
 __plugin_meta__ = PluginMetadata(
@@ -42,13 +63,17 @@ try:
         AsyncERBSClient,
         ERBSConfig,
         ERBSService,
-        HtmlCardRenderer,
         InvalidQuery,
         PlayerNotFound,
         RateLimited,
         RenderFailed,
+        SkiaCardRenderer,
         UpstreamUnavailable,
     )
+    from erbs_plugin import (
+        parse_command as parse_dak_command,
+    )
+    from erbs_plugin.cache import annotate_query_payload
 except ImportError as exc:
     logger.warning(f"[er_dak] ERBS-plugin submodule/dependency unavailable; plugin disabled: {exc}")
 else:
@@ -60,7 +85,7 @@ else:
     class _Runtime:
         client: AsyncERBSClient
         service: ERBSService
-        renderer: HtmlCardRenderer
+        renderer: SkiaCardRenderer
 
     _runtime: _Runtime | None = None
 
@@ -70,9 +95,12 @@ else:
             return _runtime
         async with _runtime_lock:
             if _runtime is None:
-                config = ERBSConfig(asset_directory=FILES_DIR / "erbs-assets")
+                config = ERBSConfig(
+                    asset_directory=FILES_DIR / "erbs-assets",
+                    render_font_path=DEFAULT_FONT_PATH if DEFAULT_FONT_PATH.is_file() else None,
+                )
                 client = AsyncERBSClient(config)
-                _runtime = _Runtime(client, ERBSService(client), HtmlCardRenderer(config))
+                _runtime = _Runtime(client, ERBSService(client), SkiaCardRenderer(config))
         return _runtime
 
     async def _shutdown_runtime() -> None:
@@ -87,6 +115,7 @@ else:
 
     er_matcher = on_regex(
         COMMAND_PATTERN,
+        flags=re.IGNORECASE,
         rule=ModuleRule(MODULE_NAME),
         priority=5,
         block=True,
@@ -111,10 +140,27 @@ else:
             raise InvalidQuery("请提供昵称，或先使用 /er 绑定 <昵称>。")
         return nickname
 
-    async def _card_for(
-        service: ERBSService, event: MessageEvent, command: ParsedCommand
-    ) -> Any:
+    async def _card_for(service: ERBSService, event: MessageEvent, command: ParsedCommand) -> Any:
         action, args = command.action, command.args
+        if action in DAK_ACTIONS:
+            query = parse_dak_command(shlex.join((action, *args)))
+            if query.operation == "search":
+                return await service.search_player_card(query.arguments[0], mode=query.mode)
+            if query.operation in {"character", "character-equipment"}:
+                return await service.character_analysis_card(
+                    query.arguments[0],
+                    mode=query.mode,
+                    tier=query.tier,
+                    equipment_only=query.operation == "character-equipment",
+                )
+            if query.operation == "character-stats":
+                return await service.character_stats_card(tier=query.tier)
+            if query.operation in {"tier-stats", "tier-cutoffs"}:
+                return await service.tier_statistics_card(
+                    server=query.server,
+                    cutoffs_only=query.operation == "tier-cutoffs",
+                )
+            return await service.item_card(query.arguments[0])
         single = args[0] if args else None
         player_actions = {
             "查询",
@@ -127,6 +173,7 @@ else:
             "最佳局",
             "英雄池",
             "出装习惯",
+            "雷达",
         }
         if action in player_actions:
             nickname = _nickname(event, single)
@@ -141,6 +188,7 @@ else:
                 "最佳局": service.best_match_card,
                 "英雄池": service.hero_pool_card,
                 "出装习惯": service.equipment_card,
+                "雷达": service.radar_card,
             }
             return await methods[action](nickname)
         if action == "战绩":
@@ -172,11 +220,16 @@ else:
 
     @er_matcher.handle()
     async def handle_er(event: MessageEvent, matcher: Matcher) -> None:
-        command = parse_command(event.get_plaintext())
+        try:
+            command = parse_command(event.get_plaintext())
+        except ValueError as exc:
+            await matcher.finish(str(exc))
         if command.action == "帮助":
             await matcher.finish(HELP_TEXT)
         if command.action == "来源":
-            await matcher.finish("数据来源：DAK.GG（https://dak.gg/er）。缓存状态与数据更新时间会显示在图片底部。")
+            await matcher.finish(
+                "数据来源：DAK.GG（https://dak.gg/er）。缓存状态与数据更新时间会显示在图片底部。"
+            )
         if command.action == "绑定":
             if len(command.args) != 1:
                 await matcher.finish("用法：/er 绑定 <DAK.GG 昵称>")
@@ -191,6 +244,7 @@ else:
         try:
             runtime = await _get_runtime()
             card = await _card_for(runtime.service, event, command)
+            card = annotate_query_payload(card)
             image = await runtime.renderer.render(card)
         except PlayerNotFound:
             await matcher.finish("未找到该 DAK.GG 玩家，请检查昵称。")

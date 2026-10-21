@@ -90,6 +90,22 @@ class ESBRPluginTest(unittest.IsolatedAsyncioTestCase):
             "未找到玩家「unknown」，请检查玩家名后重试。",
         )
 
+    async def test_default_cli_is_resolved_next_to_python_without_path_activation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            scripts = Path(temporary_directory)
+            python = scripts / "python.exe"
+            cli = scripts / ("erbs.exe" if esbr.os.name == "nt" else "erbs")
+            cli.touch()
+            spawn = AsyncMock(return_value=FakeProcess())
+            with (
+                patch.object(esbr.sys, "executable", str(python)),
+                patch.object(esbr.shutil, "which", return_value=None),
+                patch.object(esbr.asyncio, "create_subprocess_exec", spawn),
+                patch.dict(esbr.os.environ, {esbr.ERBS_EXECUTABLE_ENV: "erbs"}),
+            ):
+                await esbr.render_player_overview("Player")
+            self.assertEqual(spawn.call_args.args[0], str(cli))
+
     async def test_render_player_overview_rejects_non_png_output(self) -> None:
         process = FakeProcess(stdout=b"not an image")
 

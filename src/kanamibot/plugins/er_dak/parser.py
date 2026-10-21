@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import shlex
 from dataclasses import dataclass
 
 PREFIX = re.compile(r"^/?(?:er|永恒|永轮)(?:\s+|$)", re.IGNORECASE)
@@ -9,6 +10,8 @@ ALIASES = {
     "rank": "段位",
     "stats": "统计",
     "recent": "近期",
+    "radar": "雷达",
+    "评分": "雷达",
     "matches": "战绩",
     "角色": "实验体",
     "英雄池": "英雄池",
@@ -29,10 +32,19 @@ class ParsedCommand:
 
 
 def parse_command(message: str) -> ParsedCommand:
-    content = PREFIX.sub("", message.strip(), count=1).strip()
+    content = PREFIX.sub("", message.strip(), count=1).strip().lstrip("/")
     if not content:
         return ParsedCommand("帮助", ())
-    parts = tuple(part for part in re.split(r"[\s,，]+", content) if part)
+    lexer = shlex.shlex(content, posix=True)
+    lexer.whitespace += ",，"
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    try:
+        parts = tuple(lexer)
+    except ValueError as exc:
+        raise ValueError("命令引号不匹配，请检查昵称或查询名称。") from exc
+    if not parts:
+        return ParsedCommand("帮助", ())
     action = ALIASES.get(parts[0].casefold(), parts[0])
     return ParsedCommand(action, parts[1:])
 
