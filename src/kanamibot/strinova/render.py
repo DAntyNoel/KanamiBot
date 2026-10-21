@@ -148,6 +148,33 @@ def aggregate_ratio(rows: list[dict], numerator: str, denominator: str) -> float
     return numerator_total / denominator_total if denominator_total > 0 else None
 
 
+def overview_round_damage(rows: list[dict]) -> float | None:
+    def valid(value: Any) -> bool:
+        return type(value) in (int, float) and math.isfinite(value) and value >= 0
+
+    ranked = [row for row in rows if row.get("game_mode") == 5]
+    if ranked:
+        # An unknown count is not evidence that the player never played ranked.
+        if len(ranked) != 1 or not valid(ranked[0].get("round")):
+            return None
+        if ranked[0]["round"] > 0:
+            value = ranked[0].get("round_ave_damage")
+            return value if valid(value) else None
+    candidates = [
+        row
+        for row in rows
+        if type(row.get("game_mode")) is int
+        and row["game_mode"] > 0
+        and row["game_mode"] != 5
+        and valid(row.get("round"))
+        and row["round"] > 0
+        and valid(row.get("round_ave_damage"))
+    ]
+    # Prefer regular demolition, then the most-played available mode.
+    selected = min(candidates, key=lambda row: (row["game_mode"] != 2, -row["round"]), default=None)
+    return selected["round_ave_damage"] if selected else None
+
+
 def role_name(value: Any) -> str:
     if type(value) is not int or value <= 0:
         return "角色未提供"
@@ -429,7 +456,7 @@ def report_context(report: Report) -> dict:
         metrics.extend(
             [
                 ("场均击杀", number(aggregate_ratio(metric_modes, "total_kill", "round"), 1)),
-                ("场均伤害", number(aggregate_ratio(metric_modes, "total_damage", "round"))),
+                ("回合平均伤害", number(overview_round_damage(metric_modes))),
                 ("排位爆破KD", number(ranked_blast_kd, 2)),
                 (
                     "头部击败率",

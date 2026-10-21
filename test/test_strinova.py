@@ -819,6 +819,7 @@ class RenderingTests(unittest.TestCase):
                 "round": 10,
                 "total_kill": 20,
                 "total_damage": 3000,
+                "round_ave_damage": 100,
                 "total_dead_count": 10,
                 "kill_head_num": 5,
                 "head_hit_rate": 0.95,
@@ -828,6 +829,7 @@ class RenderingTests(unittest.TestCase):
                 "round": 20,
                 "total_kill": 60,
                 "total_damage": 12000,
+                "round_ave_damage": 237.04,
                 "total_dead_count": 20,
                 "k_d": 1.73,
                 "kill_head_num": 12,
@@ -866,7 +868,7 @@ class RenderingTests(unittest.TestCase):
                 ("胜场", "25"),
                 ("MVP数", "7"),
                 ("场均击杀", "4.6"),
-                ("场均伤害", "525"),
+                ("回合平均伤害", "237"),
                 ("排位爆破KD", "1.73"),
                 ("头部击败率", "17.8%"),
             ],
@@ -876,7 +878,7 @@ class RenderingTests(unittest.TestCase):
         report = Report(Query("测试玩家"), "123456", PLAYER)
         self.assertEqual(
             report_context(report)["metrics"][4:],
-            [("场均击杀", "—"), ("场均伤害", "—"), ("排位爆破KD", "—"), ("头部击败率", "—")],
+            [("场均击杀", "—"), ("回合平均伤害", "—"), ("排位爆破KD", "—"), ("头部击败率", "—")],
         )
         report.sections["career"] = {
             "career_info": {
@@ -892,10 +894,68 @@ class RenderingTests(unittest.TestCase):
             }
         }
         metrics = dict(report_context(report)["metrics"])
-        self.assertEqual((metrics["场均击杀"], metrics["场均伤害"]), ("3.0", "1,000"))
+        self.assertEqual((metrics["场均击杀"], metrics["回合平均伤害"]), ("3.0", "—"))
         self.assertEqual(metrics["排位爆破KD"], "—")
         profile_report = Report(Query("测试玩家", view="profile"), "123456", PLAYER)
         self.assertEqual(len(report_context(profile_report)["metrics"]), 4)
+
+    def test_overview_round_damage_uses_server_average_and_preserves_missing_or_zero(self):
+        for value, expected in (
+            (0, "0"),
+            (237.04, "237"),
+            (None, "—"),
+            (True, "—"),
+            (-1, "—"),
+            (float("nan"), "—"),
+            (float("inf"), "—"),
+            ("237", "—"),
+        ):
+            report = Report(
+                Query("测试玩家"),
+                "123456",
+                PLAYER,
+                sections={
+                    "career": {
+                        "career_info": {
+                            "battle_infos": [
+                                {"game_mode": 2, "round": 100, "round_ave_damage": 999},
+                                {
+                                    "game_mode": 5,
+                                    "round": 10,
+                                    "total_damage": 9000,
+                                    "round_ave_damage": value,
+                                },
+                            ]
+                        }
+                    }
+                },
+            )
+            with self.subTest(value=value):
+                self.assertEqual(dict(report_context(report)["metrics"])["回合平均伤害"], expected)
+                self.assertNotIn("场均伤害", dict(report_context(report)["metrics"]))
+
+    def test_overview_round_damage_falls_back_only_without_ranked_participation(self):
+        regular = {"game_mode": 2, "round": 2, "round_ave_damage": 200}
+        other = {"game_mode": 9, "round": 50, "round_ave_damage": 1500}
+        for rows, expected in (
+            ([regular, other], "200"),
+            ([{"game_mode": 5, "round": 0, "round_ave_damage": 0}, regular, other], "200"),
+            ([{**regular, "round": 0}, other], "1,500"),
+            ([{**regular, "round_ave_damage": None}, other], "1,500"),
+            ([other, {"game_mode": 30, "round": 100, "round_ave_damage": 600}], "600"),
+            ([{"game_mode": 5, "round": 1}, regular], "—"),
+            ([{"game_mode": 5, "round_ave_damage": 300}, regular], "—"),
+            ([{"game_mode": 5, "round": 0}, {**regular, "round_ave_damage": 0}], "0"),
+            ([{**regular, "round": 0}], "—"),
+        ):
+            report = Report(
+                Query("测试玩家"),
+                "123456",
+                PLAYER,
+                sections={"career": {"career_info": {"battle_infos": rows}}},
+            )
+            with self.subTest(rows=rows):
+                self.assertEqual(dict(report_context(report)["metrics"])["回合平均伤害"], expected)
 
     def test_page_hint_preserves_filters_and_display_limit(self):
         report = Report(
