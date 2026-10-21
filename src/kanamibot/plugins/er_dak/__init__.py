@@ -16,40 +16,35 @@ from nonebot.plugin import PluginMetadata
 from kanamibot.core import ModuleRule
 from kanamibot.core.paths import DEFAULT_FONT_PATH, FILES_DIR
 
-from .parser import ParsedCommand, parse_command, parse_match_args
+from .parser import (
+    COMMAND_PATTERN,
+    DAK_ACTIONS,
+    ParsedCommand,
+    match_character,
+    parse_command,
+    parse_match_args,
+)
 from .store import get_binding, remove_binding, set_binding
 
 MODULE_NAME = "er_dak"
-DAK_ACTIONS = (
-    "查询玩家",
-    "查玩家",
-    "查询角色装备",
-    "查询角色",
-    "角色数据统计",
-    "角色数据",
-    "段位统计",
-    "永恒多少分",
-    "查询装备",
-)
-COMMAND_PATTERN = (
-    r"^(?:/?(?:er|永恒|永轮)(?:\s+.*)?|/(?:" + "|".join(DAK_ACTIONS) + r")(?:\s+.*)?)$"
-)
 HELP_TEXT = """永恒轮回查询
-/er 绑定 <昵称> | 解绑
-/er 查询/段位/统计/近期/实验体/皮肤/队友 [昵称]
-/er 战绩 [昵称] [1-10]
-/er 多查 <昵称1> <昵称2> [昵称3]
-/er 对比 <昵称1> <昵称2>
-/er 最佳局/英雄池/出装习惯 [昵称]
-/er 雷达 [昵称]（ERCraft 六轴评分）
-/er 排行榜 [页]
-/er 角色强度 <角色> [武器] | 物品 <名称> | 路线 <角色> [武器]
-/er 查询玩家 <昵称> [排位/普通/钴协议/全部]
-/er 查询角色/查询角色装备 <角色> [排位/钴协议] [段位]
-/er 角色数据 [段位] | 段位统计/永恒多少分 [服务器]
-/er 查询装备 <名称/ID/拼音>
-新增查询也可直接使用 /查询玩家 等命令；含空格的昵称请加双引号。
-/er 来源"""
+#永恒轮回战绩 <昵称> [排位/普通/钴协议/全部]
+#BS战绩 <昵称> [模式]
+#永恒轮回角色 <角色> [排位/钴协议] [段位]
+#BS角色 <角色> [模式] [段位]
+#BS <玩家昵称或角色名> [模式] [段位]
+命令头后必须有空格；自动查询优先角色，同名玩家请使用 #BS战绩。
+含空格的名称请加双引号；角色支持名称、英文名、ID 和拼音。
+#BS 绑定 <昵称> | 解绑
+#BS 查询/段位/统计/近期/实验体/皮肤/队友 [昵称]
+#BS 战绩 [昵称] [1-10]
+#BS 多查 <昵称1> <昵称2> [昵称3] | 对比 <昵称1> <昵称2>
+#BS 最佳局/英雄池/出装习惯/雷达 [昵称]
+#BS 排行榜 [页] | 角色强度 <角色> [武器]
+#BS 查询角色装备 <角色> [模式] [段位]
+#BS 角色数据 [段位] | 段位统计/永恒多少分 [服务器]
+#BS 物品 <名称/ID/拼音> | 路线 <角色> [武器]
+#BS 帮助 | 来源"""
 
 __plugin_meta__ = PluginMetadata(
     name="Eternal Return",
@@ -137,11 +132,19 @@ else:
     def _nickname(event: MessageEvent, explicit: str | None) -> str:
         nickname = explicit or get_binding(event.user_id)
         if not nickname:
-            raise InvalidQuery("请提供昵称，或先使用 /er 绑定 <昵称>。")
+            raise InvalidQuery("请提供昵称，或先使用 #BS 绑定 <昵称>。")
         return nickname
 
     async def _card_for(service: ERBSService, event: MessageEvent, command: ParsedCommand) -> Any:
         action, args = command.action, command.args
+        if action == "自动查询":
+            if not args or not args[0].strip():
+                raise InvalidQuery("请输入玩家昵称或角色名，例如 #BS 玩家名 或 #BS 席琳。")
+            metadata = await service.client.metadata("characters")
+            character = match_character(args[0], metadata.get("characters") or ())
+            action = "查询角色" if character is not None else "查询玩家"
+            if character is not None:
+                args = (character, *args[1:])
         if action in DAK_ACTIONS:
             query = parse_dak_command(shlex.join((action, *args)))
             if query.operation == "search":
@@ -216,7 +219,7 @@ else:
             if action == "物品":
                 return await service.item_card(" ".join(args))
             return await service.routes_card(args[0], weapon=args[1] if len(args) > 1 else None)
-        raise InvalidQuery("未知子命令，请使用 /er 帮助。")
+        raise InvalidQuery("未知子命令，请使用 #BS 帮助。")
 
     @er_matcher.handle()
     async def handle_er(event: MessageEvent, matcher: Matcher) -> None:
@@ -232,7 +235,7 @@ else:
             )
         if command.action == "绑定":
             if len(command.args) != 1:
-                await matcher.finish("用法：/er 绑定 <DAK.GG 昵称>")
+                await matcher.finish("用法：#BS 绑定 <DAK.GG 昵称>")
             set_binding(event.user_id, command.args[0])
             await matcher.finish(f"已绑定永恒轮回昵称：{command.args[0]}")
         if command.action == "解绑":
@@ -255,7 +258,7 @@ else:
         except RenderFailed as exc:
             await matcher.finish(f"图片渲染失败：{exc}")
         except (InvalidQuery, ValueError) as exc:
-            await matcher.finish(str(exc))
+            await matcher.finish(str(exc).replace("/帮助", "#BS 帮助"))
         except Exception:
             logger.exception("[er_dak] unexpected command failure")
             await matcher.finish("永恒轮回查询暂时失败，请稍后再试。")

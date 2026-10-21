@@ -49,32 +49,37 @@ def test_dispatch_keeps_business_logic_in_service() -> None:
     ("text", "method", "args", "kwargs"),
     [
         (
-            '/查询玩家 "Player Name" 普通',
+            '#BS战绩 "Player Name" 普通',
             "search_player_card",
             ("Player Name",),
             {"mode": "NORMAL"},
         ),
         (
-            "/er 查询角色 席琳 排位 星陨",
+            "#BS角色 席琳 排位 星陨",
             "character_analysis_card",
             ("席琳",),
             {"mode": "RANK", "tier": "meteorite_plus", "equipment_only": False},
         ),
         (
-            "/查询角色装备 艾玛 钴协议",
+            "#BS 查询角色装备 艾玛 钴协议",
             "character_analysis_card",
             ("艾玛",),
             {"mode": "COBALT", "tier": "diamond_plus", "equipment_only": True},
         ),
-        ("/角色数据 无暇", "character_stats_card", (), {"tier": "mithril_plus"}),
-        ("/段位统计 国服", "tier_statistics_card", (), {"server": "asia2", "cutoffs_only": False}),
+        ("#BS 角色数据 无暇", "character_stats_card", (), {"tier": "mithril_plus"}),
         (
-            "/永恒多少分 全球",
+            "#BS 段位统计 国服",
+            "tier_statistics_card",
+            (),
+            {"server": "asia2", "cutoffs_only": False},
+        ),
+        (
+            "#BS 永恒多少分 全球",
             "tier_statistics_card",
             (),
             {"server": "global", "cutoffs_only": True},
         ),
-        ("/查询装备 lieyang", "item_card", ("lieyang",), {}),
+        ("#BS 查询装备 lieyang", "item_card", ("lieyang",), {}),
     ],
 )
 def test_new_queries_share_library_filters(text, method, args, kwargs) -> None:
@@ -121,3 +126,53 @@ def test_player_commands_and_radar(action, method) -> None:
         _card_for(service, SimpleNamespace(user_id=10001), ParsedCommand(action, ("Player",)))
     )
     getattr(service, method).assert_awaited_once_with("Player")
+
+
+@pytest.mark.parametrize("query", ["席琳", "Celine", "xilin", "xl", "62"])
+def test_auto_queries_prefer_characters(query) -> None:
+    metadata = AsyncMock(return_value={"characters": [{"id": 62, "name": "席琳", "key": "Celine"}]})
+    service = SimpleNamespace(
+        client=SimpleNamespace(metadata=metadata),
+        character_analysis_card=AsyncMock(return_value="character"),
+        search_player_card=AsyncMock(),
+    )
+    result = asyncio.run(
+        _card_for(service, SimpleNamespace(user_id=10001), parse_command(f"#BS {query} 排位 星陨"))
+    )
+    assert result == "character"
+    service.character_analysis_card.assert_awaited_once_with(
+        "席琳",
+        mode="RANK",
+        tier="meteorite_plus",
+        equipment_only=False,
+    )
+    service.search_player_card.assert_not_awaited()
+
+
+def test_auto_queries_use_player_when_no_character_matches() -> None:
+    service = SimpleNamespace(
+        client=SimpleNamespace(
+            metadata=AsyncMock(
+                return_value={
+                    "characters": [{"id": 62, "name": "席琳", "key": "Celine"}],
+                }
+            )
+        ),
+        character_analysis_card=AsyncMock(),
+        search_player_card=AsyncMock(return_value="player"),
+    )
+    result = asyncio.run(
+        _card_for(service, SimpleNamespace(user_id=10001), parse_command("#BS 席琳123 普通"))
+    )
+    assert result == "player"
+    service.search_player_card.assert_awaited_once_with("席琳123", mode="NORMAL")
+    service.character_analysis_card.assert_not_awaited()
+
+
+def test_explicit_player_header_overrides_same_named_character() -> None:
+    service = SimpleNamespace(search_player_card=AsyncMock(return_value="same-name-player"))
+    result = asyncio.run(
+        _card_for(service, SimpleNamespace(user_id=10001), parse_command("#BS战绩 席琳"))
+    )
+    assert result == "same-name-player"
+    service.search_player_card.assert_awaited_once_with("席琳", mode="RANK")
