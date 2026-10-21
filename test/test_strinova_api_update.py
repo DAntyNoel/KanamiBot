@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from copy import deepcopy
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -264,6 +265,102 @@ class SeasonRoutingTests(unittest.IsolatedAsyncioTestCase):
         report = await fetch_report(client, parse_query("测试玩家"))
         client.standings.assert_not_awaited()
         self.assertIn("隐私", render_html(report))
+
+
+class HistoricalZeroTests(unittest.TestCase):
+    def report(self, stats, *, current=False, options="", view="history"):
+        return Report(
+            parse_query(f"测试玩家 --view {view} {options}"),
+            PLAYER["player_id"],
+            PLAYER,
+            sections={
+                "season": {"season_id": 18 if current else 17, "is_current": current},
+                **({"career": {"career_info": stats}} if current else {"history": stats}),
+            },
+        )
+
+    def test_only_observed_historical_placeholders_are_hidden(self):
+        stats = {
+            "final_seg": 29,
+            "top_seg": 29,
+            "final_stars": 0,
+            "top_stars": 0.0,
+            "final_rank_pos": 0,
+            "top_rank_pos": 0,
+            "final_grade_score": 0,
+            "top_grade_score": 3008,
+            "final_division_score": 0,
+            "top_division_score": 208,
+            "battle_infos": [{"game_mode": 5, "round": 1, "total_win_count": 0}],
+            "role_employs": [{"role_id": 137, "count": 1, "pure_win_rate": 0}],
+        }
+        original = deepcopy(stats)
+        for view in ("history", "career"):
+            with self.subTest(view=view):
+                report = self.report(stats, view=view)
+                context = report_context(report)
+                facts = dict(context["season_facts"])
+                self.assertTrue(
+                    {"最终星数", "最高星数", "最终排名", "最高排名", "最终评价分"}.isdisjoint(facts)
+                )
+                self.assertEqual(facts["最终段位分"], "0")
+                self.assertEqual(facts["最高段位分"], "208")
+                self.assertEqual(facts["最高评价分"], "3,008")
+                self.assertEqual(dict(context["metrics"])["赛季胜场"], "0")
+                self.assertNotIn("原始胜率", render_html(report))
+        self.assertEqual(stats, original)
+
+    def test_historical_fields_return_when_upstream_supplies_nonzero_values(self):
+        stats = {
+            "final_stars": 1,
+            "top_stars": 2,
+            "final_rank_pos": 100,
+            "top_rank_pos": 50,
+            "final_grade_score": 3000,
+        }
+        facts = dict(report_context(self.report(stats))["season_facts"])
+        for label, value in (
+            ("最终星数", "1"),
+            ("最高星数", "2"),
+            ("最终排名", "100"),
+            ("最高排名", "50"),
+            ("最终评价分", "3,000"),
+        ):
+            self.assertEqual(facts[label], value)
+
+    def test_role_rate_visibility_uses_full_season_before_filter_and_page(self):
+        stats = {
+            "role_employs": [
+                {"role_id": 137, "game_mode": 5, "count": 3, "pure_win_rate": 0},
+                {"role_id": 146, "game_mode": 5, "count": 2, "pure_win_rate": 0},
+                {"role_id": 126, "game_mode": 2, "count": 1, "pure_win_rate": 0.5},
+            ]
+        }
+        for page in (1, 2):
+            with self.subTest(page=page):
+                report = self.report(stats, options=f"--mode 排位 --limit 1 --index {page}")
+                self.assertTrue(report_context(report)["show_role_win_rate"])
+                self.assertIn("<th>原始胜率</th>", render_html(report))
+                self.assertIn("<td>0.0%</td>", render_html(report))
+
+    def test_current_and_missing_values_are_not_classified_as_zero_placeholders(self):
+        stats = {
+            "cur_stars": 0,
+            "top_stars": 0,
+            "cur_rank_pos": 0,
+            "top_rank_pos": 0,
+            "final_grade_score": 0,
+            "role_employs": [{"role_id": 137, "count": 1, "pure_win_rate": 0}],
+        }
+        report = self.report(stats, current=True)
+        facts = dict(report_context(report)["season_facts"])
+        for label in ("当前星数", "最高星数", "当前排名", "最高排名", "最终评价分"):
+            self.assertEqual(facts[label], "0")
+        self.assertIn("<th>原始胜率</th>", render_html(report))
+        stats = {"role_employs": [{"role_id": 137, "pure_win_rate": None}]}
+        context = report_context(self.report(stats))
+        self.assertEqual(dict(context["season_facts"])["最终评价分"], "—")
+        self.assertTrue(context["show_role_win_rate"])
 
 
 class EnrichmentTests(unittest.IsolatedAsyncioTestCase):

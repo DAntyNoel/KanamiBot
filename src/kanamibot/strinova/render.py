@@ -100,6 +100,15 @@ VIEW_NAMES = {
     "seasons": "赛季列表",
     "replay": "对局录像",
 }
+# Season 17 samples return zero for these fields despite populated rank records.
+# Hide only their zero placeholders; preserve future nonzero values and other stats.
+HISTORICAL_ZERO_PLACEHOLDERS = {
+    "final_stars",
+    "top_stars",
+    "final_rank_pos",
+    "top_rank_pos",
+    "final_grade_score",
+}
 
 
 def number(value: Any, decimals: int = 0) -> str:
@@ -487,21 +496,37 @@ def report_context(report: Report) -> dict:
     season_rows.sort(key=lambda row: (row.get("season_type") or 0, -(row.get("season_id") or 0)))
     is_current = season.get("is_current") is True
     rank_prefix = "cur" if is_current else "final"
-    season_facts = [
-        ("当前段位" if is_current else "最终段位", rank_name(stats.get(f"{rank_prefix}_seg"))),
-        ("最高段位", rank_name(stats.get("top_seg"))),
-        ("当前星数" if is_current else "最终星数", number(stats.get(f"{rank_prefix}_stars"))),
-        ("最高星数", number(stats.get("top_stars"))),
+    season_fact_fields = [
+        (f"{rank_prefix}_seg", "当前段位" if is_current else "最终段位"),
+        ("top_seg", "最高段位"),
+        (f"{rank_prefix}_stars", "当前星数" if is_current else "最终星数"),
+        ("top_stars", "最高星数"),
         (
+            f"{rank_prefix}_division_score",
             "当前段位分" if is_current else "最终段位分",
-            number(stats.get(f"{rank_prefix}_division_score")),
         ),
-        ("最高段位分", number(stats.get("top_division_score"))),
-        ("当前排名" if is_current else "最终排名", number(stats.get(f"{rank_prefix}_rank_pos"))),
-        ("最高排名", number(stats.get("top_rank_pos"))),
-        ("最终评价分", number(stats.get("final_grade_score"))),
-        ("最高评价分", number(stats.get("top_grade_score"))),
+        ("top_division_score", "最高段位分"),
+        (f"{rank_prefix}_rank_pos", "当前排名" if is_current else "最终排名"),
+        ("top_rank_pos", "最高排名"),
+        ("final_grade_score", "最终评价分"),
+        ("top_grade_score", "最高评价分"),
     ]
+    season_facts = [
+        (label, rank_name(stats.get(key)) if key.endswith("_seg") else number(stats.get(key)))
+        for key, label in season_fact_fields
+        if not (
+            not is_current
+            and key in HISTORICAL_ZERO_PLACEHOLDERS
+            and type(stats.get(key)) in (int, float)
+            and stats[key] == 0
+        )
+    ]
+    # Historical role rates are all zero even for winning roles, unlike /career.
+    # Inspect the full season before filtering or pagination to keep columns stable.
+    role_rates = [row.get("pure_win_rate") for row in objects(stats.get("role_employs"))]
+    show_role_win_rate = is_current or not all(
+        type(value) in (int, float) and value == 0 for value in role_rates
+    )
     leisure_rank = profile.get("leisure_rank", career.get("cur_leisure_rank"))
     leisure_score = profile.get("leisure_score", career.get("cur_leisure_score"))
     return {
@@ -561,6 +586,7 @@ def report_context(report: Report) -> dict:
         "modes": mode_rows,
         "roles": roles,
         "role_count": role_count,
+        "show_role_win_rate": show_role_win_rate,
         "matches": visible_matches,
         "recent": recent,
         "previous_page_command": page_command(query.index - 1) if query.index > 1 else None,
