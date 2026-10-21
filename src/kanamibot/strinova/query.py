@@ -71,13 +71,18 @@ class QueryParser(argparse.ArgumentParser):
         raise QueryError(message)
 
 
-def add_query_arguments(parser: argparse.ArgumentParser, *, view: str = "overview") -> None:
+def add_query_arguments(
+    parser: argparse.ArgumentParser,
+    *,
+    view: str = "overview",
+    allowed_views: tuple[str, ...] = VIEWS,
+) -> None:
     parser.add_argument("nickname", nargs="*", help="玩家昵称；纯数字默认按 ID 查询")
     identity = parser.add_mutually_exclusive_group()
     identity.add_argument("--player-id", help="明确按 player_id 查询")
     identity.add_argument("--nick", help="明确按昵称查询，包括纯数字昵称")
-    parser.set_defaults(default_view=view)
-    parser.add_argument("--view", choices=VIEWS, help="也可在玩家名后追加中文界面名称")
+    parser.set_defaults(default_view=view, allowed_views=allowed_views)
+    parser.add_argument("--view", choices=allowed_views, help="也可在玩家名后追加中文界面名称")
     parser.add_argument("--season-id", type=int, default=0)
     parser.add_argument("--season-type", type=int, default=1)
     parser.add_argument("--index", "--page", type=int, help="最近战绩的图片页码，从 1 开始")
@@ -183,6 +188,8 @@ def query_from_args(args: argparse.Namespace) -> Query:
         else:
             break
     resolved_view = view or args.default_view
+    if resolved_view not in args.allowed_views:
+        raise QueryError("不支持的查询视图。")
     if mode is not None and resolved_view not in ("overview", "standings", "career", "history"):
         raise QueryError("模式筛选仅适用于玩家概览、对局战绩、生涯数据和历史赛季。")
     game_mode = args.game_mode if args.game_mode is not None else 0
@@ -211,9 +218,11 @@ def query_from_args(args: argparse.Namespace) -> Query:
     )
 
 
-def parse_query(text: str, *, view: str = "overview") -> Query:
+def parse_query(
+    text: str, *, view: str = "overview", allowed_views: tuple[str, ...] = VIEWS
+) -> Query:
     parser = QueryParser(add_help=False)
-    add_query_arguments(parser, view=view)
+    add_query_arguments(parser, view=view, allowed_views=allowed_views)
     try:
         return query_from_args(parser.parse_args(shlex.split(text)))
     except ValueError as exc:

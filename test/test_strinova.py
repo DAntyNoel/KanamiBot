@@ -5,6 +5,7 @@ import base64
 import importlib
 import io
 import json
+import re
 import sys
 import tempfile
 import unittest
@@ -1223,10 +1224,11 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
         ):
             with self.assertRaises(Finished):
                 await self.plugin.handle_strinova(
-                    SimpleNamespace(message=Message("#卡丘 测试玩家")), matcher, self.bot
+                    SimpleNamespace(message=Message("#卡丘战绩 测试玩家")), matcher, self.bot
                 )
         self.assertEqual(matcher.result.type, "image")
         self.assertTrue(matcher.result.data["file"].startswith("base64://"))
+        matcher.send.assert_awaited_once_with("正在查询「测试玩家」的卡丘战绩……")
         self.bot.delete_msg.assert_awaited_once_with(message_id=456)
 
     async def test_health_failure_pauses_every_bot_entry_including_help(self):
@@ -1236,15 +1238,15 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
             pass
 
         for command in (
-            "#卡丘",
-            "#卡丘 help",
-            "#KQ 测试玩家",
+            "#卡丘战绩",
+            "#卡丘战绩 help",
             "#卡丘资料 测试玩家",
             "#卡丘状态 测试玩家",
             "#卡丘生涯 测试玩家",
             "#卡丘战绩 测试玩家",
             "#卡丘赛季 测试玩家 --season-id 25",
-            f"#卡丘对局 测试玩家 --room-id {ROOM_ID}",
+            "#卡丘名片 测试玩家",
+            "#卡丘赛季列表",
         ):
             matcher = SimpleNamespace(send=AsyncMock(), finish=AsyncMock(side_effect=Finished))
             with (
@@ -1264,7 +1266,81 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
                 create.assert_not_awaited()
                 render.assert_not_awaited()
 
-    async def test_new_commands_and_copyable_replay_address(self):
+    async def test_disabled_commands_are_not_matched_or_executed(self):
+        from nonebot.adapters.onebot.v11 import Message
+
+        for command in (
+            "#卡丘",
+            "#卡丘 help",
+            "#卡丘 测试玩家",
+            "#KQ",
+            "#KQ 测试玩家",
+            "#kq 测试玩家",
+            "#卡丘录像",
+            f"#卡丘录像 {ROOM_ID}",
+            f"#卡丘录像 --room-id {ROOM_ID}",
+            "#卡丘对局",
+            f"#卡丘对局 测试玩家 --room-id {ROOM_ID}",
+        ):
+            matcher = SimpleNamespace(send=AsyncMock(), finish=AsyncMock())
+            with (
+                self.subTest(command=command),
+                patch.object(self.plugin, "check_available", AsyncMock()) as health,
+                patch.object(self.plugin, "create_report", AsyncMock()) as create,
+                patch.object(self.plugin, "render_png", AsyncMock()) as render,
+            ):
+                self.assertIsNone(self.plugin.COMMAND.fullmatch(command))
+                await self.plugin.handle_strinova(
+                    SimpleNamespace(message=Message(command)), matcher, self.bot
+                )
+                health.assert_not_awaited()
+                create.assert_not_awaited()
+                render.assert_not_awaited()
+                matcher.send.assert_not_awaited()
+                matcher.finish.assert_not_awaited()
+
+    async def test_disabled_views_cannot_be_called_through_other_qq_commands(self):
+        from nonebot.adapters.onebot.v11 import Message
+
+        class Finished(Exception):
+            pass
+
+        for command in (
+            f"#卡丘战绩 测试玩家 --view match --room-id {ROOM_ID}",
+            f"#卡丘战绩 --view replay --room-id {ROOM_ID}",
+            f"#卡丘战绩 测试玩家 --view=replay --room-id {ROOM_ID}",
+            f"#卡丘资料 测试玩家 单局详情 --room-id {ROOM_ID}",
+            f"#卡丘战绩 测试玩家 对局录像 --room-id {ROOM_ID}",
+            "#卡丘战绩 测试玩家 单局详情",
+            "#卡丘战绩 测试玩家 对局录像",
+            "#卡丘战绩 测试玩家 --view invalid",
+        ):
+            matcher = SimpleNamespace(send=AsyncMock(), finish=AsyncMock(side_effect=Finished))
+            with (
+                self.subTest(command=command),
+                patch.object(self.plugin, "check_available", AsyncMock()),
+                patch.object(self.plugin, "create_report", AsyncMock()) as create,
+                patch.object(self.plugin, "render_png", AsyncMock()) as render,
+            ):
+                with self.assertRaises(Finished):
+                    await self.plugin.handle_strinova(
+                        SimpleNamespace(message=Message(command)), matcher, self.bot
+                    )
+                matcher.send.assert_not_awaited()
+                create.assert_not_awaited()
+                render.assert_not_awaited()
+                message = matcher.finish.call_args.args[0]
+                choices = message.partition("(choose from ")[2]
+                self.assertNotIn("'match'", choices)
+                self.assertNotIn("'replay'", choices)
+                self.assertNotIn("查询需要 --room-id", message)
+
+        for hidden in ("卡丘录像", "卡丘对局", "单局详情", "对局录像", "--room-id", "KQ"):
+            self.assertNotIn(hidden, self.plugin.__plugin_meta__.usage)
+            self.assertNotIn(hidden, self.plugin.COMMAND.pattern)
+        self.assertIsNone(re.search(r"#卡丘(?=\s|/|$)", self.plugin.USAGE))
+
+    async def test_other_views_return_images_without_battle_query_prompt(self):
         from nonebot.adapters.onebot.v11 import Message
 
         class Finished(Exception):
@@ -1272,14 +1348,16 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
 
         for command, view, target in (
             ("#卡丘赛季列表", "seasons", ""),
+            ("#卡丘战绩 --view seasons", "seasons", ""),
             ("#卡丘名片 测试玩家", "card", "测试玩家"),
-            (f"#卡丘录像 {ROOM_ID}", "replay", ""),
-            (f"#卡丘录像 --room-id {ROOM_ID}", "replay", ""),
+            ("#卡丘资料 测试玩家", "profile", "测试玩家"),
+            ("#卡丘状态 测试玩家", "status", "测试玩家"),
+            ("#卡丘生涯 测试玩家", "career", "测试玩家"),
+            ("#卡丘赛季 测试玩家", "history", "测试玩家"),
+            ("#卡丘战绩 测试玩家 生涯数据", "career", "测试玩家"),
         ):
             matcher = SimpleNamespace(send=AsyncMock(), finish=AsyncMock(side_effect=Finished))
-            query = Query(target, view=view, room_id=ROOM_ID if view == "replay" else None)
-            sections = {"replay": {"download_url": "https://example.invalid/demo.replay"}}
-            report = Report(query, "", PLAYER, sections=sections if view == "replay" else {})
+            report = Report(Query(target, view=view), "", PLAYER)
             with (
                 self.subTest(command=command),
                 patch.object(self.plugin, "check_available", AsyncMock()),
@@ -1294,11 +1372,9 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
                     )
             actual = create.call_args.args[0]
             self.assertEqual((actual.view, actual.target), (view, target))
-            if view == "replay":
-                self.assertEqual(actual.room_id, ROOM_ID)
-                message = matcher.finish.call_args.args[0]
-                self.assertEqual(message[0].type, "image")
-                self.assertIn("https://example.invalid/demo.replay", message.extract_plain_text())
+            self.assertEqual(matcher.finish.call_args.args[0].type, "image")
+            matcher.send.assert_not_awaited()
+            self.bot.delete_msg.assert_not_awaited()
 
     async def test_main_command_defaults_to_overview_and_accepts_chinese_switch(self):
         from nonebot.adapters.onebot.v11 import Message
@@ -1329,6 +1405,10 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
                     )
                 self.assertEqual(create.call_args.args[0].target, "测试玩家")
                 self.assertEqual(create.call_args.args[0].view, view)
+                if view in ("overview", "standings"):
+                    matcher.send.assert_awaited_once_with("正在查询「测试玩家」的卡丘战绩……")
+                else:
+                    matcher.send.assert_not_awaited()
 
     async def test_query_and_render_failures_recall_prompt_and_release_query_slot(self):
         from nonebot.adapters.onebot.v11 import Message
@@ -1476,6 +1556,11 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             query_from_args(cli.build_parser().parse_args(["测试玩家"])).view, "overview"
         )
+        for view, target in (("match", ["测试玩家"]), ("replay", [])):
+            query = query_from_args(
+                cli.build_parser().parse_args([*target, "--view", view, "--room-id", ROOM_ID])
+            )
+            self.assertEqual((query.view, query.room_id), (view, ROOM_ID))
         self.assertNotIn("bot", sys.modules)
 
 
