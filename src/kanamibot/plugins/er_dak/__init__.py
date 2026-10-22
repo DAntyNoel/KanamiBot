@@ -24,6 +24,7 @@ from .parser import (
     parse_command,
     parse_match_args,
 )
+from .progress import SummaryProgressReporter
 from .store import get_binding, remove_binding, set_binding
 
 MODULE_NAME = "er_dak"
@@ -136,11 +137,15 @@ else:
             raise InvalidQuery("请提供昵称，或先使用 #BS 绑定 <昵称>。")
         return nickname
 
-    async def _card_for(service: ERBSService, event: MessageEvent, command: ParsedCommand) -> Any:
+    async def _card_for(
+        service: ERBSService, event: MessageEvent, command: ParsedCommand, *, progress=None,
+    ) -> Any:
         action, args = command.action, command.args
         if action == "summary":
             if len(args) != 1 or not args[0].strip():
                 raise InvalidQuery("用法：#BS评价 <玩家昵称>；含空格的昵称请加双引号。")
+            if progress is not None:
+                return await service.published_player_summary(args[0], progress=progress)
             return await service.published_player_summary(args[0])
         if action == "自动查询":
             if not args or not args[0].strip():
@@ -252,7 +257,9 @@ else:
             await matcher.finish(cooldown)
         try:
             runtime = await _get_runtime()
-            card = await _card_for(runtime.service, event, command)
+            card = await _card_for(
+                runtime.service, event, command, progress=SummaryProgressReporter(matcher.send),
+            )
             card = annotate_query_payload(card)
             image = await runtime.renderer.render(card)
         except PlayerNotFound:
@@ -261,9 +268,13 @@ else:
         except RateLimited:
             source = "ERCraft" if command.action == "summary" else "DAK.GG"
             await matcher.finish(f"{source} 请求过于频繁，请稍后再试。")
-        except (UpstreamUnavailable, AssetMissing) as exc:
+        except UpstreamUnavailable as exc:
             if command.action == "summary":
-                await matcher.finish(f"ERCraft 评价或本地资源暂不可用：{exc}")
+                await matcher.finish(f"ERCraft 查询失败：{exc}")
+            await matcher.finish("DAK.GG 数据或本地资源暂不可用，请稍后再试。")
+        except AssetMissing as exc:
+            if command.action == "summary":
+                await matcher.finish(f"评价卡本地资源暂不可用：{exc}")
             await matcher.finish("DAK.GG 数据或本地资源暂不可用，请稍后再试。")
         except RenderFailed as exc:
             await matcher.finish(f"图片渲染失败：{exc}")

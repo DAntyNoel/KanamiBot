@@ -226,6 +226,15 @@ def test_help_includes_summary_command() -> None:
     assert "使用 ERCraft 本赛季全部评价，在本地生成六维总结卡" in er_dak.HELP_TEXT
 
 
+def test_summary_passes_progress_callback_to_waiting_service():
+    progress = AsyncMock()
+    service = SimpleNamespace(published_player_summary=AsyncMock(return_value="summary"))
+    assert asyncio.run(_card_for(
+        service, SimpleNamespace(user_id=10001), parse_command("#BS评价 小冰"), progress=progress,
+    )) == "summary"
+    service.published_player_summary.assert_awaited_once_with("小冰", progress=progress)
+
+
 def test_summary_upstream_failure_does_not_fall_back_to_local_scoring() -> None:
     service = SimpleNamespace(
         published_player_summary=AsyncMock(side_effect=er_dak.UpstreamUnavailable("报告尚未就绪")),
