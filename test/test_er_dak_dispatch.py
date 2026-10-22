@@ -187,21 +187,25 @@ def test_explicit_player_header_overrides_same_named_character() -> None:
         ("#BS 评价 席琳", "席琳"),
     ],
 )
-def test_summary_uses_explicit_player_and_compatible_count_without_auto_routing(
+def test_summary_uses_published_report_without_local_scoring_or_auto_routing(
     monkeypatch, message: str, nickname: str,
 ) -> None:
     def unexpected_binding_lookup(user_id: int) -> str:
         raise AssertionError("summary requires an explicit nickname")
 
     monkeypatch.setattr(er_dak, "get_binding", unexpected_binding_lookup)
-    service = SimpleNamespace(player_summary=AsyncMock(return_value="summary"))
+    service = SimpleNamespace(
+        published_player_summary=AsyncMock(return_value="summary"),
+        player_summary=AsyncMock(side_effect=AssertionError("local summary is disabled")),
+    )
 
     result = asyncio.run(
         _card_for(service, SimpleNamespace(user_id=10001), parse_command(message))
     )
 
     assert result == "summary"
-    service.player_summary.assert_awaited_once_with(nickname, count=20)
+    service.published_player_summary.assert_awaited_once_with(nickname)
+    service.player_summary.assert_not_awaited()
 
 
 @pytest.mark.parametrize("message", ["#BS评价 ", "#BS 评价", '#BS评价 ""', "#BS评价 A B"])
@@ -209,14 +213,25 @@ def test_summary_rejects_missing_or_ambiguous_nickname_even_with_binding(
     monkeypatch, message,
 ) -> None:
     monkeypatch.setattr(er_dak, "get_binding", lambda _: "Bound Player")
-    service = SimpleNamespace(player_summary=AsyncMock())
+    service = SimpleNamespace(published_player_summary=AsyncMock())
 
     with pytest.raises(er_dak.InvalidQuery, match="#BS评价 <玩家昵称>"):
         asyncio.run(_card_for(service, SimpleNamespace(user_id=10001), parse_command(message)))
 
-    service.player_summary.assert_not_awaited()
+    service.published_player_summary.assert_not_awaited()
 
 
 def test_help_includes_summary_command() -> None:
     assert "#BS评价 <昵称>" in er_dak.HELP_TEXT
-    assert "本赛季排位（最多最近 500 场），不足 20 场以同赛季匹配补足" in er_dak.HELP_TEXT
+    assert "使用 ERCraft 本赛季全部评价，在本地生成六维总结卡" in er_dak.HELP_TEXT
+
+
+def test_summary_upstream_failure_does_not_fall_back_to_local_scoring() -> None:
+    service = SimpleNamespace(
+        published_player_summary=AsyncMock(side_effect=er_dak.UpstreamUnavailable("报告尚未就绪")),
+        player_summary=AsyncMock(),
+    )
+    with pytest.raises(er_dak.UpstreamUnavailable, match="报告尚未就绪"):
+        asyncio.run(_card_for(service, SimpleNamespace(user_id=10001),
+                              parse_command("#BS评价 Player")))
+    service.player_summary.assert_not_awaited()
