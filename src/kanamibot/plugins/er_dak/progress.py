@@ -9,7 +9,9 @@ from collections.abc import Awaitable, Callable, Mapping
 
 def format_summary_progress(progress: Mapping) -> str:
     nickname = progress.get("nickname") or "玩家"
-    phase = "正在解析玩家身份" if progress.get("phase") == "identity" else "正在准备评价报告"
+    phase = {
+        "identity": "正在解析玩家身份", "refresh": "正在刷新玩家资料",
+    }.get(progress.get("phase"), "正在准备评价报告")
     parts = [f"ERCraft：{nickname}，{phase}。"]
     queue = progress.get("queue")
     if isinstance(queue, Mapping):

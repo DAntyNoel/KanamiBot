@@ -17,6 +17,11 @@ def test_queue_message_preserves_position_people_ahead_and_estimate():
     assert "第 3 位" in message and "还有 2 人" in message and "1～2 分钟" in message
 
 
+def test_refresh_progress_identifies_rank_refresh():
+    message = format_summary_progress({"nickname": "宇麟涵", "phase": "refresh"})
+    assert "宇麟涵" in message and "正在刷新玩家资料" in message
+
+
 def test_progress_suppresses_unchanged_messages_and_throttles_queue_changes(monkeypatch):
     now = [100.0]
     monkeypatch.setattr("kanamibot.plugins.er_dak.progress.time.monotonic", lambda: now[0])
