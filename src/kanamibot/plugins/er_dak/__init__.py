@@ -30,6 +30,7 @@ MODULE_NAME = "er_dak"
 HELP_TEXT = """永恒轮回查询
 #永恒轮回战绩 <昵称> [排位/普通/钴协议/全部]
 #BS战绩 <昵称> [模式]
+#BS评价 <昵称>：本赛季排位（最多最近 500 场），不足 20 场以同赛季匹配补足
 #永恒轮回角色 <角色> [排位/钴协议] [段位]
 #BS角色 <角色> [模式] [段位]
 #BS <玩家昵称或角色名> [模式] [段位]
@@ -137,6 +138,10 @@ else:
 
     async def _card_for(service: ERBSService, event: MessageEvent, command: ParsedCommand) -> Any:
         action, args = command.action, command.args
+        if action == "summary":
+            if len(args) != 1 or not args[0].strip():
+                raise InvalidQuery("用法：#BS评价 <玩家昵称>；含空格的昵称请加双引号。")
+            return await service.player_summary(args[0], count=20)
         if action == "自动查询":
             if not args or not args[0].strip():
                 raise InvalidQuery("请输入玩家昵称或角色名，例如 #BS 玩家名 或 #BS 席琳。")

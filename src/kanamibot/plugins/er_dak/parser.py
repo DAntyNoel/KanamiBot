@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 COMMAND_PATTERN = (
-    r"\A#(?P<head>永恒轮回战绩|BS战绩|永恒轮回角色|BS角色|BS)"
+    r"\A#(?P<head>永恒轮回战绩|BS战绩|永恒轮回角色|BS角色|BS评价|BS)"
     r"[ \u3000]+(?P<content>[^\r\n]*)\Z"
 )
 PREFIX = re.compile(COMMAND_PATTERN, re.IGNORECASE)
@@ -38,6 +38,7 @@ SUBCOMMANDS = DAK_ACTIONS | {
     "英雄池",
     "出装习惯",
     "雷达",
+    "summary",
     "战绩",
     "多查",
     "对比",
@@ -53,6 +54,7 @@ ALIASES = {
     "recent": "近期",
     "radar": "雷达",
     "评分": "雷达",
+    "评价": "summary",
     "matches": "战绩",
     "角色": "查询角色",
     "英雄": "查询角色",
@@ -92,6 +94,8 @@ def parse_command(message: str) -> ParsedCommand:
         return ParsedCommand("查询玩家", parts)
     if head in {"永恒轮回角色", "bs角色"}:
         return ParsedCommand("查询角色", parts)
+    if head == "bs评价":
+        return ParsedCommand("summary", parts)
     if not parts:
         return ParsedCommand("帮助", ())
     action = ALIASES.get(parts[0].casefold(), parts[0])
