@@ -71,6 +71,9 @@ uv sync
 和 `player-analysis/roles?scope=overall` 接口读取身份、赛季、RP 与六维评价。接口准备中、
 样本不足或返回身份/赛季不符时提示重试，不回退到本地评分。数据范围和时效取决于网站发布的报告，
 不会在本地拼接普通匹配或重新计算等级、百分位；旧本地流程仍保留在插件的 `summary` CLI/API 中。
+图片称号按网站前端 `play-card-percentile.v4` 的阈值、判定顺序和并列规则动态选择，
+使用已确定的 [13 个中文风格称号](src/kanamibot/plugins/ERBS-plugin/docs/README.zh-CN.md#插画总结图)，
+不再固定显示“光与盐”。
 
 评价卡仍在本地绘制为 PNG，每次按 ERCraft 报告中的角色场次加权随机选择已有卡面。
 DAK 角色元数据只用于素材名称和稀有度（英雄权重 10、其余 1），不参与评分；
