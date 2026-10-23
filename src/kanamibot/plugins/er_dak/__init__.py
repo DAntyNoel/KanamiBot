@@ -290,4 +290,4 @@ else:
         except Exception:
             logger.exception("[er_dak] unexpected command failure")
             await matcher.finish("永恒轮回查询暂时失败，请稍后再试。")
-        await matcher.finish(MessageSegment.image(image))
+        await matcher.finish(MessageSegment.reply(event.message_id) + MessageSegment.image(image))
