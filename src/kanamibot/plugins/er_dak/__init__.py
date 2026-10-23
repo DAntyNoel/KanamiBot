@@ -29,12 +29,14 @@ from .store import get_binding, remove_binding, set_binding
 
 MODULE_NAME = "er_dak"
 HELP_TEXT = """永恒轮回查询
-#永恒轮回战绩 <昵称> [排位/普通/钴协议/全部]
+#永恒轮回战绩 <昵称> [全部/排位/匹配/钴协议]
 #BS战绩 <昵称> [模式]
+#BS排位 <昵称> | #BS钴协议 <昵称> | #BS匹配 <昵称>
 #BS评价 <昵称>：使用 ERCraft 本赛季全部评价，在本地生成六维总结卡
 #永恒轮回角色 <角色> [排位/钴协议] [段位]
 #BS角色 <角色> [模式] [段位]
 #BS <玩家昵称或角色名> [模式] [段位]
+玩家查询默认展示全部页签；可用 #BS <昵称> 排位/钴协议/匹配 筛选，普通等同匹配。
 命令头后必须有空格；自动查询优先角色，同名玩家请使用 #BS战绩。
 含空格的名称请加双引号；角色支持名称、英文名、ID 和拼音。
 #BS 绑定 <昵称> | 解绑
@@ -156,6 +158,11 @@ else:
             if character is not None:
                 args = (character, *args[1:])
         if action in DAK_ACTIONS:
+            if action in {"查询玩家", "查玩家"}:
+                if len(args) == 1:
+                    args = (*args, "全部")
+                elif len(args) == 2 and args[1] == "匹配":
+                    args = (args[0], "普通")
             query = parse_dak_command(shlex.join((action, *args)))
             if query.operation == "search":
                 return await service.search_player_card(query.arguments[0], mode=query.mode)

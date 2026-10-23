@@ -176,7 +176,74 @@ def test_explicit_player_header_overrides_same_named_character() -> None:
         _card_for(service, SimpleNamespace(user_id=10001), parse_command("#BS战绩 席琳"))
     )
     assert result == "same-name-player"
-    service.search_player_card.assert_awaited_once_with("席琳", mode="RANK")
+    service.search_player_card.assert_awaited_once_with("席琳", mode="ALL")
+
+
+@pytest.mark.parametrize(
+    ("message", "nickname", "mode"),
+    [
+        ("#BS Player", "Player", "ALL"),
+        ("#BS战绩 Player", "Player", "ALL"),
+        ("#永恒轮回战绩 Player", "Player", "ALL"),
+        ("#BS 查询玩家 Player", "Player", "ALL"),
+        ("#BS 查玩家 Player", "Player", "ALL"),
+        ("#BS 玩家 Player", "Player", "ALL"),
+        ("#BS排位 席琳", "席琳", "RANK"),
+        ("#BS钴协议 席琳", "席琳", "COBALT"),
+        ("#BS匹配 席琳", "席琳", "NORMAL"),
+        ("#BS Player 排位", "Player", "RANK"),
+        ("#BS Player 钴协议", "Player", "COBALT"),
+        ("#BS Player 匹配", "Player", "NORMAL"),
+        ("#BS Player 普通", "Player", "NORMAL"),
+        ("#BS Player 全部", "Player", "ALL"),
+        ('#bs排位 "Player Name"', "Player Name", "RANK"),
+        ('#BS钴协议　"Player Name"', "Player Name", "COBALT"),
+        ('#BS匹配 "Player Name"', "Player Name", "NORMAL"),
+        ('#BS "Player Name" 匹配', "Player Name", "NORMAL"),
+        ("#BS战绩 席琳 匹配", "席琳", "NORMAL"),
+    ],
+)
+def test_player_mode_tabs(message, nickname, mode) -> None:
+    service = SimpleNamespace(
+        client=SimpleNamespace(
+            metadata=AsyncMock(
+                return_value={"characters": [{"id": 62, "name": "席琳", "key": "Celine"}]},
+            ),
+        ),
+        search_player_card=AsyncMock(return_value="player"),
+    )
+
+    result = asyncio.run(
+        _card_for(service, SimpleNamespace(user_id=10001), parse_command(message)),
+    )
+
+    assert result == "player"
+    service.search_player_card.assert_awaited_once_with(nickname, mode=mode)
+    if parse_command(message).action == "查询玩家":
+        service.client.metadata.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "#BS排位 ",
+        "#BS匹配 ",
+        "#BS钴协议 ",
+        "#BS排位 Player 匹配",
+        "#BS Player 不存在的模式",
+        "#BS战绩 Player Name 匹配",
+    ],
+)
+def test_player_mode_tabs_reject_missing_names_or_invalid_filters(message) -> None:
+    service = SimpleNamespace(
+        client=SimpleNamespace(metadata=AsyncMock(return_value={"characters": []})),
+        search_player_card=AsyncMock(),
+    )
+
+    with pytest.raises(er_dak.InvalidQuery):
+        asyncio.run(_card_for(service, SimpleNamespace(user_id=10001), parse_command(message)))
+
+    service.search_player_card.assert_not_awaited()
 
 
 @pytest.mark.parametrize(

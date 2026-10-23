@@ -7,10 +7,11 @@ from dataclasses import dataclass
 from typing import Any
 
 COMMAND_PATTERN = (
-    r"\A#(?P<head>永恒轮回战绩|BS战绩|永恒轮回角色|BS角色|BS评价|BS)"
+    r"\A#(?P<head>永恒轮回战绩|BS战绩|BS排位|BS钴协议|BS匹配|永恒轮回角色|BS角色|BS评价|BS)"
     r"[ \u3000]+(?P<content>[^\r\n]*)\Z"
 )
 PREFIX = re.compile(COMMAND_PATTERN, re.IGNORECASE)
+PLAYER_MODE_HEADS = {"bs排位": "排位", "bs钴协议": "钴协议", "bs匹配": "匹配"}
 DAK_ACTIONS = {
     "查询玩家",
     "查玩家",
@@ -92,6 +93,8 @@ def parse_command(message: str) -> ParsedCommand:
         raise ValueError("命令引号不匹配，请检查昵称或查询名称。") from exc
     if head in {"永恒轮回战绩", "bs战绩"}:
         return ParsedCommand("查询玩家", parts)
+    if head in PLAYER_MODE_HEADS:
+        return ParsedCommand("查询玩家", (*parts, PLAYER_MODE_HEADS[head]) if parts else ())
     if head in {"永恒轮回角色", "bs角色"}:
         return ParsedCommand("查询角色", parts)
     if head == "bs评价":
