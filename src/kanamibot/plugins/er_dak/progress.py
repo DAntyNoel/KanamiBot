@@ -5,12 +5,22 @@ from __future__ import annotations
 import math
 from collections.abc import Awaitable, Callable, Mapping
 
+QUEUE_NOTICE_THRESHOLD = 5
+
 
 def format_summary_progress(progress: Mapping) -> str | None:
     queue = progress.get("queue")
     if not isinstance(queue, Mapping) or queue.get("state") in ("running", "terminal", "idle"):
         return None
     if queue.get("state") != "queued" and queue.get("position") is None:
+        return None
+    players_ahead = queue.get("playersAhead")
+    if type(players_ahead) is not int or players_ahead < 0:
+        position = queue.get("position")
+        if type(position) is not int or position < 1:
+            return None
+        players_ahead = position - 1
+    if players_ahead <= QUEUE_NOTICE_THRESHOLD:
         return None
     nickname = progress.get("nickname") or "玩家"
     parts = [f"ERCraft：{nickname}，已进入查询队列。"]
