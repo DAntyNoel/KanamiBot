@@ -1,0 +1,10 @@
+{
+  "repository": "https://github.com/kqhub-win/calabiyau-resource",
+  "commit": "396b088897f23546d510edda05949f9d44ed988c",
+  "data_tree": "e63520e98deffd121dfb9e8bfbd4a973315efd0c",
+  "game_version": "1.18.6.12",
+  "content_sha256": "9af05cc556ff7ce7a2766eda7d6d2cb7e76e1aa6f2899d41dac441db611963c6",
+  "mappings": 23,
+  "tables": 46,
+  "images": 1151
+}

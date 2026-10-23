@@ -218,6 +218,7 @@ class CodexGPTConfig:
     temperature: float | None
     max_history_messages: int
     max_history_chars: int
+    image_max_context_chars: int
     timeout_seconds: float
     image_timeout_seconds: float
     stream: bool
@@ -295,6 +296,9 @@ def load_config() -> CodexGPTConfig:
         temperature=_env_optional_float("CODEX_GPT_TEMPERATURE", file_values),
         max_history_messages=_env_int("CODEX_GPT_MAX_HISTORY_MESSAGES", 24, file_values),
         max_history_chars=_env_int("CODEX_GPT_MAX_HISTORY_CHARS", 16000, file_values),
+        image_max_context_chars=max(
+            0, _env_int("CODEX_GPT_IMAGE_MAX_CONTEXT_CHARS", 4000, file_values)
+        ),
         timeout_seconds=_env_float("CODEX_GPT_TIMEOUT", 120.0, file_values),
         image_timeout_seconds=_env_float("CODEX_GPT_IMAGE_TIMEOUT", 300.0, file_values),
         stream=_env_bool("CODEX_GPT_STREAM", True, file_values),

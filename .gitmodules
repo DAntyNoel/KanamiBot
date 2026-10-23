@@ -1,0 +1,3 @@
+[submodule "src/kanamibot/plugins/ERBS-plugin"]
+	path = src/kanamibot/plugins/ERBS-plugin
+	url = https://github.com/DAntyNoel/ERBS-plugin.git

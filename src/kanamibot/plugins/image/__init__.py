@@ -38,6 +38,7 @@ from .buffer import send_buffer
 MODULE_NAME = "image"
 GROUP_RULE = ModuleRule(MODULE_NAME)
 IMAGE_PREVIEW_LIMIT = 5
+_CQ_IMAGE_TAG_PATTERN = re.compile(r"^\[CQ:image(?:,|\])", re.IGNORECASE)
 ShellArgs = Annotated[Namespace, ShellCommandArgs()]
 
 __plugin_meta__ = PluginMetadata(
@@ -54,8 +55,10 @@ __plugin_meta__ = PluginMetadata(
 def _plain_tags(values: list[Any]) -> list[str]:
     tags: list[str] = []
     for value in values:
-        text = str(value).strip()
-        if text:
+        if not isinstance(value, str):
+            continue
+        text = value.strip()
+        if text and not _CQ_IMAGE_TAG_PATTERN.match(text):
             tags.append(text)
     return tags
 

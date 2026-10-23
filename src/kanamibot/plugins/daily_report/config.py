@@ -44,12 +44,17 @@ def get_group_config(group_id: str | int) -> dict[str, Any]:
 
 def update_group_switch(group_id: str | int, key_cn: str, enable: bool) -> tuple[bool, str]:
     group_id = str(group_id)
-    config_key = KEY_MAPPING.get(key_cn)
-    if not config_key:
-        return False, f"未知配置项：{key_cn}。支持项：统计、龙王、复读、词云。"
+    if key_cn.lower() in {"all", "全部"}:
+        config_keys = list(DEFAULT_GROUP_CONFIG)
+        key_cn = "全部显示项"
+    else:
+        config_key = KEY_MAPPING.get(key_cn)
+        if not config_key:
+            return False, f"未知配置项：{key_cn}。支持项：统计、龙王、复读、词云、all（全部）。"
+        config_keys = [config_key]
 
     current_group_conf = get_group_config(group_id)
-    current_group_conf[config_key] = enable
+    current_group_conf.update(dict.fromkeys(config_keys, enable))
     config_unit.update({group_id: current_group_conf})
 
     action = "开启" if enable else "关闭"
