@@ -86,10 +86,6 @@ async def handle_strinova(event: MessageEvent, matcher: Matcher, bot: Bot) -> No
     if query_gate.locked():
         await matcher.finish("战绩查询正在忙，请稍后再试。")
     async with query_gate:
-        message_id = None
-        if command == "卡丘战绩" and query.view in ("overview", "standings"):
-            receipt = await matcher.send(f"正在查询「{query.target}」的卡丘战绩……")
-            message_id = receipt.get("message_id") if isinstance(receipt, dict) else None
         try:
             async with asyncio.timeout(QUERY_TIMEOUT_SECONDS):
                 report = await create_report(query, settings)
@@ -102,16 +98,6 @@ async def handle_strinova(event: MessageEvent, matcher: Matcher, bot: Bot) -> No
         except Exception:
             logger.exception("[strinova] unexpected query or rendering failure")
             await matcher.finish("战绩查询或图片生成失败，请稍后重试。")
-        finally:
-            if message_id is not None:
-                try:
-                    async with asyncio.timeout(5):
-                        await bot.delete_msg(message_id=message_id)
-                except Exception as exc:
-                    # A failed QQ recall must not replace the result or leak the query slot.
-                    logger.warning(
-                        "[strinova] failed to recall query prompt: {}", type(exc).__name__
-                    )
     await matcher.finish(MessageSegment.image(image))
 
 

@@ -1228,8 +1228,8 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
                 )
         self.assertEqual(matcher.result.type, "image")
         self.assertTrue(matcher.result.data["file"].startswith("base64://"))
-        matcher.send.assert_awaited_once_with("正在查询「测试玩家」的卡丘战绩……")
-        self.bot.delete_msg.assert_awaited_once_with(message_id=456)
+        matcher.send.assert_not_awaited()
+        self.bot.delete_msg.assert_not_awaited()
 
     async def test_health_failure_pauses_every_bot_entry_including_help(self):
         from nonebot.adapters.onebot.v11 import Message
@@ -1405,10 +1405,7 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
                     )
                 self.assertEqual(create.call_args.args[0].target, "测试玩家")
                 self.assertEqual(create.call_args.args[0].view, view)
-                if view in ("overview", "standings"):
-                    matcher.send.assert_awaited_once_with("正在查询「测试玩家」的卡丘战绩……")
-                else:
-                    matcher.send.assert_not_awaited()
+                matcher.send.assert_not_awaited()
 
     async def test_season_shortcuts_are_only_enabled_for_the_season_command(self):
         from nonebot.adapters.onebot.v11 import Message
@@ -1440,7 +1437,7 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
                     (query.season_id, query.season_label, query.index), (season_id, label, page)
                 )
 
-    async def test_query_and_render_failures_recall_prompt_and_release_query_slot(self):
+    async def test_query_and_render_failures_release_query_slot_without_progress_messages(self):
         from nonebot.adapters.onebot.v11 import Message
 
         class Finished(Exception):
@@ -1474,10 +1471,11 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
                     )
                 self.assertIn(expected, matcher.finish.call_args.args[0])
                 self.assertNotIn("private error", matcher.finish.call_args.args[0])
-                self.bot.delete_msg.assert_awaited_once_with(message_id=789)
+                matcher.send.assert_not_awaited()
+                self.bot.delete_msg.assert_not_awaited()
                 self.assertEqual(self.plugin.query_gate._value, 2)
 
-    async def test_timeout_cancels_query_or_render_and_recalls_prompt(self):
+    async def test_timeout_cancels_query_or_render_without_progress_messages(self):
         from nonebot.adapters.onebot.v11 import Message
 
         class Finished(Exception):
@@ -1515,10 +1513,11 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
                     )
                 self.assertTrue(cancelled.is_set())
                 self.assertIn("超过 2 分钟", matcher.finish.call_args.args[0])
-                self.bot.delete_msg.assert_awaited_once_with(message_id=123)
+                matcher.send.assert_not_awaited()
+                self.bot.delete_msg.assert_not_awaited()
                 self.assertEqual(self.plugin.query_gate._value, 2)
 
-    async def test_cancelled_handler_still_recalls_prompt_and_releases_query_slot(self):
+    async def test_cancelled_handler_releases_query_slot_without_progress_messages(self):
         from nonebot.adapters.onebot.v11 import Message
 
         started = asyncio.Event()
@@ -1543,42 +1542,10 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
             task.cancel()
             with self.assertRaises(asyncio.CancelledError):
                 await task
-        self.bot.delete_msg.assert_awaited_once_with(message_id=123)
+        matcher.send.assert_not_awaited()
+        self.bot.delete_msg.assert_not_awaited()
         matcher.finish.assert_not_awaited()
         self.assertEqual(self.plugin.query_gate._value, 2)
-
-    async def test_recall_failure_does_not_replace_success_or_error_response(self):
-        from nonebot.adapters.onebot.v11 import Message, MessageSegment
-
-        class Finished(Exception):
-            pass
-
-        for failure in (None, APIError("查询失败")):
-            matcher = SimpleNamespace(
-                send=AsyncMock(return_value={"message_id": 123}),
-                finish=AsyncMock(side_effect=Finished),
-            )
-            self.bot.delete_msg = AsyncMock(side_effect=RuntimeError("QQ recall failed"))
-            with (
-                self.subTest(failure=failure),
-                patch.object(self.plugin, "check_available", AsyncMock()),
-                patch.object(
-                    self.plugin,
-                    "create_report",
-                    AsyncMock(
-                        return_value=Report(Query("测试玩家"), "123456", PLAYER),
-                        side_effect=failure,
-                    ),
-                ),
-                patch.object(self.plugin, "render_png", AsyncMock(return_value=b"png")),
-            ):
-                with self.assertRaises(Finished):
-                    await self.plugin.handle_strinova(
-                        SimpleNamespace(message=Message("#卡丘战绩 测试玩家")), matcher, self.bot
-                    )
-                result = matcher.finish.call_args.args[0]
-                self.assertEqual(result, "查询失败" if failure else MessageSegment.image(b"png"))
-                self.assertEqual(self.plugin.query_gate._value, 2)
 
     def test_cli_core_does_not_import_bot_entrypoint(self):
         from kanamibot.strinova import cli
