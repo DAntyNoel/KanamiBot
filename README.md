@@ -35,6 +35,14 @@ start.cmd
 
 启动器使用原生 CMD 命令分别检测 NapCat 和 NoneBot。已经运行的服务保持不动，每个缺少的服务都会在各自独立、可见的前台 CMD 终端中启动。启动 NapCat 前会生成 WebUI 与 OneBot 反向 WebSocket 配置，并将工作目录固定为 `files/napcat_runtime`。关闭某个服务的终端只会停止该服务。
 
+停止 NoneBot（包括隐藏窗口中的后台进程）：
+
+```cmd
+stop-nonebot.cmd
+```
+
+停止脚本按 `12706` 端口定位并核对本仓库的 Python 和 `bot.py` 进程，停止后确认端口释放，NapCat 保持运行。若端口由其他程序占用，则报错并退出。
+
 首次启动或修改 `pyproject.toml`、`uv.lock` 后，请先同步依赖：
 
 ```cmd
