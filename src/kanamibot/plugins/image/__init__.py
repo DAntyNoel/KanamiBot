@@ -30,6 +30,7 @@ from kanamibot.core.image_wrappers import (
     similar_images,
     update_imagedata,
 )
+from kanamibot.core.message_reactions import react_ok
 from kanamibot.core.utils.image import download_all_images_from_event, guess_extension
 from kanamibot.core.utils.text import get_best_items_by_text_list
 
@@ -211,7 +212,7 @@ async def save_image_handler(
         saved_count += 1
 
     if saved_count > 0:
-        await matcher.send(f"小香同学收集了{saved_count}张图，谢谢你。")
+        await react_ok(bot, event)
     if similar_messages:
         await matcher.finish(similar_messages[0])
     if saved_count == 0:
