@@ -1416,6 +1416,7 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
         for command, season_id, label, page in (
             ("#卡丘赛季 测试玩家 14", 14, None, 1),
             ("#卡丘赛季 测试玩家 SP3", 0, "SP3", 1),
+            ("#卡丘赛季 测试玩家 SP3 2", 0, "SP3", 2),
             ("#卡丘赛季 测试玩家 14 第2页", 14, None, 2),
             ("#卡丘战绩 测试玩家 14", 0, None, 14),
             ("#卡丘战绩 测试玩家 历史赛季 14", 0, None, 14),

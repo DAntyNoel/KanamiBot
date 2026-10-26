@@ -61,6 +61,9 @@ class NewQueryTests(unittest.TestCase):
             ("测试玩家 排位 14 --page 2", 14, None, 2, 5),
             ("测试玩家 14 第2页", 14, None, 2, 0),
             ("测试玩家 SP3", 0, "SP3", 1, 0),
+            ("测试玩家 SP3 2", 0, "SP3", 2, 0),
+            ('"Player 14" S8 3', 0, "S8", 3, 0),
+            ("测试玩家 SP3 2 排位", 0, "SP3", 2, 5),
             ("测试玩家 sp2 排位 第2页", 0, "SP2", 2, 5),
             ("测试玩家 S1 --index 2", 0, "S1", 2, 0),
             ("测试玩家 s8", 0, "S8", 1, 0),
@@ -69,7 +72,7 @@ class NewQueryTests(unittest.TestCase):
         ):
             with self.subTest(text=text):
                 query = parse_query(text, view="history", season_shortcuts=True)
-                self.assertEqual(query.target, "测试玩家")
+                self.assertEqual(query.target, "Player 14" if text.startswith('"') else "测试玩家")
                 self.assertEqual(
                     (query.season_id, query.season_label, query.index, query.game_mode),
                     (expected_id, expected_label, expected_page, expected_mode),
@@ -97,6 +100,8 @@ class NewQueryTests(unittest.TestCase):
             "测试玩家 SP3 SP2",
             "测试玩家 SP3 --view overview",
             "测试玩家 14 第2页 --page 3",
+            "测试玩家 SP3 2 --page 3",
+            "测试玩家 SP3 2 3",
             "测试玩家 4294967296",
         ):
             with self.subTest(text=text), self.assertRaises(QueryError):
@@ -221,7 +226,10 @@ class SeasonRoutingTests(unittest.IsolatedAsyncioTestCase):
                 "seasons": [
                     {"season_id": sid, "season_type": 1, "available": True, "name": name}
                     for sid, name in (
-                        (1, "S1.测试"), (8, "S8.测试"), (15, "26SP2.测试"), (16, "26SP3.测试")
+                        (1, "S1.测试"),
+                        (8, "S8.测试"),
+                        (15, "26SP2.测试"),
+                        (16, "26SP3.测试"),
                     )
                 ],
             }
@@ -235,8 +243,17 @@ class SeasonRoutingTests(unittest.IsolatedAsyncioTestCase):
                 client.career.assert_not_awaited()
                 context = report_context(report)
                 self.assertEqual(context["season_id"], season_id)
-                next_query = parse_query(context["next_page_command"].removeprefix("#卡丘战绩 "))
-                self.assertEqual((next_query.season_id, next_query.index), (season_id, 2))
+                command = context["next_page_command"]
+                self.assertEqual(
+                    command, f"#卡丘赛季 测试玩家 {label.upper().removeprefix('26')} 2"
+                )
+                next_query = parse_query(
+                    command.removeprefix("#卡丘赛季 "), view="history", season_shortcuts=True
+                )
+                next_report = await fetch_report(client, next_query)
+                self.assertEqual(
+                    (report_context(next_report)["season_id"], next_query.index), (season_id, 2)
+                )
 
     async def test_unknown_ambiguous_and_conflicting_season_labels_never_fall_back(self):
         for names, label, season_id, error in (
@@ -278,7 +295,9 @@ class SeasonRoutingTests(unittest.IsolatedAsyncioTestCase):
             (context["previous_page_command"], 1),
             (context["next_page_command"], 3),
         ):
-            query = parse_query(command.removeprefix("#卡丘战绩 "))
+            query = parse_query(
+                command.removeprefix("#卡丘赛季 "), view="history", season_shortcuts=True
+            )
             self.assertEqual(
                 (
                     query.target,
@@ -366,6 +385,130 @@ class SeasonRoutingTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("隐私", render_html(report))
 
 
+class SeasonPresentationTests(unittest.TestCase):
+    def report(self, stats, *, current=False, target="测试玩家", options=""):
+        return Report(
+            parse_query(f'--nick "{target}" --view career {options}'),
+            PLAYER["player_id"],
+            {**PLAYER, "rank": 30, "leisure_rank": 41},
+            sections={
+                "season": {"season_id": 16, "name": "26SP3.测试", "is_current": current},
+                "seasons": {"seasons": [{"season_id": 16, "season_type": 1, "name": "26SP3.测试"}]},
+                **({"career": {"career_info": stats}} if current else {"history": stats}),
+            },
+        )
+
+    def test_ranked_metrics_use_selected_season_mode_values_including_zero_wins(self):
+        for current in (False, True):
+            for wins in (0, 6):
+                with self.subTest(current=current, wins=wins):
+                    stats = {
+                        "battle_infos": [
+                            {"game_mode": 2, "round": 20, "total_win_count": 18, "total_kill": 100},
+                            {
+                                "game_mode": 5,
+                                "round": 10,
+                                "total_win_count": wins,
+                                "win_rate": 0.75 if wins else 0,
+                                "total_kill": 50,
+                            },
+                        ]
+                    }
+                    original = deepcopy(stats)
+                    report = self.report(stats, current=current)
+                    metrics = dict(report_context(report)["metrics"])
+                    self.assertEqual(
+                        metrics,
+                        {
+                            "赛季对局": "30",
+                            "排位爆破胜场": str(wins),
+                            "排位爆破胜率": "75.0%" if wins else "0.0%",
+                            "赛季击杀": "150",
+                        },
+                    )
+                    self.assertIn("排位爆破胜率", render_html(report))
+                    self.assertEqual(stats, original)
+
+    def test_unplayed_ranked_keeps_season_totals_and_missing_ranked_stats_stay_missing(self):
+        for ranked in ([], [{"game_mode": 5, "round": 0, "total_win_count": 0}]):
+            stats = {
+                "battle_infos": [
+                    {"game_mode": 2, "round": 10, "total_win_count": 3},
+                    *ranked,
+                ]
+            }
+            metrics = dict(report_context(self.report(stats))["metrics"])
+            self.assertEqual(metrics["赛季胜场"], "3")
+            self.assertEqual(metrics["赛季胜率"], "30.0%")
+        stats = {"battle_infos": [{"game_mode": 5, "round": 10}]}
+        metrics = dict(report_context(self.report(stats))["metrics"])
+        self.assertEqual(metrics["排位爆破胜场"], "—")
+        self.assertEqual(metrics["排位爆破胜率"], "—")
+
+    def test_season_badges_use_season_ranks_instead_of_profile_or_peak(self):
+        for current in (False, True):
+            stats = {
+                "cur_seg": 12,
+                "final_seg": 22,
+                "top_seg": 29,
+                "cur_leisure_rank": 11,
+                "top_history_leisure_rank": 41,
+            }
+            report = self.report(stats, current=current)
+            with patch("kanamibot.strinova.render.resource_pack") as resource:
+                pack = resource.return_value
+                pack.records.return_value = {}
+                pack.mode_name.return_value = None
+                pack.rank_image.side_effect = lambda value, **kw: f"badge-{value}"
+                context = report_context(report)
+                cards = context["season_rank_cards"]
+                self.assertEqual(
+                    [card["badge"] for card in cards],
+                    ["badge-12" if current else "badge-22", "badge-11"],
+                )
+                self.assertEqual(cards[0]["label"], "当前排位" if current else "最终排位")
+                html = render_html(report)
+                self.assertIn('class="season-ranks"', html)
+                self.assertIn('src="badge-11"', html)
+        cards = report_context(self.report({}))["season_rank_cards"]
+        self.assertEqual([card["name"] for card in cards], ["—", "—"])
+        self.assertEqual([card["badge"] for card in cards], [None, None])
+
+    def test_season_page_commands_preserve_identity_and_show_real_values_in_footer(self):
+        for target in ("测试玩家", "Player 14", "12345"):
+            report = self.report(
+                {"role_employs": [{"count": 1}] * 25},
+                target=target,
+                options="--index 2 --limit 10",
+            )
+            context = report_context(report)
+            self.assertTrue(context["next_page_command"].startswith("#卡丘赛季 "))
+            for key, page in (("previous_page_command", 1), ("next_page_command", 3)):
+                command = context[key]
+                query = parse_query(
+                    command.removeprefix("#卡丘赛季 "), view="history", season_shortcuts=True
+                )
+                self.assertEqual(
+                    (query.target, query.by_id, query.season_label, query.index, query.limit),
+                    (target, False, "SP3", page, 10),
+                )
+            html = render_html(report)
+            self.assertIn("下一页：<code>", html)
+            self.assertIn("SP3 3 --limit 10", html)
+            self.assertNotIn("赛季简称", html)
+        self.assertEqual(
+            report_context(self.report({"role_employs": [{"count": 1}] * 9}))["next_page_command"],
+            "#卡丘赛季 测试玩家 SP3 2",
+        )
+
+    def test_ambiguous_season_abbreviations_keep_year(self):
+        report = self.report({"role_employs": [{"count": 1}] * 9})
+        report.sections["seasons"]["seasons"].append(
+            {"season_id": 20, "season_type": 1, "name": "27SP3.测试"}
+        )
+        self.assertEqual(report_context(report)["next_page_command"], "#卡丘赛季 测试玩家 26SP3 2")
+
+
 class HistoricalZeroTests(unittest.TestCase):
     def report(self, stats, *, current=False, options="", view="history"):
         return Report(
@@ -405,7 +548,7 @@ class HistoricalZeroTests(unittest.TestCase):
                 self.assertEqual(facts["最终段位分"], "0")
                 self.assertEqual(facts["最高段位分"], "208")
                 self.assertEqual(facts["最高评价分"], "3,008")
-                self.assertEqual(dict(context["metrics"])["赛季胜场"], "0")
+                self.assertEqual(dict(context["metrics"])["排位爆破胜场"], "0")
                 self.assertNotIn("原始胜率", render_html(report))
         self.assertEqual(stats, original)
 

@@ -28,6 +28,7 @@
       <div class="player">
         <div class="avatar-shell"><div class="avatar">{% if avatar_data_uri %}<img src="{{ avatar_data_uri }}" alt="{{ name }} 的游戏头像">{% else %}{{ initial }}{% endif %}</div></div>
         <div class="player-info"><p class="overline">引航者 · 意识档案</p><h1>{{ name }}</h1><div class="identity"><b>ID {{ player_id }}</b><span>Lv. {{ level }}</span><span class="status {{ 'online' if online else '' }}">{{ status }}</span></div></div>
+        {% if season_rank_cards %}<div class="season-ranks">{% for card in season_rank_cards %}<div class="season-rank">{% if card.badge %}<img src="{{ card.badge }}" alt="{{ card.label }} {{ card.name }}">{% endif %}<label>{{ card.label }}</label><strong>{{ card.name }}</strong></div>{% endfor %}</div>{% endif %}
       </div>
       <div class="metrics {{ 'expanded' if view == 'overview' else '' }}">{% for label, value in metrics %}<div class="metric"><label>{{ label }}</label><strong>{{ value }}</strong></div>{% endfor %}</div>
     </div>

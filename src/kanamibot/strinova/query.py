@@ -208,7 +208,7 @@ def query_from_args(args: argparse.Namespace, *, season_shortcuts: bool = False)
     if resolved_view not in args.allowed_views:
         raise QueryError("不支持的查询视图。")
     for selected in numeric_suffixes:
-        if resolved_view == "history":
+        if resolved_view == "history" and season_label is None:
             if season_id is not None and season_id != selected:
                 raise QueryError("赛季不一致，请只指定一个赛季。")
             season_id = selected

@@ -31,7 +31,7 @@ USAGE = (
     "#卡丘赛季 {昵称或ID} --season-id 17\n"
     "#卡丘赛季 {昵称或ID} 14（等价于 --season-id 14）\n"
     "#卡丘赛季 {昵称或ID} SP3 / SP2 / S1 / S8（按赛季简称选择）\n"
-    "赛季查询翻页请用 第2页 / --page 2；战绩查询末尾数字仍为页码\n"
+    "#卡丘赛季 {昵称或ID} SP3 2（该赛季第 2 页，也支持 第2页 / --page 2）\n"
     "#卡丘名片 {昵称或ID}\n"
     "可选：--player-id ID / --nick 昵称 / --mode 排位爆破 / --page 2 / --limit 8 / "
     "--game-mode 0 / --room-mode-type 0 / --play-mode 0 / --season-type 1"

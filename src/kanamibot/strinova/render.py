@@ -8,7 +8,7 @@ from datetime import timedelta, timezone
 from typing import Any
 
 from .client import Settings
-from .query import GAME_MODE_NAMES, QueryError
+from .query import GAME_MODE_NAMES, SEASON_LABEL, QueryError
 from .resources import PLUGIN_DIR, resource_pack
 from .service import Report
 
@@ -425,9 +425,27 @@ def report_context(report: Report) -> dict:
         page_options += f" --limit {query.limit}"
     if query.view in ("career", "history"):
         has_more = role_count > query.index * query.limit
-        page_options += f" --season-id {season.get('season_id', query.season_id)}"
+    season_code = SEASON_LABEL.match(season.get("name") or "")
+    season_label = season_code.group(0).upper() if season_code else None
+    if season_code:
+        short_label = f"{season_code['series']}{season_code['number']}".upper()
+        matching_seasons = [
+            row
+            for row in objects(report.sections.get("seasons", {}).get("seasons"))
+            if row.get("season_type") == 1
+            and (code := SEASON_LABEL.match(row.get("name") or ""))
+            and code["series"].upper() == season_code["series"].upper()
+            and int(code["number"]) == int(season_code["number"])
+        ]
+        if len(matching_seasons) == 1:
+            season_label = short_label
 
     def page_command(index: int) -> str:
+        if query.view in ("career", "history"):
+            if season_label:
+                return f"#卡丘赛季 {target} {season_label} {index}{mode_suffix}{page_options}"
+            selection = f"--season-id {season.get('season_id', query.season_id)} --page {index}"
+            return f"#卡丘赛季 {target}{mode_suffix} {selection}{page_options}"
         return f"{command}{page_view}{mode_suffix} {index}{page_options}"
 
     recent = {
@@ -482,12 +500,31 @@ def report_context(report: Report) -> dict:
             return sum(values)
 
         rounds, season_wins = total_stat("round"), total_stat("total_win_count")
+        season_ranked = [row for row in mode_rows if row.get("game_mode") == 5]
+        ranked = season_ranked[0] if len(season_ranked) == 1 else {}
+        ranked_rounds = ranked.get("round")
+        played_ranked = (
+            type(ranked_rounds) in (int, float)
+            and math.isfinite(ranked_rounds)
+            and ranked_rounds > 0
+        )
+        displayed_wins = ranked.get("total_win_count") if played_ranked else season_wins
+        displayed_rate = (
+            ranked.get("win_rate")
+            if played_ranked
+            else season_wins / rounds
+            if season_wins is not None and rounds
+            else None
+        )
         metrics = [
             ("赛季对局", number(rounds)),
-            ("赛季胜场", number(season_wins)),
             (
-                "赛季胜率",
-                percent(season_wins / rounds) if season_wins is not None and rounds else "—",
+                "排位爆破胜场" if played_ranked else "赛季胜场",
+                number(displayed_wins),
+            ),
+            (
+                "排位爆破胜率" if played_ranked else "赛季胜率",
+                percent(displayed_rate),
             ),
             ("赛季击杀", number(total_stat("total_kill"))),
         ]
@@ -529,6 +566,19 @@ def report_context(report: Report) -> dict:
     )
     leisure_rank = profile.get("leisure_rank", career.get("cur_leisure_rank"))
     leisure_score = profile.get("leisure_score", career.get("cur_leisure_score"))
+    season_rank_cards = []
+    if query.view in ("career", "history") and season:
+        for label, value, leisure in (
+            ("排位", stats.get(f"{rank_prefix}_seg"), False),
+            ("挑战赛", stats.get("cur_leisure_rank"), True),
+        ):
+            season_rank_cards.append(
+                {
+                    "label": f"{'当前' if is_current else '最终'}{label}",
+                    "name": rank_name(value, leisure=leisure),
+                    "badge": pack.rank_image(value, leisure=leisure),
+                }
+            )
     return {
         "title": VIEW_NAMES[query.view],
         "view": query.view,
@@ -539,6 +589,7 @@ def report_context(report: Report) -> dict:
         "portrait": pack.role_image(main_role, portrait=True) if main_role else None,
         "portrait_name": role_name(main_role) if main_role else "",
         "portrait_team": "常用角色",
+        "season_rank_cards": season_rank_cards,
         "rank_cards": [
             {
                 "label": "排位段位",
