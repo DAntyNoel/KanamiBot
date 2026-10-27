@@ -15,22 +15,6 @@ __plugin_meta__ = PluginMetadata(
     config=Config,
 )
 
-HELP_TEXT = """森空岛 / 终末地查询
-指令头支持 #SK、#sk、#森空岛，指令头与功能之间用空格分隔。
-#SK 扫码登录：使用森空岛 App 扫码，核对角色后回复「确认」保存
-#SK 森空岛角色：查看全部账号和角色序号
-#SK 切换终末地角色 2：设置默认终末地角色
-#SK 角色更新：同步本人账号的角色列表
-#SK ef [-r 角色序号] [-a] [-s]：终末地角色卡，-a 展示全部干员，-s 简化背景
-#SK 终末地签到 [-r 角色序号]：签到本人全部或指定终末地角色
-#SK 终末地签到详情：查看本人签到结果
-#SK 终末地抽卡记录 [-r 角色序号]：同步并查询抽卡统计
-#SK 战争回响 [-s 赛季] [-w 轮换]：查询战争回响，-s -1 表示上一赛季
-#SK 森空岛解绑：交互选择账号；确认后删除关联角色和抽卡记录
-#SK 帮助：查看完整命令（也支持明日方舟和英文子命令）
-/enable skland、/disable skland：管理本群查询开关
-群开关不停止后台自动签到；自动签到由 KANAMIBOT_SKLAND_AUTO_SIGN 控制。"""
-
 config = get_plugin_config(Config)
 
 if config.kanamibot_skland_enabled:
@@ -39,11 +23,12 @@ if config.kanamibot_skland_enabled:
     upstream = require("nonebot_plugin_skland")
 
     from .commands import SklandCommandExtension
+    from .help import HELP_SUMMARY
     from .permissions import protect_matcher
 
     upstream.skland.executor.extensions.append(SklandCommandExtension())
     protect_matcher(upstream.skland)
-    upstream.__plugin_meta__.usage = HELP_TEXT
+    upstream.__plugin_meta__.usage = HELP_SUMMARY
     upstream.__plugin_meta__.description = (
         "森空岛账号绑定与终末地角色卡、签到、抽卡、战争回响查询。"
     )

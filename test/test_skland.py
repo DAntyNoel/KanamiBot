@@ -111,7 +111,7 @@ def event(text="/ef", *, user=30000, group=20000, private=False):
     return GroupMessageEvent(**fields, group_id=group)
 
 
-def dispatch(runtime, monkeypatch, message, parsed=None):
+def dispatch(runtime, monkeypatch, message, parsed=None, sent=None):
     calls = []
 
     async def handler(result: Arparma):
@@ -124,8 +124,16 @@ def dispatch(runtime, monkeypatch, message, parsed=None):
         "handlers",
         [Dependent.parse(call=handler, allow_types=runtime.matcher.HANDLER_PARAM_TYPES)],
     )
-    with patch.object(runtime.bot, "send", new=AsyncMock()) as send:
+    with (
+        patch(
+            "kanamibot.plugins.skland.commands.render_help_images",
+            new=AsyncMock(return_value=(b"png1", b"png2", b"png3")),
+        ),
+        patch.object(runtime.bot, "send", new=AsyncMock()) as send,
+    ):
         asyncio.run(check_and_run_matcher(runtime.matcher, runtime.bot, message, {}))
+    if sent is not None:
+        sent.extend(call.args[1] for call in send.await_args_list)
     return calls, send.await_count
 
 
@@ -155,6 +163,7 @@ def test_enabled_commands_keep_upstream_parsing(runtime, policy, monkeypatch, te
     ("body", "path", "value"),
     [
         ("扫码登录", "qrcode", None),
+        ("登录", "qrcode", None),
         ("扫码绑定", "qrcode", None),
         ("森空岛角色", "char", None),
         ("切换终末地角色 2", "char.set.index", 2),
@@ -168,6 +177,7 @@ def test_enabled_commands_keep_upstream_parsing(runtime, policy, monkeypatch, te
         ("森空岛解绑", "unbind", None),
         ("qrcode", "qrcode", None),
         ("efcard -r 2", "efcard.role.role_index", 2),
+        ("方舟 -r 2", "role.role_index", 2),
     ],
 )
 def test_local_heads_preserve_command_and_options(
@@ -180,10 +190,154 @@ def test_local_heads_preserve_command_and_options(
         assert parsed[0].query(path) == value
 
 
+@pytest.mark.parametrize(
+    ("body", "path"),
+    [
+        ("森空岛绑定 example-token -u", "bind.update"),
+        ("明日方舟签到 -r 2", "arksign.sign.role.role_index"),
+        ("签到详情 -r 2", "arksign.status.role.role_index"),
+        ("方舟抽卡记录 -b 0 -l 3", "gacha.limit.limit"),
+        ("导入抽卡记录 https://example.invalid/history.json -r 2", "import.role.role_index"),
+        ("傀影肉鸽", "rogue.topic.topic_name"),
+        ("水月肉鸽", "rogue.topic.topic_name"),
+        ("萨米肉鸽", "rogue.topic.topic_name"),
+        ("萨卡兹肉鸽", "rogue.topic.topic_name"),
+        ("界园肉鸽", "rogue.topic.topic_name"),
+        ("树海肉鸽", "rogue.topic.topic_name"),
+        ("战绩详情 1 -r 2 -f", "rginfo.favored"),
+        ("收藏战绩详情 1 -r 2", "rginfo.favored"),
+        ("方舟干员 -r 2 -ra 5,6 -n 阿米娅", "box.rarity.rarities"),
+        ("全体签到", "arksign.all"),
+        ("全体签到详情", "arksign.status.all"),
+        ("终末地全体签到", "efsign.all"),
+        ("终末地全体签到详情", "efsign.status.all"),
+        ("全体角色更新", "char.update.all"),
+        ("资源更新 --force", "sync.force"),
+        ("sync --img --force --update", "sync.img"),
+    ],
+)
+def test_full_menu_examples_reach_expected_upstream_action(
+    runtime, policy, monkeypatch, body, path
+):
+    parsed = []
+    assert dispatch(runtime, monkeypatch, event(f"#SK {body}"), parsed) == (["handler"], 0)
+    assert parsed[0].find(path)
+
+
+@pytest.mark.parametrize("head", ["#SK", "#sk", "#森空岛"])
+@pytest.mark.parametrize("action", ["扫码登录", "登录", "扫码绑定"])
+def test_login_does_not_depend_on_startup_shortcuts(runtime, policy, monkeypatch, head, action):
+    command = runtime.matcher.command()
+    command.shortcut("扫码绑定", delete=True)
+    try:
+        parsed = []
+        assert dispatch(runtime, monkeypatch, event(f"{head} {action}"), parsed) == (["handler"], 0)
+        assert parsed[0].find("qrcode")
+    finally:
+        command.shortcut("扫码绑定", {"command": "skland qrcode", "fuzzy": False, "prefix": True})
+
+
+@pytest.mark.parametrize("text", ["#SK 扫码登录", "#SK 登录", "#sk 登录", "#森空岛 登录"])
+def test_login_runs_real_upstream_qrcode_handler(runtime, policy, text):
+    with (
+        patch("nonebot_plugin_skland.commands.bind.qrcode_handler", new=AsyncMock()) as login,
+        patch.object(
+            runtime.bot, "get_group_info", new=AsyncMock(return_value={"group_name": "test"})
+        ),
+        patch.object(
+            runtime.bot, "get_group_member_info", new=AsyncMock(return_value={"join_time": 0})
+        ),
+        patch.object(runtime.bot, "send", new=AsyncMock()) as send,
+    ):
+        asyncio.run(check_and_run_matcher(runtime.matcher, runtime.bot, event(text), {}))
+    login.assert_awaited_once()
+    send.assert_not_awaited()
+
+
 @pytest.mark.parametrize("head", ["#SK", "#sk", "#森空岛"])
 @pytest.mark.parametrize("body", ["", " 帮助", " --help"])
 def test_local_help(runtime, policy, monkeypatch, head, body):
     assert dispatch(runtime, monkeypatch, event(head + body)) == ([], 1)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "#SK 帮助",
+        "#sk",
+        "#森空岛 --help",
+        "/skland --help",
+        "#SK efcard --help",
+        "/skland --shortcut list",
+    ],
+)
+def test_help_sends_images_without_raw_formatter_or_shortcut_mappings(
+    runtime, policy, monkeypatch, text
+):
+    sent = []
+    assert dispatch(runtime, monkeypatch, event(text), sent=sent) == ([], 1)
+    assert len(sent) == 1
+    assert [segment.type for segment in sent[0]] == ["image", "image", "image"]
+
+
+def test_help_render_failure_does_not_fall_back_to_raw_text(runtime):
+    from kanamibot.plugins.skland.commands import SklandCommandExtension
+
+    with patch(
+        "kanamibot.plugins.skland.commands.render_help_images",
+        new=AsyncMock(side_effect=RuntimeError("browser unavailable")),
+    ):
+        message = asyncio.run(
+            SklandCommandExtension().output_converter("help", "RAW => skland qrcode")
+        )
+    assert str(message) == "帮助图片暂时无法生成，请稍后重试。"
+
+
+def test_parse_error_does_not_echo_internal_commands_or_credentials(runtime):
+    from kanamibot.plugins.skland.commands import SklandCommandExtension
+
+    message = asyncio.run(
+        SklandCommandExtension().output_converter("error", "secret-token => skland bind")
+    )
+    assert str(message) == "指令参数有误，请发送 #SK 帮助 查看命令和用法。"
+
+
+def test_help_covers_all_native_function_paths_and_contains_no_mapping_table(runtime):
+    from arclet.alconna import Subcommand
+
+    from kanamibot.plugins.skland.help import HELP_PAGES, help_documents
+
+    def paths(options, parent=""):
+        result = set()
+        for option in options:
+            if not isinstance(option, Subcommand):
+                continue
+            path = parent + option.dest
+            result.add(path)
+            result.update(paths(option.options, path + "."))
+        return result
+
+    documented = {
+        path
+        for page in HELP_PAGES
+        for section in page.sections
+        for entry in section.entries
+        for path in entry.paths
+    }
+    expected = paths(runtime.matcher.command().options)
+    # Container subcommands are covered by their documented actions.
+    assert all(
+        path in documented or any(item.startswith(path + ".") for item in documented)
+        for path in expected
+    )
+    documents = help_documents()
+    assert len(documents) == 3
+    assert all("#SK" in html and "#sk" in html and "#森空岛" in html for html in documents)
+    assert all(
+        token not in "".join(documents)
+        for token in ("=&gt;", "=&gt", "At|int", "skland qrcode", "快捷命令:", "代理", "Alconna")
+    )
+    assert "&lt;token或cred&gt;" in documents[0]
 
 
 @pytest.mark.parametrize("space", ["  ", "\t", "\u3000"])
@@ -306,7 +460,7 @@ def test_help_contains_one_public_skland_entry(runtime):
     features = [feature for feature in collect_features() if "skland" in feature.module_name]
     assert len(features) == 1
     assert features[0].title == "森空岛"
-    assert "#SK 终末地抽卡记录" in features[0].usage
+    assert "#SK 帮助" in features[0].usage
     assert "#SK、#sk、#森空岛" in features[0].usage
 
 
