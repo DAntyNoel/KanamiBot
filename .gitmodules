@@ -1,0 +1,6 @@
+[submodule "src/kanamibot/plugins/ERBS-plugin"]
+	path = src/kanamibot/plugins/ERBS-plugin
+	url = https://github.com/DAntyNoel/ERBS-plugin.git
+[submodule "src/kanamibot/plugins/skland/_upstream"]
+	path = src/kanamibot/plugins/skland/_upstream
+	url = https://github.com/FrostN0v0/nonebot-plugin-skland.git

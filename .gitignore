@@ -3,6 +3,7 @@ apikey.env
 files/napcat_config/onebot11.json
 files/napcat_config/webui.json
 files/napcat_runtime/
+files/erbs-assets/
 logs/
 data/
 vendor/NapCatQQ/
@@ -18,3 +19,8 @@ __pycache__/
 .DS_Store
 
 AGENTS.md
+
+# Strinova resource pack, copied game fonts, and generated image caches.
+/src/kanamibot/plugins/strinova/resources/
+/src/kanamibot/plugins/strinova/cache/
+/src/kanamibot/plugins/strinova/*.7z

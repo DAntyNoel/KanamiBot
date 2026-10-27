@@ -37,7 +37,8 @@ __plugin_meta__ = PluginMetadata(
     usage=(
         "今日总结 / 日报：手动生成本群日报\n"
         "日报设置 查看\n"
-        "日报设置 开启 词云 / 日报设置 关闭 龙王"
+        "日报设置 开启 词云 / 日报设置 关闭 龙王\n"
+        "日报设置 开启 all / 日报设置 关闭 all：批量设置本群全部显示项"
     ),
 )
 
@@ -203,7 +204,8 @@ async def handle_daily_report_setting(event: GroupMessageEvent, args: CommandArg
             "指令格式：\n"
             "日报设置 查看\n"
             "日报设置 开启 词云\n"
-            "日报设置 关闭 龙王"
+            "日报设置 关闭 龙王\n"
+            "日报设置 开启 all / 日报设置 关闭 all：批量设置本群全部显示项"
         )
 
     action = argv[0]

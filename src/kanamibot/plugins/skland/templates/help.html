@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; width: 1000px; background: #eaece6; color: #243332; }
+    body { padding: 36px; font-family: "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; }
+    .sheet { background: #fbfcf7; border: 1px solid #d1d9cf; border-radius: 24px; overflow: hidden; }
+    header { padding: 32px 34px 28px; background: #183d38; color: #fffef6; }
+    .eyebrow { font-size: 18px; letter-spacing: 3px; color: #b5d5c4; }
+    h1 { font-size: 42px; margin: 12px 0 8px; font-weight: 700; }
+    .subtitle { font-size: 21px; line-height: 1.6; color: #d8e6dd; }
+    .heads { padding: 17px 34px; background: #e2eadc; font-size: 22px; }
+    .heads b { padding-left: 18px; color: #215b4e; }
+    main { padding: 6px 34px 18px; }
+    section { margin-top: 24px; }
+    h2 { display: flex; align-items: center; gap: 12px; margin: 0 0 8px; font-size: 26px; }
+    h2::before { content: ""; width: 6px; height: 24px; background: #e1b958; border-radius: 3px; }
+    .entry { padding: 14px 0; border-bottom: 1px solid #e0e5db; break-inside: avoid; }
+    .entry:last-child { border-bottom: 0; }
+    .command { font-size: 24px; line-height: 1.55; font-weight: 700; color: #194f43; overflow-wrap: anywhere; }
+    .usage { margin-top: 4px; font-size: 21px; line-height: 1.65; color: #58645f; }
+    aside { margin: 14px 34px 26px; padding: 14px 20px; border-left: 4px solid #d6ad50; background: #f3f0df; }
+    aside p { margin: 6px 0; font-size: 20px; line-height: 1.7; }
+    footer { padding: 18px 34px; border-top: 1px solid #dce2d7; display: flex; justify-content: space-between; font-size: 19px; color: #6b7870; }
+  </style>
+</head>
+<body>
+  <article class="sheet">
+    <header>
+      <div class="eyebrow">森空岛 · 命令手册</div>
+      <h1>{{ page.title }}</h1>
+      <div class="subtitle">{{ page.subtitle }}</div>
+    </header>
+    <div class="heads">指令头通用 <b>#SK</b><b>#sk</b><b>#森空岛</b></div>
+    <main>
+      {% for section in page.sections %}
+      <section>
+        <h2>{{ section.title }}</h2>
+        {% for entry in section.entries %}
+        <div class="entry">
+          <div class="command">{{ entry.command }}</div>
+          <div class="usage">{{ entry.usage }}</div>
+        </div>
+        {% endfor %}
+      </section>
+      {% endfor %}
+    </main>
+    <aside>{% for note in page.notes %}<p>{{ note }}</p>{% endfor %}</aside>
+    <footer><span>#SK 帮助</span><span>{{ index }} / {{ total }}</span></footer>
+  </article>
+</body>
+</html>
