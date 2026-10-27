@@ -30,7 +30,7 @@ class SklandCommandExtension(Extension):
         action = body.split(maxsplit=1)[0] if body.strip() else ""
         if not action or action in {"帮助", "help", "--help", "-h"}:
             body = "skland --help"
-        elif action in {"扫码登录", "登录", "扫码绑定"}:
+        elif action.casefold() in {"登录", "登陆", "扫码", "qr", "扫码登录", "扫码绑定"}:
             # Login must work even before upstream startup installs its shortcuts.
             body = "skland qrcode" + body[len(action) :]
         elif action == "方舟":
