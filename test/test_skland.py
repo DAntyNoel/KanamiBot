@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, patch
 
 import nonebot
 import pytest
+from arclet.alconna import Arparma
 from nonebot.adapters.onebot.v11 import (
     Adapter,
     Bot,
@@ -35,7 +36,7 @@ def runtime(tmp_path_factory):
         _env_file=None,
         driver="~fastapi+~httpx",
         log_level="WARNING",
-        command_start=["/", ""],
+        command_start=["/"],
         localstore_data_dir=root / "data",
         localstore_cache_dir=root / "cache",
         localstore_config_dir=root / "config",
@@ -45,7 +46,7 @@ def runtime(tmp_path_factory):
         "localstore_data_dir": root / "data",
         "localstore_cache_dir": root / "cache",
         "localstore_config_dir": root / "config",
-        "command_start": {"/", ""},
+        "command_start": {"/"},
     }.items():
         setattr(nonebot.get_driver().config, name, value)
     nonebot.get_driver().register_adapter(Adapter)
@@ -110,11 +111,13 @@ def event(text="/ef", *, user=30000, group=20000, private=False):
     return GroupMessageEvent(**fields, group_id=group)
 
 
-def dispatch(runtime, monkeypatch, message):
+def dispatch(runtime, monkeypatch, message, parsed=None):
     calls = []
 
-    async def handler():
+    async def handler(result: Arparma):
         calls.append("handler")
+        if parsed is not None:
+            parsed.append(result)
 
     monkeypatch.setattr(
         runtime.matcher,
@@ -147,7 +150,69 @@ def test_enabled_commands_keep_upstream_parsing(runtime, policy, monkeypatch, te
     assert dispatch(runtime, monkeypatch, event(text)) == (["handler"], 0)
 
 
-@pytest.mark.parametrize("text", ["/ef", "/skland --help", "/skland bad-option"])
+@pytest.mark.parametrize("head", ["#SK", "#sk", "#森空岛"])
+@pytest.mark.parametrize(
+    ("body", "path", "value"),
+    [
+        ("扫码登录", "qrcode", None),
+        ("扫码绑定", "qrcode", None),
+        ("森空岛角色", "char", None),
+        ("切换终末地角色 2", "char.set.index", 2),
+        ("角色更新", "char.update", None),
+        ("ef -r 2 -a -s", "efcard.role.role_index", 2),
+        ("终末地签到", "efsign.sign.all", None),
+        ("终末地签到 -r 2", "efsign.sign.role.role_index", 2),
+        ("终末地签到详情", "efsign.status", None),
+        ("终末地抽卡记录 -l 3", "efgacha.limit.limit", 3),
+        ("战争回响 -s -1 -w 2", "efwar.season.season_id", -1),
+        ("森空岛解绑", "unbind", None),
+        ("qrcode", "qrcode", None),
+        ("efcard -r 2", "efcard.role.role_index", 2),
+    ],
+)
+def test_local_heads_preserve_command_and_options(
+    runtime, policy, monkeypatch, head, body, path, value
+):
+    parsed = []
+    assert dispatch(runtime, monkeypatch, event(f"{head} {body}"), parsed) == (["handler"], 0)
+    assert parsed[0].find(path)
+    if value is not None:
+        assert parsed[0].query(path) == value
+
+
+@pytest.mark.parametrize("head", ["#SK", "#sk", "#森空岛"])
+@pytest.mark.parametrize("body", ["", " 帮助", " --help"])
+def test_local_help(runtime, policy, monkeypatch, head, body):
+    assert dispatch(runtime, monkeypatch, event(head + body)) == ([], 1)
+
+
+@pytest.mark.parametrize("space", ["  ", "\t", "\u3000"])
+def test_local_head_accepts_whitespace_separator(runtime, policy, monkeypatch, space):
+    assert dispatch(runtime, monkeypatch, event(f"#SK{space}扫码登录")) == (["handler"], 0)
+
+
+@pytest.mark.parametrize("text", ["#SKY 扫码登录", "#SK扫码登录", "聊天 #SK 扫码登录"])
+def test_command_head_requires_boundary_and_message_start(runtime, policy, monkeypatch, text):
+    assert dispatch(runtime, monkeypatch, event(text)) == ([], 0)
+
+
+def test_local_command_keeps_mention_and_original_message(runtime, policy, monkeypatch):
+    from nonebot.adapters.onebot.v11 import MessageSegment
+    from nonebot_plugin_alconna import At
+
+    message = event("#SK ef ")
+    message.message += MessageSegment.at(30001)
+    original = message.message.copy()
+    parsed = []
+    assert dispatch(runtime, monkeypatch, message, parsed) == (["handler"], 0)
+    target = parsed[0].query("efcard.target")
+    assert isinstance(target, At) and target.target == "30001"
+    assert message.message == original
+
+
+@pytest.mark.parametrize(
+    "text", ["/ef", "/skland --help", "/skland bad-option", "#SK 扫码登录", "#sk 帮助"]
+)
 def test_disabled_group_sends_neither_results_nor_automatic_help(
     runtime,
     policy,
@@ -241,7 +306,8 @@ def test_help_contains_one_public_skland_entry(runtime):
     features = [feature for feature in collect_features() if "skland" in feature.module_name]
     assert len(features) == 1
     assert features[0].title == "森空岛"
-    assert "/终末地抽卡记录" in features[0].usage
+    assert "#SK 终末地抽卡记录" in features[0].usage
+    assert "#SK、#sk、#森空岛" in features[0].usage
 
 
 def test_storage_defaults_preserve_explicit_paths(runtime, monkeypatch, tmp_path):
