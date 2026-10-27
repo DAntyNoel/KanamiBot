@@ -25,7 +25,9 @@ if config.kanamibot_skland_enabled:
     from .commands import SklandCommandExtension
     from .help import HELP_SUMMARY
     from .permissions import protect_matcher
+    from .reactions import install_ok_reactions
 
+    install_ok_reactions()
     upstream.skland.executor.extensions.append(SklandCommandExtension())
     protect_matcher(upstream.skland)
     upstream.__plugin_meta__.usage = HELP_SUMMARY

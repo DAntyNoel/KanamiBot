@@ -38,6 +38,8 @@ uv run python scripts/migrate_skland.py check
 不依赖全局 `COMMAND_START`。例如 `#SK 扫码登录`、`#sk 扫码登录`、`#森空岛 扫码登录`。
 原有上游命令仍按项目 `COMMAND_START` 配置兼容。
 
+接收指令与执行完成统一使用 OK 消息贴纸。
+
 `#SK 帮助`、`#SK`、`/skland --help` 等森空岛命令帮助入口统一发送三张命令图片，覆盖终末地与账号、
 明日方舟与干员筛选、管理与图片交互，只展示可直接使用的命令和用法。
 

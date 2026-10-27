@@ -22,7 +22,7 @@ from nonebot.adapters.onebot.v11 import (
 )
 from nonebot.dependencies import Dependent
 from nonebot.exception import StopPropagation
-from nonebot.matcher import Matcher, current_event, current_matcher, matchers
+from nonebot.matcher import Matcher, current_bot, current_event, current_matcher, matchers
 from nonebot.message import check_and_run_matcher
 from nonebot.permission import Permission
 
@@ -143,6 +143,72 @@ def test_upstream_is_loaded_from_submodule_with_original_identity(runtime):
     assert plugin.name == "nonebot_plugin_skland"
     checkout = Path(runtime.adapter.__file__).parent / "_upstream"
     assert Path(plugin.module.__file__).is_relative_to(checkout)
+
+
+@pytest.mark.parametrize(
+    ("status", "emoji_id"),
+    [
+        ("processing", "124"),
+        ("done", "124"),
+        ("received", "124"),
+        ("fail", "10060"),
+        ("unmatch", "326"),
+    ],
+)
+@pytest.mark.parametrize("failure", [False, True])
+def test_upstream_reactions_use_ok_for_acceptance_and_completion(
+    runtime, monkeypatch, status, emoji_id, failure
+):
+    from nonebot_plugin_alconna import message_reaction
+    from nonebot_plugin_skland.commands.bind import send_reaction
+
+    from kanamibot.plugins.skland import reactions
+
+    # Other Alconna plugins retain their original reaction function.
+    assert message_reaction is reactions.message_reaction
+    origin = event("#SK 登录")
+
+    async def run():
+        tasks = []
+        monkeypatch.setattr(
+            reactions.upstream_message,
+            "get_driver",
+            lambda: SimpleNamespace(
+                task_group=SimpleNamespace(
+                    start_soon=lambda call: tasks.append(asyncio.create_task(call()))
+                )
+            ),
+        )
+        bot_token = current_bot.set(runtime.bot)
+        event_token = current_event.set(origin)
+        try:
+            with (
+                patch.object(
+                    runtime.bot,
+                    "get_version_info",
+                    new=AsyncMock(return_value={"app_name": "NapCat.Onebot"}),
+                ),
+                patch.object(
+                    runtime.bot,
+                    "call_api",
+                    new=AsyncMock(side_effect=RuntimeError("unsupported") if failure else None),
+                ) as call_api,
+            ):
+                # Exercise the reference already imported by an upstream command.
+                send_reaction(SimpleNamespace(platform="QQClient"), status)
+                assert len(tasks) == 1
+                await asyncio.gather(*tasks)
+                call_api.assert_awaited_once_with(
+                    "set_msg_emoji_like",
+                    message_id=origin.message_id,
+                    emoji_id=emoji_id,
+                    set=True,
+                )
+        finally:
+            current_event.reset(event_token)
+            current_bot.reset(bot_token)
+
+    asyncio.run(run())
 
 
 def test_migrations_create_account_and_history_tables_in_isolated_storage(runtime):
