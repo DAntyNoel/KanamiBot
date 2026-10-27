@@ -10,6 +10,9 @@
 git submodule update --init --recursive
 $env:UV_CACHE_DIR=".uv-cache"; uv sync
 Copy-Item .env.example .env
+uv run playwright install chromium
+uv run python scripts/migrate_skland.py upgrade
+uv run python scripts/migrate_skland.py check
 ```
 
 全新克隆建议直接使用：
@@ -19,6 +22,9 @@ git clone --recurse-submodules https://github.com/DAntyNoel/KanamiBot.git
 cd KanamiBot
 git submodule update --init --recursive
 uv sync
+uv run playwright install chromium
+uv run python scripts/migrate_skland.py upgrade
+uv run python scripts/migrate_skland.py check
 uv run erbs-assets download --directory files/erbs-assets
 uv run erbs-assets check --directory files/erbs-assets
 ```
@@ -57,10 +63,21 @@ uv sync
 - `src/kanamibot/plugins/`：Bot 插件。
 - `src/kanamibot/plugins/ERBS-plugin/`：固定版本的独立 ERBS 数据与渲染库 submodule。
 - `src/kanamibot/plugins/er_dak/`：NoneBot2 / OneBot v11 薄适配层。
+- `src/kanamibot/plugins/skland/`：森空岛本地适配层，内含固定提交的 `_upstream` submodule。
 - `files/napcat_config/`：NapCat 配置模板。
 - `files/napcat_runtime/`：NapCat 运行时目录，启动后生成。
 - `logs/`：运行日志。
 - `vendor/`：NapCat 安装与辅助脚本。
+
+## 森空岛 / 终末地
+
+森空岛通过 `plugins/skland/_upstream` 子模块安装，本地适配层沿用插件目录扫描。
+依赖同步与数据库迁移期间先停止本仓库 NoneBot，NapCat 保持运行。
+安装、账号绑定、命令、数据备份和任务配置见 [森空岛说明](src/kanamibot/plugins/skland/README.md)。
+
+发送 `/扫码绑定`，使用森空岛 App 扫码并回复「确认」；之后可以使用 `/ef`、
+`/终末地签到`、`/终末地抽卡记录`、`/战争回响`。
+群查询开关为 `/enable skland`、`/disable skland`，不会停止后台账号签到。
 
 ## 永恒轮回查询
 

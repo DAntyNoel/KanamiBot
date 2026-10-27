@@ -23,6 +23,8 @@ dependencies = [
     "rsilk>=0.1.4",
     "wordcloud>=1.9.4",
     "erbs-plugin[render]>=0.1.0,<0.2.0",
+    "nonebot-plugin-skland",
+    "nonebot-plugin-orm[sqlite]>=0.8.4",
 ]
 
 [dependency-groups]
@@ -36,6 +38,7 @@ package = true
 
 [tool.uv.sources]
 erbs-plugin = { path = "src/kanamibot/plugins/ERBS-plugin", editable = true }
+nonebot-plugin-skland = { path = "src/kanamibot/plugins/skland/_upstream", editable = true }
 
 [tool.ruff]
 line-length = 100
