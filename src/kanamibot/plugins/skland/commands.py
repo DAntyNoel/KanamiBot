@@ -6,7 +6,8 @@ import re
 
 from nonebot import logger
 from nonebot.adapters import Bot, Event
-from nonebot_plugin_alconna import Alconna, Extension, Text, UniMessage
+from nonebot.typing import T_State
+from nonebot_plugin_alconna import Alconna, Arparma, Extension, Text, UniMessage
 from nonebot_plugin_alconna.extension import OutputType
 
 from .help import render_help_images
@@ -17,6 +18,18 @@ COMMAND_HEAD = re.compile(r"^#(?:SK|sk|森空岛)(?=\s|$)\s*")
 class SklandCommandExtension(Extension):
     id = "kanamibot.skland.commands"
     priority = 0
+
+    async def parse_wrapper(
+        self, bot: Bot, state: T_State, event: Event, res: Arparma
+    ) -> None:
+        from nonebot_plugin_skland import skland
+
+        from .background import resources
+
+        if resources.data_pending and res.matched and any(
+            name in res.subcommands for name in ("gacha", "efgacha", "import", "box")
+        ):
+            await skland.finish("森空岛数据资源正在后台准备，请稍后重试。")
 
     async def receive_wrapper(
         self, bot: Bot, event: Event, command: Alconna, receive: UniMessage

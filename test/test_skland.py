@@ -145,6 +145,108 @@ def test_upstream_is_loaded_from_submodule_with_original_identity(runtime):
     assert Path(plugin.module.__file__).is_relative_to(checkout)
 
 
+@pytest.mark.parametrize("check_images", [False, True])
+def test_resource_downloads_do_not_block_shortcuts_or_startup(runtime, monkeypatch, check_images):
+    from nonebot_plugin_skland import hook
+
+    from kanamibot.plugins.skland import background
+
+    async def run():
+        manager = background.BackgroundResources()
+        started = []
+        cancelled = []
+        shutdown_hooks = []
+        blocked = asyncio.Event()
+
+        async def download(name, **kwargs):
+            started.append((name, kwargs))
+            try:
+                await blocked.wait()
+            finally:
+                cancelled.append(name)
+
+        async def update_data(**kwargs):
+            await download("data", **kwargs)
+
+        async def update_images(**kwargs):
+            await download("images", **kwargs)
+
+        monkeypatch.setattr(background, "resources", manager)
+        monkeypatch.setattr(
+            background, "get_driver", lambda: SimpleNamespace(on_shutdown=shutdown_hooks.append)
+        )
+        monkeypatch.setattr(hook, "update_data_resources", update_data)
+        monkeypatch.setattr(hook, "download_img_resource", update_images)
+        monkeypatch.setattr(hook.config, "check_res_update", check_images)
+        background.install_background_resources()
+        try:
+            await asyncio.wait_for(hook.startup(), timeout=1)
+            assert manager.data_pending
+            assert len(manager.tasks) == 1 + check_images
+            await asyncio.sleep(0)
+            assert ("data", {"refresh_metadata": False}) in started
+            if check_images:
+                assert ("images", {"force": False, "update": False}) in started
+            # Shortcut setup still completes while network calls are blocked.
+            parsed = hook.skland_command.parse("/扫码绑定")
+            assert parsed.matched
+            assert "qrcode" in parsed.subcommands
+            assert shutdown_hooks == [manager.shutdown]
+        finally:
+            await manager.shutdown()
+        assert not manager.data_pending
+        assert set(cancelled) == {name for name, _ in started}
+
+    asyncio.run(run())
+
+
+def test_background_download_failure_is_logged_and_can_be_retried(runtime, monkeypatch):
+    from kanamibot.plugins.skland import background
+
+    errors = []
+    monkeypatch.setattr(background.logger, "exception", errors.append)
+
+    async def run():
+        manager = background.BackgroundResources()
+        failure = AsyncMock(side_effect=RuntimeError("offline"))
+        manager.schedule("数据", failure)
+        await manager.tasks["数据"]
+        assert not manager.data_pending
+        assert errors == ["森空岛数据后台更新失败"]
+        success = AsyncMock()
+        manager.schedule("数据", success)
+        manager.schedule("数据", success)
+        await manager.tasks["数据"]
+        success.assert_awaited_once()
+        await manager.shutdown()
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("command", ["gacha", "efgacha", "import", "box", "qrcode", "arksign"])
+@pytest.mark.parametrize("pending", [False, True])
+def test_only_resource_commands_are_deferred_while_data_is_loading(
+    runtime, monkeypatch, command, pending
+):
+    from nonebot_plugin_skland import skland
+
+    from kanamibot.plugins.skland import background
+    from kanamibot.plugins.skland.commands import SklandCommandExtension
+
+    monkeypatch.setattr(background, "resources", SimpleNamespace(data_pending=pending))
+    finish = AsyncMock()
+    monkeypatch.setattr(skland, "finish", finish)
+    asyncio.run(
+        SklandCommandExtension().parse_wrapper(
+            runtime.bot, {}, event(), SimpleNamespace(matched=True, subcommands={command: None})
+        )
+    )
+    if pending and command in {"gacha", "efgacha", "import", "box"}:
+        finish.assert_awaited_once_with("森空岛数据资源正在后台准备，请稍后重试。")
+    else:
+        finish.assert_not_awaited()
+
+
 @pytest.mark.parametrize(
     ("status", "emoji_id"),
     [

@@ -22,11 +22,13 @@ if config.kanamibot_skland_enabled:
     configure_browser()
     upstream = require("nonebot_plugin_skland")
 
+    from .background import install_background_resources
     from .commands import SklandCommandExtension
     from .help import HELP_SUMMARY
     from .permissions import protect_matcher
     from .reactions import install_ok_reactions
 
+    install_background_resources()
     install_ok_reactions()
     upstream.skland.executor.extensions.append(SklandCommandExtension())
     protect_matcher(upstream.skland)
