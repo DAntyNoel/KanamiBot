@@ -4,7 +4,7 @@ import asyncio
 import os
 import re
 
-from nonebot import on_regex
+from nonebot import get_bot, on_regex, require
 from nonebot.adapters.onebot.v11 import Bot, MessageEvent, MessageSegment
 from nonebot.internal.matcher import Matcher
 from nonebot.log import logger
@@ -102,6 +102,24 @@ async def handle_strinova(event: MessageEvent, matcher: Matcher, bot: Bot) -> No
 
 
 if ENABLED:
+    require("nonebot_plugin_apscheduler")
+    from nonebot_plugin_apscheduler import scheduler
+
+    from kanamibot.strinova.update_monitor import check_update
+
+    @scheduler.scheduled_job(
+        "interval", minutes=1, id="strinova_tyf_update", max_instances=1, coalesce=True
+    )
+    async def check_tyf_update() -> None:
+        try:
+            bot = get_bot()
+        except ValueError:
+            return
+        try:
+            await check_update(bot)
+        except Exception:
+            logger.exception("[strinova] 测试服更新监测失败，保留基线等待下次重试")
+
     strinova_matcher = on_regex(
         COMMAND.pattern, flags=COMMAND.flags, priority=8, block=True, rule=ModuleRule("strinova")
     )
