@@ -51,7 +51,7 @@ uv run python scripts/query_strinova.py "咕谷酱" --view match --room-id 75102
 
 | 配置 | 默认值 | 用途 |
 | --- | --- | --- |
-| `STRINOVA_API_URL` | `http://10.38.20.220:19080` | 真实 API 根地址，不能加 `/v1` |
+| `STRINOVA_API_URL` | `http://127.0.0.1:19080` | 优先本地，不可用时回退 `http://10.38.20.220:19080`；配置上述任一地址均按此顺序尝试，其他自定义地址只使用指定地址。不能加 `/v1` |
 | `STRINOVA_API_KEY` | 空 | 上游启用鉴权时使用的 `X-API-Key`，同时用于 `/health` |
 | `STRINOVA_API_TIMEOUT` | `90` | 单次请求超时秒数，1–120；覆盖上游排队和执行预算 |
 | `STRINOVA_BROWSER_CHANNEL` | 空 | `chrome` 或 `msedge`；空值使用 Playwright Chromium |

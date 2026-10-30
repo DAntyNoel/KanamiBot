@@ -153,6 +153,6 @@ uv run python scripts/query_strinova.py
 uv run python scripts/query_strinova.py "咕谷酱" --browser-channel chrome
 ```
 
-脚本默认使用 `http://10.38.20.220:19080`，图片保存到忽略的 `data/strinova/`。
+脚本优先使用 `http://127.0.0.1:19080`，不可用时回退到 `http://10.38.20.220:19080`；自定义其他 API 地址时仅使用指定地址。图片保存到忽略的 `data/strinova/`。
 支持玩家资料、状态、生涯、历史赛季、近期战绩和单局详情。
 命令、API 参数、浏览器配置见 [插件说明](src/kanamibot/plugins/strinova/README.md)。

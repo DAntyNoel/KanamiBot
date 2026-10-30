@@ -11,7 +11,8 @@ import httpx
 
 from .query import QueryError, numeric_id
 
-DEFAULT_API_URL = "http://10.38.20.220:19080"
+DEFAULT_API_URL = "http://127.0.0.1:19080"
+LAN_API_URL = "http://10.38.20.220:19080"
 HEALTH_CHECK_ATTEMPTS = 5
 HEALTH_RETRY_DELAY_SECONDS = 5
 DEFAULT_AVATAR_URL_TEMPLATE = (
@@ -73,9 +74,15 @@ class Settings:
 
 class StrinovaClient:
     def __init__(self, settings: Settings, *, transport: httpx.AsyncBaseTransport | None = None):
-        # The supplied API is on the LAN: do not inherit HTTP_PROXY/HTTPS_PROXY.
+        base_url = settings.base_url.rstrip("/")
+        self.api_urls = (
+            (DEFAULT_API_URL, LAN_API_URL)
+            if base_url in (DEFAULT_API_URL, LAN_API_URL)
+            else (base_url,)
+        )
+        # Local/LAN API requests must not inherit HTTP_PROXY/HTTPS_PROXY.
         self.http = httpx.AsyncClient(
-            base_url=settings.base_url.rstrip("/") + "/",
+            base_url=self.api_urls[0] + "/",
             timeout=settings.timeout,
             trust_env=False,
             transport=transport,
@@ -93,18 +100,26 @@ class StrinovaClient:
         # Four exponential waits (75s) plus five checks (at most 25s) stay under two minutes.
         for attempt in range(HEALTH_CHECK_ATTEMPTS):
             try:
-                await self._check_health_once()
-                return
+                for index, base_url in enumerate(self.api_urls):
+                    try:
+                        await self._check_health_once(base_url)
+                    except ServiceUnavailable:
+                        if index == len(self.api_urls) - 1:
+                            raise
+                    else:
+                        self.http.base_url = base_url + "/"
+                        return
             except ServiceUnavailable:
                 if attempt == HEALTH_CHECK_ATTEMPTS - 1:
                     raise
             await asyncio.sleep(HEALTH_RETRY_DELAY_SECONDS * 2**attempt)
 
-    async def _check_health_once(self) -> None:
+    async def _check_health_once(self, base_url: str) -> None:
+        timeout = self.health_timeout / len(self.api_urls)
         try:
             # Bound the entire check, not each separate HTTP timeout phase.
-            async with asyncio.timeout(self.health_timeout):
-                response = await self.http.get("health", timeout=self.health_timeout)
+            async with asyncio.timeout(timeout):
+                response = await self.http.get(base_url + "/health", timeout=timeout)
                 if response.status_code == 401:
                     raise APIError("战绩 API 鉴权失败，请检查 STRINOVA_API_KEY。")
                 response.raise_for_status()
