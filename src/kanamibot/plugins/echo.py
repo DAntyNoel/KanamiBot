@@ -1,7 +1,10 @@
+
 from nonebot import on_command
 from nonebot.adapters import Message
 from nonebot.params import CommandArg
 from nonebot.plugin import PluginMetadata
+
+from kanamibot.core.timing import timed
 
 __plugin_meta__ = PluginMetadata(
     name="Echo",
@@ -13,6 +16,7 @@ echo = on_command("echo", priority=5, block=True)
 
 
 @echo.handle()
+@timed()
 async def handle_echo(args: Message = CommandArg()) -> None:  # noqa: B008
     text = args.extract_plain_text().strip()
     if text:

@@ -13,6 +13,7 @@ from nonebot.permission import SUPERUSER
 
 from kanamibot.core import LevelAdmin, check_permission, get_first_superuser
 from kanamibot.core.group_manager import ModuleRule
+from kanamibot.core.timing import timed
 from kanamibot.core.utils.message_builder import build_forward_message
 
 from .credential import get_credential, qrlogin_check, qrlogin_get_qrcode
@@ -37,6 +38,7 @@ SUB_LIST_PATTERN = r"^(关注列表|sub list)\s*$"
 VIEW_DYNAMIC_PATTERN = r"^(查看动态|dynamic|view dynamic)\s+(\S+)\s*(\d*)$"
 
 
+@timed()
 async def perform_login(bot: Bot) -> None:
     superuser_id = await get_first_superuser()
     if not superuser_id:
@@ -95,6 +97,7 @@ async def run_login_task(bot: Bot) -> None:
         await perform_login(bot)
 
 
+@timed()
 async def resolve_uid(target: str) -> int | None:
     cached = find_subscription(target)
     if cached:
@@ -115,6 +118,7 @@ async def resolve_uid(target: str) -> int | None:
     return int(uid_list[0]["uid"])
 
 
+@timed()
 async def resolve_display_name(uid: int, fallback: str) -> str:
     if cached := get_subscriptions().get(str(uid)):
         return cached["name"]
@@ -129,6 +133,7 @@ async def resolve_display_name(uid: int, fallback: str) -> str:
     return fallback if not fallback.isdigit() else str(uid)
 
 
+@timed()
 async def send_dynamic_message(bot: Bot, group_id: int, msg: Any) -> None:
     if isinstance(msg, Message):
         await bot.send_group_msg(group_id=group_id, message=msg)
@@ -257,6 +262,7 @@ view_dynamic = on_regex(VIEW_DYNAMIC_PATTERN, rule=ModuleRule("bilibili"), prior
 
 
 @view_dynamic.handle()
+@timed()
 async def handle_view_dynamic(bot: Bot, event: GroupMessageEvent) -> None:
     if not await check_permission(bot, event, LevelAdmin):
         await view_dynamic.finish("只有管理员可以使用此功能喵~")

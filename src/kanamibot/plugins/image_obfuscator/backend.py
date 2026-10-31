@@ -12,6 +12,8 @@ from pathlib import Path
 
 from PIL import Image
 
+from kanamibot.core.timing import timed
+
 MAX_PIXELS = 8_000_000
 MAX_SIDE = 4_000
 GOLDEN_RATIO_FRACTION = (math.sqrt(5.0) - 1.0) / 2.0
@@ -117,11 +119,13 @@ def _transform(data: bytes, *, reverse: bool) -> bytes:
     return result.getvalue()
 
 
+@timed()
 def encode(data: bytes) -> bytes:
     """混淆一张图片，返回 JPEG bytes。"""
     return _transform(data, reverse=False)
 
 
+@timed()
 def decode(data: bytes) -> bytes:
     """解混淆一张图片，返回 JPEG bytes。"""
     return _transform(data, reverse=True)
@@ -137,6 +141,7 @@ def decode_input(value: str) -> bytes:
     return base64.b64decode(value, validate=True)
 
 
+@timed()
 def save_bytes(data: bytes, path: str | Path) -> Path:
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)

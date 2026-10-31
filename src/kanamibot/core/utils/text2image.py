@@ -8,6 +8,8 @@ from typing import Any
 from nonebot.log import logger
 from PIL import Image, ImageDraw, ImageFont
 
+from kanamibot.core.timing import timed
+
 from ..paths import DEFAULT_FONT_PATH
 
 
@@ -36,6 +38,7 @@ def load_font(fontsize: int, bold: bool = False):
         # 实际部署建议确保 DEFAULT_FONT_PATH 存在
         return ImageFont.load_default()
 
+@timed()
 def text_to_imagebytes(
     text: str | dict[Any, Any] | set[Any] | list[Any] | tuple[Any, ...],
     fontsize: int = 30,

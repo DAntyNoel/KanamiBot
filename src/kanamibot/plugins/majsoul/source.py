@@ -4,8 +4,8 @@
 :Describe: 雀魂相关功能的实现
 :Version: 0.6.5
 """
-# ruff: noqa: E501
 
+# ruff: noqa: E501
 import logging
 import math
 import random
@@ -17,6 +17,7 @@ from typing import Any
 import httpx
 
 from kanamibot.core.paths import DATA_DIR
+from kanamibot.core.timing import timed
 from kanamibot.core.utils import messagechain_builder, text_to_imagebytes
 
 SHARE_FILES_DIR = DATA_DIR
@@ -55,6 +56,7 @@ class _ResponseContext:
     def status(self) -> int:
         return self._response.status_code if self._response is not None else 0
 
+    @timed()
     async def json(self) -> Any:
         if self._response is None:
             return None
@@ -261,6 +263,7 @@ class MajsoulQuery:
     #     self.template = _template
 
     @staticmethod
+    @timed()
     async def getplayerdetail(playername: str, selecttype: str = None, selectlevel: list = None,
                               model='基本') -> list:
         """
@@ -343,6 +346,7 @@ class MajsoulQuery:
             return await messagechain_builder(imgbase64=text_to_imagebytes(fontsize=36, text=msg, needtobase64=True))
 
     @staticmethod
+    @timed()
     async def getsomeqhpaipu(playername: str, seatchtype="4", counts=5) -> list:
         """
         获取玩家牌谱
@@ -419,6 +423,7 @@ class MajsoulQuery:
         return result
 
     @staticmethod
+    @timed()
     async def getmonthreport(playername: str, selecttype: str = None, year: str = None,
                              month: str = None):
         """
@@ -533,6 +538,7 @@ class MajsoulQuery:
         return await messagechain_builder(imgbase64=text_to_imagebytes(fontsize=36, text=msg, needtobase64=True))
 
     @staticmethod
+    @timed()
     async def asygetqhpaipu():
         """
         对局异步查询
@@ -555,6 +561,7 @@ class MajsoulQuery:
         return msganalysis(results)
 
     @staticmethod
+    @timed()
     async def query(username: str, selecttype: str = "", selectindex: int = 1) -> list:
         """查pt"""
         userinfo = await asyqhpt(username)
@@ -621,6 +628,7 @@ class MajsoulQuery:
         # return dict(msg=prtmsg, error=False)
 
     @staticmethod
+    @timed()
     async def getcertaininfo(username: str, selecttype: str = "4", selectindex: int = 1) -> list:
         """
         精确查pt
@@ -699,6 +707,7 @@ class MajsoulQuery:
         return await messagechain_builder(text="查询失败")
 
     @staticmethod
+    @timed()
     async def set_link_node() -> int:
         """
         自动获取低延时链路并使用
@@ -753,6 +762,7 @@ class MajsoulQuery:
         return recommend_link_index
 
     @staticmethod
+    @timed()
     async def bind_account(qq: int, playername: str):
         cx = sqlite3.connect(DB_PATH)
         cursor = cx.cursor()
@@ -774,6 +784,7 @@ class MajsoulQuery:
         return await messagechain_builder(text="绑定成功")
 
     @staticmethod
+    @timed()
     async def bind_operation(qq: int, opertaion: str, searchtype=3, other=None) -> list:
         player_info = link_account(qq)
         if searchtype is None:
@@ -826,6 +837,7 @@ def get_playerid(playername: str):
     return None
 
 
+@timed()
 async def asyqhpt(username: str, selecttype: str = None, selectindex: int = None) -> dict:
     """异步的qhpt"""
     muti3 = False
@@ -947,6 +959,7 @@ async def asyqhpt(username: str, selecttype: str = None, selectindex: int = None
                     offline=False)
 
 
+@timed()
 async def getmatchresult(playeridlist, nowtime) -> list:
     """异步查询雀魂对局"""
     contentlist = []
@@ -1202,6 +1215,7 @@ def forwardmessage(msglist: list) -> list:
     return messageChainList
 
 
+@timed()
 async def get_player_records_byid(playerid, selecttype: int | str = '4', counts=5) -> list:
     """
     通过玩家id获取对局记录
@@ -1297,6 +1311,7 @@ def msganalysis(infos: list) -> list:
     return forwardmessage(content)
 
 
+@timed()
 async def query_pt_byid(playerid: int, searchtype: str | list | None = None, qq: int = None):
     """
     通过数字id查询玩家pt
@@ -1359,6 +1374,7 @@ async def query_pt_byid(playerid: int, searchtype: str | list | None = None, qq:
     return await messagechain_builder(imgbase64=text_to_imagebytes(text=msg,needtobase64=True))
 
 
+@timed()
 async def get_monthreport_byid(player_info: dict, selecttype: str | int = 4, month: str = None,
                                qq: int = None):
     """
@@ -1461,6 +1477,7 @@ async def get_monthreport_byid(player_info: dict, selecttype: str | int = 4, mon
     return await messagechain_builder(imgbase64=text_to_imagebytes(fontsize=36, text=msg, needtobase64=True))
 
 
+@timed()
 async def get_playerinfo_byid(player_info: dict, selecttype: str | int = 4, select_level: str = None, model=None,
                               qq: int = None):
     """
@@ -1538,6 +1555,7 @@ async def get_playerinfo_byid(player_info: dict, selecttype: str | int = 4, sele
         return await messagechain_builder(at=qq, imgbase64=text_to_imagebytes(fontsize=36, text=msg, needtobase64=True))
 
 
+@timed()
 async def get_playerpaipu_byid(player_info: dict, selecttype: str | int = 4, counts=5,
                                qq: int = None):
     """

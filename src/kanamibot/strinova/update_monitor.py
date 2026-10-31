@@ -9,6 +9,7 @@ import httpx
 from nonebot.adapters.onebot.v11 import Bot, MessageSegment
 
 from kanamibot.core.paths import DATA_DIR
+from kanamibot.core.timing import timed
 
 MANIFEST_URL = (
     "https://klbqcp-client-cdn.gxpan.cn/Client/Win/GameDepot/Game_TYF/manifest.txt"
@@ -36,6 +37,7 @@ def save_state(path: Path, state: dict[str, str]) -> None:
     temporary.replace(path)
 
 
+@timed()
 async def check_update(
     bot: Bot, *, state_path: Path = STATE_PATH, transport: httpx.AsyncBaseTransport | None = None
 ) -> None:

@@ -17,6 +17,7 @@ from nonebot.log import logger
 from nonebot.plugin import PluginMetadata
 
 from kanamibot.core.paths import DATA_DIR
+from kanamibot.core.timing import timed
 from kanamibot.core.utils.image import download_all_images_from_event
 
 from .backend import decode, encode, image_extension, save_bytes
@@ -132,6 +133,7 @@ async def _start_pending(
     return pending
 
 
+@timed()
 async def _transform_and_send(
     bot: Bot,
     event: MessageEvent,

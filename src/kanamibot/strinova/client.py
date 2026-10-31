@@ -9,6 +9,8 @@ from urllib.parse import urlsplit
 
 import httpx
 
+from kanamibot.core.timing import timed
+
 from .query import QueryError, numeric_id
 
 DEFAULT_API_URL = "http://127.0.0.1:19080"
@@ -96,6 +98,7 @@ class StrinovaClient:
     async def __aexit__(self, *_: object) -> None:
         await self.http.aclose()
 
+    @timed()
     async def check_health(self) -> None:
         # Four exponential waits (75s) plus five checks (at most 25s) stay under two minutes.
         for attempt in range(HEALTH_CHECK_ATTEMPTS):
@@ -114,6 +117,7 @@ class StrinovaClient:
                     raise
             await asyncio.sleep(HEALTH_RETRY_DELAY_SECONDS * 2**attempt)
 
+    @timed()
     async def _check_health_once(self, base_url: str) -> None:
         timeout = self.health_timeout / len(self.api_urls)
         try:
@@ -134,6 +138,7 @@ class StrinovaClient:
         if any(health.get(flag) is False for flag in ("hooked", "lua_ready", "game_tick_seen")):
             raise ServiceUnavailable()
 
+    @timed()
     async def get(
         self, path: str, *, allow_missing_code: bool = False, **params: int | str
     ) -> dict[str, Any]:
@@ -183,18 +188,23 @@ class StrinovaClient:
             raise APIError(f"数据暂不可用或未公开（业务代码 {code}）。", code=code)
         return data
 
+    @timed()
     async def me(self) -> dict:
         return await self.get("v1/me", allow_missing_code=True)
 
+    @timed()
     async def personalization(self) -> dict:
         return await self.get("v1/me/personalization", allow_missing_code=True)
 
+    @timed()
     async def icons(self) -> dict:
         return await self.get("v1/career/icons")
 
+    @timed()
     async def seasons(self) -> dict:
         return await self.get("v1/career/seasons", allow_missing_code=True)
 
+    @timed()
     async def replay(self, room_id: str) -> dict:
         room_id = numeric_id(room_id, "房间 ID")
         data = await self.get(f"v1/replays/{room_id}")
@@ -210,6 +220,7 @@ class StrinovaClient:
             raise APIError("该对局未返回有效的录像下载地址。")
         return data
 
+    @timed()
     async def search(self, *, nick: str | None = None, player_id: str | None = None) -> dict:
         if (nick is None) == (player_id is None):
             raise QueryError("搜索必须提供昵称或玩家 ID 中的一项。")
@@ -220,30 +231,38 @@ class StrinovaClient:
         )
         return await self.get("v1/friends/search", **params)
 
+    @timed()
     async def player(self, player_id: str, suffix: str = "", **params: int) -> dict:
         player_id = numeric_id(player_id, "玩家 ID")
         return await self.get(f"v1/players/{player_id}{suffix}", **params)
 
+    @timed()
     async def profile(self, player_id: str) -> dict:
         return await self.player(player_id)
 
+    @timed()
     async def status(self, player_id: str) -> dict:
         return await self.player(player_id, "/status")
 
+    @timed()
     async def career(self, player_id: str) -> dict:
         return await self.player(player_id, "/career")
 
+    @timed()
     async def card(self, player_id: str) -> dict:
         return await self.player(player_id, "/card")
 
+    @timed()
     async def battle_data(self, player_id: str, season_id: int, season_type: int) -> dict:
         return await self.player(
             player_id, "/career/battle-data", season_id=season_id, season_type=season_type
         )
 
+    @timed()
     async def history(self, player_id: str, season_id: int) -> dict:
         return await self.player(player_id, "/career/history", season_id=season_id)
 
+    @timed()
     async def standings(
         self, player_id: str, index: int, game_mode: int, room_mode_type: int, play_mode: int
     ) -> dict:
@@ -256,5 +275,6 @@ class StrinovaClient:
             play_mode=play_mode,
         )
 
+    @timed()
     async def match(self, player_id: str, room_id: str) -> dict:
         return await self.player(player_id, f"/standings/{numeric_id(room_id, '房间 ID')}")

@@ -8,6 +8,8 @@ from typing import Any
 
 import httpx
 
+from kanamibot.core.timing import timed
+
 from .config import CodexGPTConfig
 
 
@@ -165,6 +167,7 @@ class CodexGPTClient:
         self._ensure_configured()
         return {"Authorization": self.config.auth_header}
 
+    @timed()
     async def chat(
         self,
         messages: list[dict[str, Any]],
@@ -196,6 +199,7 @@ class CodexGPTClient:
         payload["stream"] = False
         return await self._chat_once(payload)
 
+    @timed()
     async def _chat_once(self, payload: dict[str, Any]) -> str:
         self._debug(
             "http.post",
@@ -241,6 +245,7 @@ class CodexGPTClient:
         self._debug("chat.response", chars=len(content), stream=False)
         return content
 
+    @timed()
     async def _chat_stream(self, payload: dict[str, Any]) -> str:
         chunks: list[str] = []
         self._debug(
@@ -305,6 +310,7 @@ class CodexGPTClient:
         self._debug("chat.response", chars=len(content), chunk_count=len(chunks), stream=True)
         return content
 
+    @timed()
     async def list_models(self) -> list[str]:
         self._debug("models.request", url=self.config.models_url)
         async with httpx.AsyncClient(timeout=self.config.timeout_seconds) as client:
@@ -331,6 +337,7 @@ class CodexGPTClient:
         self._debug("models.loaded", count=len(models))
         return models
 
+    @timed()
     async def create_image(
         self,
         prompt: str,
@@ -343,6 +350,7 @@ class CodexGPTClient:
             return await self._edit_image(prompt, model_name, image_inputs)
         return await self._generate_image(prompt, model_name)
 
+    @timed()
     async def _generate_image(self, prompt: str, model: str) -> GeneratedImage:
         payload: dict[str, Any] = {
             "model": model,
@@ -379,6 +387,7 @@ class CodexGPTClient:
             raise CodexGPTError(_format_http_error(response))
         return await self._parse_image_response(response)
 
+    @timed()
     async def _edit_image(self, prompt: str, model: str, images: list[bytes]) -> GeneratedImage:
         data: dict[str, str] = {
             "model": model,
@@ -423,6 +432,7 @@ class CodexGPTClient:
             raise CodexGPTError(_format_http_error(response))
         return await self._parse_image_response(response)
 
+    @timed()
     async def _parse_image_response(self, response: httpx.Response) -> GeneratedImage:
         try:
             data = response.json()

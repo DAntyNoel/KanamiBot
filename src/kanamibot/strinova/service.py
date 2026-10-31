@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
+from kanamibot.core.timing import timed
+
 from .avatar import AvatarError, load_avatar
 from .client import APIError, IdentityMismatch, ServiceUnavailable, Settings, StrinovaClient
 from .query import SEASON_LABEL, Query, QueryError, numeric_id
@@ -29,6 +31,7 @@ class Report:
     avatar_data_uri: str | None = None
 
 
+@timed()
 async def resolve_player(client: StrinovaClient, query: Query) -> dict:
     data = await client.search(
         **({"player_id": query.target} if query.by_id else {"nick": query.target})
@@ -56,6 +59,7 @@ async def resolve_player(client: StrinovaClient, query: Query) -> dict:
     raise QueryError(f"请使用完整昵称或 --player-id 明确选择玩家：\n{candidates}")
 
 
+@timed()
 async def fetch_standings_page(client: StrinovaClient, player_id: str, query: Query) -> dict:
     start = (query.index - 1) * query.limit
     api_index, offset = divmod(start, STANDINGS_BATCH_SIZE)
@@ -88,6 +92,7 @@ async def fetch_standings_page(client: StrinovaClient, player_id: str, query: Qu
     return {"titles": titles, "has_more": len(matches) > query.limit}
 
 
+@timed()
 async def _fill_missing_roles(
     client: StrinovaClient,
     player_id: str,
@@ -145,6 +150,7 @@ async def _fill_missing_roles(
             row.update(stats, bridge_stats_status="detail")
 
 
+@timed()
 async def fetch_season_data(client: StrinovaClient, report: Report) -> dict:
     query = report.query
     catalog = await client.seasons()
@@ -234,6 +240,7 @@ async def fetch_season_data(client: StrinovaClient, report: Report) -> dict:
     }
 
 
+@timed()
 async def fetch_report(client: StrinovaClient, query: Query) -> Report:
     if query.view in ("seasons", "replay"):
         report = Report(query, "", {"nick": "赛季目录" if query.view == "seasons" else "对局录像"})
@@ -279,6 +286,7 @@ async def fetch_report(client: StrinovaClient, query: Query) -> Report:
 
     protected = False
 
+    @timed()
     async def load(name: str) -> None:
         nonlocal protected
         if protected and name in ("career", "season", "card", "standings", "match"):
@@ -327,6 +335,7 @@ async def fetch_report(client: StrinovaClient, query: Query) -> Report:
     return report
 
 
+@timed()
 async def create_report(query: Query, settings: Settings) -> Report:
     async with StrinovaClient(settings) as client:
         report = await fetch_report(client, query)
@@ -342,6 +351,7 @@ async def create_report(query: Query, settings: Settings) -> Report:
         return report
 
 
+@timed()
 async def check_available(settings: Settings) -> None:
     async with StrinovaClient(settings) as client:
         await client.check_health()

@@ -6,9 +6,12 @@ from typing import Any
 from bilibili_api import Credential, user
 from nonebot.log import logger
 
+from kanamibot.core.timing import timed
+
 from .dynamic_parser import parse_raw_dynamic
 
 
+@timed()
 async def get_dynamic_by_uids(
     credential: Credential,
     uids: list[int],
@@ -48,6 +51,7 @@ async def get_dynamic_by_uids(
     return result
 
 
+@timed()
 async def query_dynamic(
     uid: int,
     credential: Credential,

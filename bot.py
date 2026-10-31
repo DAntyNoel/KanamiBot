@@ -52,6 +52,9 @@ def create_app(env_file: str | Path = DEFAULT_ENV_FILE) -> None:
     nonebot.init(_env_file=str(target_env_file))
 
     driver = nonebot.get_driver()
+    from kanamibot.core.timing import install_debug_timing
+
+    install_debug_timing(driver.config.log_level)
     driver.register_adapter(OneBotV11Adapter)
 
     nonebot.load_plugins(str(PLUGIN_DIR.relative_to(PROJECT_ROOT)))

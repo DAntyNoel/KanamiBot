@@ -10,6 +10,8 @@ from nonebot.adapters.onebot.v11 import Bot, Message, MessageEvent, MessageSegme
 from nonebot.log import logger
 from PIL import Image as PILImage
 
+from kanamibot.core.timing import timed
+
 # 调试开关
 DEBUG = False
 
@@ -70,6 +72,7 @@ def _image_url_from_data(data: dict[str, Any]) -> str | None:
     return None
 
 
+@timed()
 async def download_all_images_from_event(
     event: MessageEvent,
     bot: Bot | None = None,
@@ -227,6 +230,7 @@ def unwrap_images(event: MessageEvent):
         if seg.type == 'image':
             yield seg
 
+@timed()
 async def judge_type(img: MessageSegment | bytes) -> tuple[str, bytes]:
     '''
     判断图片类型，返回 (type, bytes)

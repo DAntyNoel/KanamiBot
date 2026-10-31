@@ -9,6 +9,8 @@ import httpx
 from nonebot.adapters.onebot.v11 import Bot, MessageSegment
 from nonebot.log import logger
 
+from kanamibot.core.timing import timed
+
 
 def _api_root() -> str:
     url_root = os.getenv("GPT_SOVITS_URL", "http://127.0.0.1").rstrip("/")
@@ -32,6 +34,7 @@ class TTSQueueManager:
         self.boot_lock = asyncio.Lock()
         self.worker_task: asyncio.Task[None] | None = None
 
+    @timed()
     async def add_task(self, bot: Bot, event: object, text: str, emotion: str = "natural") -> int:
         position = self.queue.qsize() + (1 if self.processing else 0)
         await self.queue.put((bot, event, text, emotion))
@@ -64,6 +67,7 @@ class TTSQueueManager:
                 self.processing = False
                 self.queue.task_done()
 
+    @timed()
     async def ensure_backend_running(self, bot: Bot, event: object) -> bool:
         if await self.check_health():
             return True
@@ -111,6 +115,7 @@ class TTSQueueManager:
             await bot.send(event, "TTS 后端启动超时，请检查 GPT-SoVITS 日志。")
             return False
 
+    @timed()
     async def check_health(self) -> bool:
         try:
             async with httpx.AsyncClient(timeout=2.0) as client:
@@ -119,6 +124,7 @@ class TTSQueueManager:
         except httpx.RequestError:
             return False
 
+    @timed()
     async def call_backend(self, text: str, emotion: str) -> bytes:
         async with httpx.AsyncClient(timeout=120.0) as client:
             response = await client.post(TTS_API_URL, json={"text": text, "emotion": emotion})

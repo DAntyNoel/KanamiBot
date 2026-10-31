@@ -11,6 +11,7 @@ from nonebot.log import logger
 from nonebot.plugin import PluginMetadata
 
 from kanamibot.core.group_manager import ModuleRule
+from kanamibot.core.timing import timed
 from kanamibot.strinova.client import Settings
 from kanamibot.strinova.query import QueryError, parse_query
 from kanamibot.strinova.render import render_png
@@ -60,6 +61,7 @@ QQ_VIEWS = ("overview", "standings", *COMMAND_VIEWS.values())
 query_gate = asyncio.Semaphore(2)
 
 
+@timed()
 async def handle_strinova(event: MessageEvent, matcher: Matcher, bot: Bot) -> None:
     match = COMMAND.fullmatch(event.message.extract_plain_text())
     if match is None:
@@ -110,6 +112,7 @@ if ENABLED:
     @scheduler.scheduled_job(
         "interval", minutes=1, id="strinova_tyf_update", max_instances=1, coalesce=True
     )
+    @timed()
     async def check_tyf_update() -> None:
         try:
             bot = get_bot()

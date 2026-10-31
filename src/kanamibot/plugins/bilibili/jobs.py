@@ -9,6 +9,7 @@ from nonebot.adapters.onebot.v11 import Bot, Message
 from nonebot.log import logger
 from nonebot_plugin_apscheduler import scheduler
 
+from kanamibot.core.timing import timed
 from kanamibot.core.utils.message_builder import build_forward_message
 
 from .credential import get_credential
@@ -53,6 +54,7 @@ def _chunked(values: list[int], size: int) -> list[list[int]]:
     return [values[index : index + size] for index in range(0, len(values), size)]
 
 
+@timed()
 async def _send_group_dynamic(bot: Bot, group_id: int, msg) -> None:
     if isinstance(msg, Message):
         await bot.send_group_msg(group_id=group_id, message=msg)
@@ -65,6 +67,7 @@ async def _send_group_dynamic(bot: Bot, group_id: int, msg) -> None:
     )
 
 
+@timed()
 async def _send_group_message(bot: Bot, group_ids: list[int], message: Message) -> None:
     for group_id in group_ids:
         await bot.send_group_msg(group_id=group_id, message=message)
@@ -79,6 +82,7 @@ async def _send_group_message(bot: Bot, group_ids: list[int], message: Message) 
     max_instances=1,
     coalesce=True,
 )
+@timed()
 async def check_bili_update(*, suppress_initial: bool | None = None) -> None:
     global FIRST_DYNAMIC_CHECK
     is_initial_check = FIRST_DYNAMIC_CHECK if suppress_initial is None else suppress_initial
@@ -158,6 +162,7 @@ async def check_bili_update(*, suppress_initial: bool | None = None) -> None:
     max_instances=1,
     coalesce=True,
 )
+@timed()
 async def check_live_update() -> None:
     global FIRST_LIVE_CHECK
 

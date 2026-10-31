@@ -9,6 +9,7 @@ from nonebot.plugin import PluginMetadata
 from nonebot.rule import ArgumentParser
 
 from kanamibot.core import ModuleRule
+from kanamibot.core.timing import timed
 
 from .tts_queue import tts_manager
 
@@ -51,6 +52,7 @@ EMOTION_MAP = {
 
 
 @tts_handler.handle()
+@timed()
 async def handle_tts(
     bot: Bot,
     event: MessageEvent,

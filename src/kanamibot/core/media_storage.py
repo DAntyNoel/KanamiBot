@@ -13,6 +13,8 @@ from typing import Any, Literal
 
 from nonebot.log import logger
 
+from kanamibot.core.timing import timed
+
 from .paths import DATA_DIR, DEFAULT_FONT_PATH
 
 # 尝试导入 PIL
@@ -157,6 +159,7 @@ class AdvancedMediaStorageSystem:
         except (json.JSONDecodeError, FileNotFoundError):
             return {}
 
+    @timed()
     def _save_metadata(self):
         _atomic_write_json(self.metadata_path, self.metadata_registry)
 
@@ -329,6 +332,7 @@ class AdvancedMediaStorageSystem:
             raise TypeError("Invalid argument type. Must be str (UUID), int (Index), or slice.")
 
     # --- 核心功能：生成网格图 ---
+    @timed()
     def _generate_image_grid(self, metadata_list: list[dict], thumb_size=(200, 200)) -> bytes:
         if not PIL_AVAILABLE:
             return b""
@@ -397,6 +401,7 @@ class AdvancedMediaStorageSystem:
         return output.getvalue()
 
     # --- 核心功能：增强版上传 (支持多类型) ---
+    @timed()
     def upload(self, 
                source: str | Path | bytes | BytesIO | Image.Image,
                ext: str | None = None,
@@ -508,6 +513,7 @@ class AdvancedMediaStorageSystem:
         self._refresh_indexes()
         return {**metadata, "status": "created", "file_id": unique_id}
 
+    @timed()
     def delete(self, file_id: str) -> bool:
         if file_id not in self.metadata_registry:
             logger.warning("[MediaStorage] Delete failed: id not found: %s", file_id)
@@ -523,6 +529,7 @@ class AdvancedMediaStorageSystem:
         self._refresh_indexes()
         return True
     
+    @timed()
     def update(self, file_id: str, **kwargs):
         if file_id in self.metadata_registry:
             self.metadata_registry[file_id].update(kwargs)

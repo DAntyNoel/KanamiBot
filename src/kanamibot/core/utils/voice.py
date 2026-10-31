@@ -7,7 +7,10 @@ from pathlib import Path
 from nonebot.adapters.onebot.v11 import MessageSegment
 from nonebot.log import logger
 
+from kanamibot.core.timing import timed
 
+
+@timed()
 def _mp3_to_silk_bytes(mp3_path: str | Path, rate: int = 24000) -> bytes:
     """
     将 MP3 文件转换为 Silk 编码的 bytes 数据。
@@ -49,6 +52,7 @@ def _mp3_to_silk_bytes(mp3_path: str | Path, rate: int = 24000) -> bytes:
         raise
 
 
+@timed()
 def mp3_to_segment(file_path: str | Path, use_transcode: bool = True) -> MessageSegment:
     """
     获取语音消息段 (MessageSegment)。

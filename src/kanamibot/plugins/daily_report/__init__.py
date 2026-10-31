@@ -19,6 +19,7 @@ from kanamibot.core.chat_history import (
     record_group_message,
 )
 from kanamibot.core.group_manager import ModuleRule, group_config
+from kanamibot.core.timing import timed
 
 from .config import get_config_status_text, get_group_config, update_group_switch
 from .wordcloud import gen_wc
@@ -83,6 +84,7 @@ def _count_repeaters(logs: list[tuple[str, str]]) -> Counter[str]:
     return repeater_scores
 
 
+@timed()
 async def generate_report(
     group_id: int,
     *,
@@ -113,6 +115,7 @@ def _report_module_enabled(group_id: int) -> bool:
     return group_config.is_module_enabled(str(group_id), MODULE_NAME)
 
 
+@timed()
 async def send_group_report_logic(bot: Bot, group_id: int, *, is_manual: bool = False) -> None:
     if not _report_module_enabled(group_id):
         if is_manual:
@@ -240,6 +243,7 @@ async def handle_manual_report(bot: Bot, event: GroupMessageEvent) -> None:
     minute=30,
     id="daily_report_summary",
 )
+@timed()
 async def run_daily_summary() -> None:
     try:
         bot = get_bot()

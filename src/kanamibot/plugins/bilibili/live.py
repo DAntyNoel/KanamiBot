@@ -6,6 +6,8 @@ from typing import Any
 import httpx
 from nonebot.adapters.onebot.v11 import Message, MessageSegment
 
+from kanamibot.core.timing import timed
+
 LIVE_STATUS_ENDPOINT = "https://api.live.bilibili.com/room/v1/Room/get_status_info_by_uids"
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -49,6 +51,7 @@ def _parse_live_status(uid: int, item: dict[str, Any]) -> LiveStatus:
     )
 
 
+@timed()
 async def query_live_statuses(uids: list[int]) -> dict[int, LiveStatus]:
     if not uids:
         return {}

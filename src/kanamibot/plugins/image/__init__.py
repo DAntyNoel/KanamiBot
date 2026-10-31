@@ -31,6 +31,7 @@ from kanamibot.core.image_wrappers import (
     update_imagedata,
 )
 from kanamibot.core.message_reactions import react_ok
+from kanamibot.core.timing import timed
 from kanamibot.core.utils.image import download_all_images_from_event, guess_extension
 from kanamibot.core.utils.text import get_best_items_by_text_list
 
@@ -104,6 +105,7 @@ def _image_path(folder: str, image_id: str, filename: str | None = None) -> Path
     return (IMAGE_FOLDER / folder / "files" / image_id).resolve()
 
 
+@timed()
 async def _send_stored_image(
     matcher: type[Matcher],
     folder: str,
@@ -145,6 +147,7 @@ save_image_matcher = on_shell_command(
 
 
 @save_image_matcher.handle()
+@timed()
 async def save_image_handler(
     bot: Bot,
     event: GroupMessageEvent,
@@ -233,6 +236,7 @@ pick_image_matcher = on_shell_command(
 
 
 @pick_image_matcher.handle()
+@timed()
 async def pick_image_handler(
     event: GroupMessageEvent,
     matcher: Matcher,
@@ -265,6 +269,7 @@ list_image_matcher = on_shell_command(
 
 
 @list_image_matcher.handle()
+@timed()
 async def list_image_handler(
     event: GroupMessageEvent,
     matcher: Matcher,
@@ -291,6 +296,7 @@ delete_image_matcher = on_command(
 
 
 @delete_image_matcher.handle()
+@timed()
 async def delete_image_handler(event: GroupMessageEvent, matcher: Matcher) -> None:
     quote_id = _reply_message_id(event)
     if quote_id is None:
@@ -313,6 +319,7 @@ image_info_matcher = on_command(
 
 
 @image_info_matcher.handle()
+@timed()
 async def image_info_handler(event: GroupMessageEvent, matcher: Matcher) -> None:
     quote_id = _reply_message_id(event)
     if quote_id is None:
@@ -341,6 +348,7 @@ tag_matcher = on_shell_command(
 
 
 @tag_matcher.handle()
+@timed()
 async def tag_handler(
     event: GroupMessageEvent,
     matcher: Matcher,
@@ -376,6 +384,7 @@ untag_matcher = on_command(
 
 
 @untag_matcher.handle()
+@timed()
 async def untag_handler(event: GroupMessageEvent, matcher: Matcher) -> None:
     quote_id = _reply_message_id(event)
     if quote_id is None:
@@ -403,6 +412,7 @@ select_image_matcher = on_shell_command(
 
 
 @select_image_matcher.handle()
+@timed()
 async def select_image_handler(
     event: GroupMessageEvent,
     matcher: Matcher,

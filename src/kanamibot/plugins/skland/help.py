@@ -9,6 +9,8 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
+from kanamibot.core.timing import timed
+
 
 @dataclass(frozen=True)
 class Entry:
@@ -266,6 +268,7 @@ def help_documents() -> tuple[str, ...]:
     )
 
 
+@timed()
 async def render_help_images() -> tuple[bytes, ...]:
     global _images
     if _images is not None:

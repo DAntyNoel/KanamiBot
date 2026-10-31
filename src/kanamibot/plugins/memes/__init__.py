@@ -18,6 +18,7 @@ from nonebot.rule import ArgumentParser
 
 from kanamibot.core import ModuleRule
 from kanamibot.core.paths import DATA_DIR
+from kanamibot.core.timing import timed
 from kanamibot.core.utils.image import download_all_images_from_event
 
 MODULE_NAME = "memes"
@@ -109,6 +110,7 @@ def _engine_error_message(result: Any) -> str:
     return f"表情生成失败：{result!r}"
 
 
+@timed()
 async def _update_resources() -> None:
     async with RESOURCE_UPDATE_LOCK:
         try:
@@ -131,6 +133,7 @@ async def _get_meme_keys() -> list[str]:
     return [str(key) for key in MEME_ENGINE.get_meme_keys()]
 
 
+@timed()
 async def _get_infos(keys: Sequence[str]) -> list[dict[str, Any]]:
     infos = []
     for key in keys:
@@ -140,6 +143,7 @@ async def _get_infos(keys: Sequence[str]) -> list[dict[str, Any]]:
     return infos
 
 
+@timed()
 def _generate_once(
     key: str,
     images: Sequence[bytes],
@@ -152,6 +156,7 @@ def _generate_once(
     return meme.generate(meme_images, list(texts), args)
 
 
+@timed()
 async def _generate_meme(
     key: str,
     images: Sequence[bytes],

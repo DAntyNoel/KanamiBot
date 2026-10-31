@@ -15,6 +15,7 @@ from nonebot.plugin import PluginMetadata
 
 from kanamibot.core import ModuleRule
 from kanamibot.core.paths import DEFAULT_FONT_PATH, FILES_DIR
+from kanamibot.core.timing import timed, timing_span
 
 from .parser import (
     COMMAND_PATTERN,
@@ -88,6 +89,7 @@ else:
 
     _runtime: _Runtime | None = None
 
+    @timed()
     async def _get_runtime() -> _Runtime:
         global _runtime
         if _runtime is not None:
@@ -139,6 +141,7 @@ else:
             raise InvalidQuery("请提供昵称，或先使用 #BS 绑定 <昵称>。")
         return nickname
 
+    @timed()
     async def _card_for(
         service: ERBSService, event: MessageEvent, command: ParsedCommand, *, progress=None,
     ) -> Any:
@@ -268,7 +271,8 @@ else:
                 runtime.service, event, command, progress=SummaryProgressReporter(matcher.send),
             )
             card = annotate_query_payload(card)
-            image = await runtime.renderer.render(card)
+            with timing_span("er_dak.render"):
+                image = await runtime.renderer.render(card)
         except PlayerNotFound:
             source = "ERCraft" if command.action == "summary" else "DAK.GG"
             await matcher.finish(f"未找到该 {source} 玩家，请检查昵称。")

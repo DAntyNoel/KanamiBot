@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from kanamibot.core.paths import DATA_DIR
+from kanamibot.core.timing import timed
 
 from .config import CodexGPTConfig
 
@@ -124,6 +125,7 @@ class SessionStore:
             session.updated_at = time.time()
             await self._save_locked()
 
+    @timed()
     async def build_messages(
         self,
         session_id: str,
@@ -146,6 +148,7 @@ class SessionStore:
             messages.append({"role": "user", "content": user_text})
             return messages
 
+    @timed()
     async def _ensure_loaded(self) -> None:
         if self._loaded:
             return
@@ -170,6 +173,7 @@ class SessionStore:
         }
         self._loaded = True
 
+    @timed()
     async def _save_locked(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         data = {
@@ -197,6 +201,7 @@ class ImageSessionStore:
             self._sessions.pop(session_id, None)
             await self._save_locked()
 
+    @timed()
     async def build_prompt(self, session_id: str, prompt: str) -> str:
         async with self._lock:
             await self._ensure_loaded()
@@ -227,6 +232,7 @@ class ImageSessionStore:
             session["updated_at"] = time.time()
             await self._save_locked()
 
+    @timed()
     async def _ensure_loaded(self) -> None:
         if self._loaded:
             return
@@ -239,6 +245,7 @@ class ImageSessionStore:
         self._sessions = sessions if isinstance(sessions, dict) else {}
         self._loaded = True
 
+    @timed()
     async def _save_locked(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         data = {"version": 1, "sessions": self._sessions}

@@ -7,6 +7,8 @@ import sys
 from datetime import timedelta, timezone
 from typing import Any
 
+from kanamibot.core.timing import timed
+
 from .client import Settings
 from .query import GAME_MODE_NAMES, SEASON_LABEL, QueryError
 from .resources import PLUGIN_DIR, resource_pack
@@ -689,6 +691,7 @@ def report_context(report: Report) -> dict:
     }
 
 
+@timed()
 def render_html(report: Report) -> str:
     try:
         from jinja2 import Environment, FileSystemLoader, select_autoescape
@@ -708,6 +711,7 @@ def render_html(report: Report) -> str:
     )
 
 
+@timed()
 async def _screenshot(html: str, settings: Settings) -> bytes:
     try:
         from playwright.async_api import Error, async_playwright
@@ -749,5 +753,6 @@ def _render_in_thread(html: str, settings: Settings) -> bytes:
         return runner.run(_screenshot(html, settings))
 
 
+@timed()
 async def render_png(report: Report, settings: Settings) -> bytes:
     return await asyncio.to_thread(_render_in_thread, render_html(report), settings)

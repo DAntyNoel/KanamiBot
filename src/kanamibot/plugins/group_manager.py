@@ -21,6 +21,7 @@ from nonebot.plugin import PluginMetadata
 
 from kanamibot.core.group_manager import ADMIN_PERMISSION, ModuleRule
 from kanamibot.core.paths import FILES_DIR
+from kanamibot.core.timing import timed
 
 MODULE_NAME = "group_manager"
 GROUP_RULE = ModuleRule(MODULE_NAME)
@@ -305,10 +306,12 @@ async def _sender_is_superuser(bot: Bot, event: GroupMessageEvent) -> bool:
     return await SUPERUSER(bot, event)
 
 
+@timed()
 async def _sender_is_admin(bot: Bot, event: GroupMessageEvent) -> bool:
     return await ADMIN_PERMISSION(bot, event)
 
 
+@timed()
 async def _get_bot_role(bot: Bot, event: GroupMessageEvent) -> str | None:
     try:
         member = await bot.get_group_member_info(
@@ -344,6 +347,7 @@ async def _finish_api_error(matcher: type[Matcher], action: str, exc: Exception)
     await matcher.finish(f"{action}失败：{exc}")
 
 
+@timed()
 async def _set_group_ban(
     bot: Bot,
     group_id: int,
@@ -359,6 +363,7 @@ async def _set_group_ban(
         )
 
 
+@timed()
 async def _set_group_admin(
     bot: Bot,
     group_id: int,
@@ -729,6 +734,7 @@ async def handle_whole_unban(bot: Bot, event: GroupMessageEvent) -> None:
     await whole_unban.finish("全员禁言已关闭。")
 
 
+@timed()
 async def _handle_admin_change(
     matcher: type[Matcher],
     bot: Bot,
@@ -908,6 +914,7 @@ async def handle_poke_user(bot: Bot, event: GroupMessageEvent, args: CommandArgs
     await poke_user.finish("戳了。")
 
 
+@timed()
 async def _handle_emoji_like(
     matcher: type[Matcher],
     bot: Bot,

@@ -10,6 +10,8 @@ from nonebot.typing import T_State
 from nonebot_plugin_alconna import Alconna, Arparma, Extension, Text, UniMessage
 from nonebot_plugin_alconna.extension import OutputType
 
+from kanamibot.core.timing import timed
+
 from .help import render_help_images
 
 COMMAND_HEAD = re.compile(r"^#(?:SK|sk|森空岛)(?=\s|$)\s*")
@@ -31,6 +33,7 @@ class SklandCommandExtension(Extension):
         ):
             await skland.finish("森空岛数据资源正在后台准备，请稍后重试。")
 
+    @timed()
     async def receive_wrapper(
         self, bot: Bot, event: Event, command: Alconna, receive: UniMessage
     ) -> UniMessage:
@@ -56,6 +59,7 @@ class SklandCommandExtension(Extension):
         prefix = next((value for value in command.prefixes if isinstance(value, str)), "")
         return UniMessage(prefix + body) + receive[1:]
 
+    @timed()
     async def output_converter(self, output_type: OutputType, content: str) -> UniMessage:
         if output_type in {"help", "shortcut"}:
             try:

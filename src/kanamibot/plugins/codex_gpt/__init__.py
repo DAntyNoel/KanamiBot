@@ -21,6 +21,7 @@ from kanamibot.core.chat_history import load_recent_group_history
 from kanamibot.core.group_manager import ModuleRule, group_config
 from kanamibot.core.media_storage import AdvancedMediaStorageSystem
 from kanamibot.core.paths import DATA_DIR
+from kanamibot.core.timing import timed
 from kanamibot.core.utils.image import download_all_images_from_event
 
 from .client import CodexGPTClient, CodexGPTError, CodexGPTImageTextResponse
@@ -228,6 +229,7 @@ async def handle_codex_gpt(bot: Bot, event: MessageEvent):
     await _run_chat(bot, event, session_id, raw_text, stateless=False, input_images=input_images)
 
 
+@timed()
 async def _run_chat(
     bot: Bot,
     event: MessageEvent,
@@ -326,6 +328,7 @@ async def _run_chat(
         await codex_gpt.send(_reply(event) + f"发生未知错误：{_safe_error(exc)}")
 
 
+@timed()
 async def _run_image(
     bot: Bot,
     event: MessageEvent,
@@ -446,6 +449,7 @@ async def _run_image(
         await codex_image.send(_reply(event) + f"发生未知错误：{_safe_error(exc)}")
 
 
+@timed()
 async def _handle_active_reply(bot: Bot, event: GroupMessageEvent) -> None:
     group_id = int(event.group_id)
     user_id = int(event.user_id)
@@ -1043,6 +1047,7 @@ async def _delete_message(bot: Bot, message_id: int) -> None:
         pass
 
 
+@timed()
 async def _send_long_reply(event: MessageEvent, text: str, bot: Bot | None = None) -> None:
     chunks = _split_chunks(text, 3200)
     if not chunks:
@@ -1059,6 +1064,7 @@ async def _send_long_reply(event: MessageEvent, text: str, bot: Bot | None = Non
         await bot.send(event, chunk)
 
 
+@timed()
 async def _download_event_images(
     event: MessageEvent,
     session_id: str,

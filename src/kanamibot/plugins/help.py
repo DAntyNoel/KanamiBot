@@ -10,6 +10,8 @@ from nonebot.matcher import matchers
 from nonebot.params import CommandArg
 from nonebot.plugin import Plugin, PluginMetadata, get_loaded_plugins
 
+from kanamibot.core.timing import timed
+
 __plugin_meta__ = PluginMetadata(
     name="Help",
     description="动态列出当前已加载插件和命令入口。",
@@ -189,6 +191,7 @@ help_command = on_command("help", aliases={"帮助", "功能", "菜单"}, priori
 
 
 @help_command.handle()
+@timed()
 async def handle_help(matcher: Matcher, args: Message = CommandArg()) -> None:  # noqa: B008
     query = args.extract_plain_text().strip()
     await matcher.finish(build_help_text(query))

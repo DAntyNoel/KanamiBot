@@ -10,7 +10,10 @@ from pathlib import Path
 import imageio
 from PIL import Image
 
+from kanamibot.core.timing import timed
 
+
+@timed()
 def mp4_to_gif(
     input_path: str,
     output_path: str | None = None,
@@ -124,6 +127,7 @@ def mp4_to_gif(
         raise RuntimeError(f"转换过程中出错: {e}") from e
 
 
+@timed()
 def mp4_to_gif_simple(input_path: str, output_path: str | None = None) -> str:
     """
     简化版MP4转GIF，使用默认参数

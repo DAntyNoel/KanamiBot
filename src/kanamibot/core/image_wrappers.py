@@ -7,6 +7,8 @@ from typing import Any
 
 from nonebot.log import logger
 
+from kanamibot.core.timing import timed
+
 from .media_storage import DATA_ROOT, AdvancedMediaStorageSystem, rebuild_global_index
 
 # ================= 实例管理 (Factory Pattern) =================
@@ -256,6 +258,7 @@ def get_all_tags_with_imagedict(
             
     return result
 
+@timed()
 def save_image(
     image_bytes: bytes,
     image_type: str,
@@ -301,6 +304,7 @@ def save_image(
         'folder': folder
     }
 
+@timed()
 def similar_images(image_bytes: bytes, folder: str, threshold: float = 0.95) -> list[dict]:
     '''在指定 folder 中查找相似图片'''
     system = _get_system(folder)
@@ -367,6 +371,7 @@ def update_imagedata(
     update_data.update(kwargs)
     system.update(id, **update_data)
 
+@timed()
 def create_image_gallery(folder, groupid, images_per_row=5, limit=None) -> bytes|None: 
     '''创建预览图'''
     system = _get_system(folder)

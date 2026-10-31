@@ -7,6 +7,7 @@ from nonebot.log import logger
 from PIL import Image
 
 from kanamibot.core.paths import DEFAULT_FONT_PATH, FILES_DIR
+from kanamibot.core.timing import timed
 
 BACKGROUND_IMAGE_DIR = FILES_DIR / "wordcloud_images"
 
@@ -70,6 +71,7 @@ STOP_WORDS = {
 }
 
 
+@timed()
 def gen_wc(contents: list[str]) -> bytes:
     try:
         import jieba

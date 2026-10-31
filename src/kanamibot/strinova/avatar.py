@@ -11,6 +11,8 @@ from uuid import uuid4
 import httpx
 from PIL import Image, UnidentifiedImageError
 
+from kanamibot.core.timing import timed
+
 from .client import DEFAULT_AVATAR_URL_TEMPLATE
 from .resources import CACHE_DIR, resource_pack
 
@@ -38,6 +40,7 @@ def image_data_uri(payload: bytes) -> str:
     return f"data:{mime};base64,{base64.b64encode(payload).decode('ascii')}"
 
 
+@timed()
 async def load_avatar(
     icon: int,
     *,

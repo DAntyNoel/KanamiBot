@@ -8,6 +8,7 @@ from nonebot.message import run_preprocessor
 from nonebot.plugin import PluginMetadata
 
 from kanamibot.core.message_reactions import react_ok
+from kanamibot.core.timing import timed
 
 __plugin_meta__ = PluginMetadata(
     name="查询指令回执",
@@ -21,6 +22,7 @@ ACK_TIMEOUT_SECONDS = 2.0
 
 
 @run_preprocessor
+@timed()
 async def acknowledge_query(bot: Bot, event: MessageEvent, matcher: Matcher) -> None:
     if matcher.plugin_name not in ACK_PLUGINS:
         return

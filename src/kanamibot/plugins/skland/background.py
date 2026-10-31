@@ -9,6 +9,8 @@ from typing import Any
 from nonebot import get_driver, logger
 from nonebot_plugin_skland import hook
 
+from kanamibot.core.timing import timed
+
 
 class BackgroundResources:
     def __init__(self) -> None:
@@ -23,6 +25,7 @@ class BackgroundResources:
         if (task := self.tasks.get(name)) is not None and not task.done():
             return
 
+        @timed()
         async def run() -> None:
             try:
                 result = await call()
