@@ -18,6 +18,7 @@ from kanamibot.core import timing
 
 @pytest.fixture(autouse=True)
 def isolated_timing(monkeypatch):
+    monkeypatch.setattr(timing, "configure_debug_file", lambda enabled: None)
     monkeypatch.setattr(timing, "_enabled", False)
     monkeypatch.setattr(timing, "_normal_log_level", None)
     records = []

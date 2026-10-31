@@ -16,6 +16,8 @@ from uuid import uuid4
 
 from nonebot.log import logger
 
+from .debug_log import configure_debug_file
+
 _enabled = False
 _installed = False
 _normal_log_level: str | int | None = None
@@ -181,6 +183,7 @@ def install_debug_timing(log_level: str | int) -> None:
     """
     global _installed, _normal_log_level
     configure_timing(log_level)
+    configure_debug_file(_enabled)
     if _normal_log_level is None:
         _normal_log_level = "INFO" if _enabled else log_level
     if not _enabled or _installed:
