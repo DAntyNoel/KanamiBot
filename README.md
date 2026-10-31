@@ -156,3 +156,47 @@ uv run python scripts/query_strinova.py "咕谷酱" --browser-channel chrome
 脚本优先使用 `http://127.0.0.1:19080`，不可用时回退到 `http://10.38.20.220:19080`；自定义其他 API 地址时仅使用指定地址。图片保存到忽略的 `data/strinova/`。
 支持玩家资料、状态、生涯、历史赛季、近期战绩和单局详情。
 命令、API 参数、浏览器配置见 [插件说明](src/kanamibot/plugins/strinova/README.md)。
+
+## DEBUG 组件耗时
+
+在 `.env` 中设置 `LOG_LEVEL=DEBUG`，然后启动机器人，即可在控制台查看 `[timing]` 日志。
+默认由启动配置决定；恢复为 `LOG_LEVEL=INFO` 并重新启动后关闭计时。
+超管也可以在 QQ 群聊或私聊中发送 `#debug 开启`、`#debug 关闭`、`#debug 状态`
+即时切换或查询状态（也支持 `on/off/status`，单独 `#debug` 查询状态）。
+开启时同时启用控制台 DEBUG 日志和组件计时；关闭时恢复启动时的普通日志级别，
+若启动时就是 DEBUG / TRACE，则恢复 INFO。切换作用于整个当前进程，
+不写入 `.env`，重启后重新按启动配置决定。群主、群管理员不自动拥有此权限。
+
+普通模式启动时不安装框架和 HTTP 客户端的计时包装；动态开启后只安装一次，
+关闭后各包装和组件装饰器直接执行原逻辑，不再计时或输出计时日志。
+
+所有插件（包括上游插件）的事件、Matcher 处理、处理前置步骤、OneBot API 调用及
+HTTPX 请求共用计时边界。本地插件的查询、下载、渲染、存储、语音和定时任务组件
+使用 `kanamibot.core.timing` 中的装饰器补充细分耗时，不修改上游源码。
+
+```python
+from kanamibot.core.timing import timed, timing_span
+
+@matcher.handle()
+@timed("example.query")
+async def handle_query(event: MessageEvent):
+    data = await query_data()
+    with timing_span("example.render"):
+        image = await render(data)
+    await matcher.finish(MessageSegment.image(image))
+```
+
+`@timed()` 支持同步和异步函数；也可省略名称，自动使用模块名和函数名。
+装饰器放在函数定义上方、Matcher / scheduler / staticmethod 等注册装饰器下方。
+生成器应在消费处使用 `timing_span`。`asyncio.to_thread` 会继承追踪上下文。
+
+每阶段输出 `phase=begin/end`，包含 `trace`（请求追踪 ID）、`span`、`parent`、
+`component`、`elapsed_ms`（阶段耗时）、`since_start_ms`（从追踪起点累计耗时）及 `status`。
+事件入口另输出 `event_id`，便于对应 NoneBot 收到的原消息；独立后台任务自动建立追踪。
+异常、取消及 `matcher.finish()` 的控制流仍按原逻辑传播，仅记录异常类型和结束状态。
+计时记录不输出调用参数、消息正文、密钥、HTTP 路径或查询参数。
+
+耗时为包含子阶段的墙钟时间，父子阶段不能直接相加；同级并发阶段也可能重叠。
+`event.total` 到当前事件处理完成为止，后台脱离事件继续执行的任务不计入该总耗时。
+OneBot 发送阶段止于 API 返回，不代表用户客户端已收到；流式 HTTP 的 `.headers` 阶段
+只计到响应头返回，完整流耗时应查看外层调用组件。DEBUG 日志量和计时本身存在开销。
