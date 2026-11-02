@@ -10,6 +10,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+import httpx
 import nonebot
 import pytest
 from arclet.alconna import Arparma
@@ -143,6 +144,131 @@ def test_upstream_is_loaded_from_submodule_with_original_identity(runtime):
     assert plugin.name == "nonebot_plugin_skland"
     checkout = Path(runtime.adapter.__file__).parent / "_upstream"
     assert Path(plugin.module.__file__).is_relative_to(checkout)
+
+
+@pytest.mark.parametrize("game", ["arknights", "endfield"])
+@pytest.mark.parametrize(
+    "outcomes", [("success",), ("repeated",), ("error",), ("success", "repeated", "error")]
+)
+def test_personal_sign_formats_actual_api_outcomes(runtime, monkeypatch, game, outcomes):
+    from nonebot_plugin_skland import commands
+    from nonebot_plugin_skland.api import SklandAPI
+    from nonebot_plugin_skland.commands import arksign, endfield
+    from nonebot_plugin_skland.commands.endfield import sign as efsign
+
+    from kanamibot.plugins.skland import sign
+
+    command = arksign if game == "arknights" else efsign
+    handler = commands.arksign_sign_handler if game == "arknights" else endfield.ef_sign_handler
+    expected_handler = sign.arksign_sign_handler if game == "arknights" else sign.ef_sign_handler
+    assert handler is expected_handler
+    assert getattr(commands, handler.__name__) is handler
+    assert getattr(command, handler.__name__) is handler
+    user_session = SimpleNamespace(user_id=30000, platform="QQClient")
+    session = AsyncMock()
+    result = SimpleNamespace()
+    characters = [
+        SimpleNamespace(
+            id=index,
+            uid=f"uid-{index}",
+            role_id=f"role-{index}",
+            nickname=f"角色{index}",
+            server_name=f"区服{index}",
+            channel_master_id=str(index),
+            account=SimpleNamespace(
+                owner_id=30000, cred=f"cred-{index}", cred_token=f"token-{index}"
+            ),
+        )
+        for index in range(len(outcomes))
+    ]
+    select = AsyncMock(return_value=characters)
+    monkeypatch.setattr(command, "_select_characters", select)
+    monkeypatch.setattr(SklandAPI, "get_sign_header", AsyncMock(return_value={}))
+    requests = []
+
+    def respond(request):
+        outcome = outcomes[len(requests)]
+        requests.append(request)
+        if outcome != "success":
+            return httpx.Response(
+                200,
+                json={
+                    "code": 10001 if outcome == "repeated" else 50001,
+                    "message": "请勿重复签到！" if outcome == "repeated" else "系统错误",
+                },
+            )
+        data = (
+            {"awards": [{"resource": {"name": "龙门币"}, "count": 500}]}
+            if game == "arknights"
+            else {
+                "ts": "1",
+                "awardIds": [{"id": "money", "type": 1}],
+                "resourceInfoMap": {
+                    "money": {"id": "money", "name": "折金票", "count": 500, "icon": ""}
+                },
+                "tomorrowAwardIds": [],
+            }
+        )
+        return httpx.Response(200, json={"code": 0, "data": data})
+
+    client = httpx.AsyncClient
+    monkeypatch.setattr(
+        httpx, "AsyncClient", lambda: client(transport=httpx.MockTransport(respond))
+    )
+    sent = []
+
+    async def send(message, **kwargs):
+        assert kwargs == {"at_sender": True}
+        sent.append(str(message))
+
+    with (
+        patch.object(command, "send_reaction") as reaction,
+        patch.object(sign.UniMessage, "send", new=send),
+    ):
+        asyncio.run(handler(user_session, session, 2, result))
+
+    select.assert_awaited_once_with(user_session, session, 2, result)
+    session.commit.assert_awaited_once()
+    assert len(requests) == len(outcomes)  # Repeated sign-in is never retried.
+    assert len(sent) == 1
+    text = sent[0]
+    for index, outcome in enumerate(outcomes):
+        assert f"角色{index} | 区服{index} | role-{index}" in text
+        if outcome == "success":
+            assert "签到成功，获得了:" in text
+            assert ("龙门币 x 500" if game == "arknights" else "折金票 x500") in text
+        elif outcome == "repeated":
+            assert "已签到 (无需重复签到)" in text
+            assert "请勿重复签到" not in text
+        else:
+            assert "签到失败" in text and "系统错误" in text
+    if "error" not in outcomes:
+        assert "签到失败" not in text
+    if "success" not in outcomes:
+        assert "获得了" not in text
+    assert [call.args[1] for call in reaction.call_args_list] == (
+        ["processing", "done"] if any(item != "error" for item in outcomes) else ["processing"]
+    )
+
+
+@pytest.mark.parametrize("game", ["arknights", "endfield"])
+def test_personal_sign_keeps_selection_rejections(runtime, monkeypatch, game):
+    from kanamibot.plugins.skland import sign
+
+    command = sign.arksign if game == "arknights" else sign.efsign
+    select = AsyncMock(return_value=None)
+    monkeypatch.setattr(command, "_select_characters", select)
+    session = AsyncMock()
+    with (
+        patch.object(sign.signing, "sign_character", new=AsyncMock()) as request,
+        patch.object(command, "send_reaction") as reaction,
+        patch.object(sign.UniMessage, "send", new=AsyncMock()) as send,
+    ):
+        asyncio.run(sign._sign_personal(SimpleNamespace(), session, None, SimpleNamespace(), game))
+    request.assert_not_awaited()
+    session.commit.assert_not_awaited()
+    reaction.assert_not_called()
+    send.assert_not_awaited()
 
 
 @pytest.mark.parametrize("check_images", [False, True])

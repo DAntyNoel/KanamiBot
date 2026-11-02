@@ -27,9 +27,11 @@ if config.kanamibot_skland_enabled:
     from .help import HELP_SUMMARY
     from .permissions import protect_matcher
     from .reactions import install_ok_reactions
+    from .sign import install_sign_handlers
 
     install_background_resources()
     install_ok_reactions()
+    install_sign_handlers()
     upstream.skland.executor.extensions.append(SklandCommandExtension())
     protect_matcher(upstream.skland)
     upstream.__plugin_meta__.usage = HELP_SUMMARY
