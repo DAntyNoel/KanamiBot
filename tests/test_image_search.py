@@ -446,7 +446,7 @@ def test_result_message_has_preview_and_only_owner_sees_failures(
     monkeypatch.setattr(plugin, "read_image", AsyncMock(return_value=(b"image", "")))
     monkeypatch.setattr(plugin, "prepare_image", lambda data: (data, "image/jpeg"))
     monkeypatch.setattr(
-        plugin, "result_previews", AsyncMock(return_value=[("作品名字", b"preview")])
+        plugin, "result_previews", AsyncMock(return_value=[("https://x.com/artist", b"preview")])
     )
     event = SimpleNamespace(user_id=765, message_id=123, get_plaintext=lambda: "#搜图")
     bot = SimpleNamespace(
@@ -461,7 +461,7 @@ def test_result_message_has_preview_and_only_owner_sees_failures(
     message = bot.send.call_args.args[1]
     assert len(message["image"]) == 1
     text = message.extract_plain_text()
-    assert "收到" not in text and "作品名字" in text
+    assert "收到" not in text and "artist" in text
     assert ("部分引擎不可用" in text) is owner
     bot.call_api.assert_awaited_once()
 
@@ -493,15 +493,17 @@ def test_previews_download_failures_deduplication_and_selected_source(monkeypatc
                 "lens", "https://x.com/artist", "作品", preview="https://example.com/good.jpg"
             ),
             Candidate("saucenao", "https://x.com/artist", preview="https://example.com/good.jpg"),
-            Candidate("iqdb", "https://x.com/artist", preview="https://example.com/bad.jpg"),
+            Candidate("iqdb", "https://x.com/broken", preview="https://example.com/bad.jpg"),
             Candidate("lens", "https://x.com/other", preview="https://example.com/other.jpg"),
         ],
         accounts=[
-            Account("twitter", "artist", "https://x.com/artist", source="https://x.com/artist")
+            Account("twitter", "artist", "https://x.com/artist", source="https://x.com/artist"),
+            Account("twitter", "broken", "https://x.com/broken", source="https://x.com/broken"),
         ],
     )
     previews = run(images.result_previews(result))
     assert len(previews) == 1 and fetch_mock.await_count == 2
+    assert previews[0][0] == "https://x.com/artist"
     with Image.open(BytesIO(previews[0][1])) as preview:
         assert preview.size == (256, 512)
 
@@ -584,3 +586,75 @@ def test_browser_engines_with_local_responses(tmp_path):
                 await chromium.close()
 
     run(scenario())
+
+
+@pytest.mark.parametrize("count", [3, 4])
+@pytest.mark.parametrize("group", [False, True])
+@pytest.mark.parametrize("media_failed", [False, True])
+def test_similar_sources_pair_previews_and_forward_without_quotes(
+    monkeypatch, count, group, media_failed
+):
+    sources = [f"https://example.com/work/{i}" for i in range(count)]
+    result = Result(
+        used=["lens"],
+        candidates=[
+            Candidate("lens", source, f"作品{i}", preview=f"https://example.com/{i}.jpg")
+            for i, source in enumerate(sources)
+        ],
+    )
+    monkeypatch.setattr(
+        plugin,
+        "store",
+        SimpleNamespace(
+            cache_key=lambda data: "cached",
+            cached=lambda key: result,
+        ),
+    )
+    monkeypatch.setattr(plugin, "_last", {})
+    monkeypatch.setattr(plugin, "read_image", AsyncMock(return_value=(b"image", "")))
+    monkeypatch.setattr(plugin, "prepare_image", lambda data: (data, "image/jpeg"))
+    monkeypatch.setattr(
+        plugin,
+        "result_previews",
+        AsyncMock(
+            return_value=[(source, f"preview{i}".encode()) for i, source in enumerate(sources)]
+        ),
+    )
+    event = SimpleNamespace(user_id=765, message_id=123, get_plaintext=lambda: "#搜图")
+    if group:
+        event.group_id = 456
+    calls = []
+
+    async def api(name, **kwargs):
+        if name == "set_msg_emoji_like":
+            return
+        calls.append((name, kwargs))
+        if media_failed and len(calls) == 1:
+            raise RuntimeError("upload failed")
+
+    bot = SimpleNamespace(self_id="1234", send=AsyncMock(), call_api=AsyncMock(side_effect=api))
+    run(plugin.handle_search(bot, event))
+    if count == 3:
+        assert not calls
+        message = bot.send.call_args.args[1]
+        assert len(message["reply"]) == 1
+        assert len(message["image"]) == count
+        # Each preview directly follows its own source, rather than a detached preview section.
+        for i, segment in enumerate(message):
+            if segment.type == "image":
+                preceding = message[i - 1].data["text"]
+                assert sources.pop(0) in preceding
+    else:
+        bot.send.assert_not_awaited()
+        assert len(calls) == (2 if media_failed else 1)
+        for attempt, (name, kwargs) in enumerate(calls):
+            assert name == ("send_group_forward_msg" if group else "send_private_forward_msg")
+            assert kwargs.get("group_id" if group else "user_id") == (456 if group else 765)
+            assert len(kwargs["messages"]) == count + 1
+            for i, node in enumerate(kwargs["messages"]):
+                content = node.data["content"]
+                assert not content["reply"]
+                if i:
+                    assert sources[i - 1] in content.extract_plain_text()
+                    assert len(content["image"]) == (0 if attempt else 1)
+    assert not plugin._busy

@@ -404,8 +404,9 @@ def select_accounts(result: Result, strict: bool, maximum: int) -> None:
     result.accounts = kept[:maximum]
 
 
-def format_reply(result: Result, cached: bool = False, *, show_failures: bool = False) -> str:
-    lines = ["🎯 搜图结果" + ("（缓存）" if cached else "")]
+def reply_entries(result: Result) -> list[tuple[str, str]]:
+    """Return displayed results with source keys for attaching the correct thumbnail."""
+    entries = []
     labels = {
         "twitter": "Twitter",
         "weibo": "微博",
@@ -419,24 +420,42 @@ def format_reply(result: Result, cached: bool = False, *, show_failures: bool = 
         note = {"weak": "（相似图，未核实）", "inferred": "（推断，未核实）"}.get(
             account.confidence, ""
         )
-        lines.extend(
-            [
-                "",
-                f"🌐 平台：{labels[account.platform]}",
-                f"👤 名字：{name}",
+        entries.append(
+            (
+                f"🌐 平台：{labels[account.platform]}\n👤 名字：{name}\n"
                 f"🆔 账号：{handle} · {account.url}{note}",
-            ]
+                account.source or account.url,
+            )
         )
+    seen = set()
+    for candidate in sorted(result.candidates, key=lambda c: -(c.similarity or 0)):
+        if candidate.engine == "tracemoe":
+            text = (
+                f"🎬 动画：{candidate.title}\n相似度：{candidate.similarity:.1%}"
+                f"\n图源：{candidate.source}"
+            )
+        elif not result.accounts and candidate.source:
+            text = f"相似图源：{candidate.title}\n{candidate.source}"
+        else:
+            continue
+        if candidate.source in seen:
+            continue
+        seen.add(candidate.source)
+        entries.append((text, candidate.source))
+    return entries
+
+
+def format_reply(
+    result: Result,
+    cached: bool = False,
+    *,
+    show_failures: bool = False,
+    include_entries: bool = True,
+) -> str:
+    lines = ["🎯 搜图结果" + ("（缓存）" if cached else "")]
+    if include_entries:
+        lines.extend(text for text, _ in reply_entries(result))
     anime = [c for c in result.candidates if c.engine == "tracemoe"]
-    for candidate in anime:
-        lines.extend(
-            [
-                "",
-                f"🎬 动画：{candidate.title}",
-                f"相似度：{candidate.similarity:.1%}",
-                f"图源：{candidate.source}",
-            ]
-        )
     if not result.accounts and not anime:
         if not result.used:
             lines.append(
@@ -454,11 +473,6 @@ def format_reply(result: Result, cached: bool = False, *, show_failures: bool = 
         lines.append(f"已过滤 {result.name_dropped} 个与「{result.consensus}」名字不符的账号。")
     if result.accounts and all(a.platform == "pixiv" for a in result.accounts):
         lines.append("Pixiv 为画作平台，以上是画师账号。")
-    if not result.accounts:
-        sources = sorted(result.candidates, key=lambda c: -(c.similarity or 0))
-        for candidate in sources[:3]:
-            if candidate.engine != "tracemoe" and candidate.source:
-                lines.extend([f"相似图源：{candidate.title}", candidate.source])
     if show_failures and result.failures:
         lines.append(
             "部分引擎不可用："

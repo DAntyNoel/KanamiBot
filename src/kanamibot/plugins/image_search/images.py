@@ -12,7 +12,7 @@ from PIL import Image, ImageOps
 from kanamibot.core.utils.image import unwrap_images
 
 from .network import MAX_IMAGE_BYTES, fetch
-from .results import Result
+from .results import Result, reply_entries
 
 
 def prepare_image(data: bytes, *, max_side: int = 1600) -> tuple[bytes, str]:
@@ -76,19 +76,14 @@ async def read_image(bot: Bot, event: MessageEvent, argument: str) -> tuple[byte
 
 
 async def result_previews(result: Result) -> list[tuple[str, bytes]]:
-    """Fetch up to three result thumbnails; individual failures do not discard the results."""
-    sources = {account.source for account in result.accounts}
-    pool = [
-        c for c in result.candidates if not sources or c.source in sources or c.engine == "tracemoe"
-    ]
-    pool.sort(key=lambda c: -(c.similarity or 0))
+    """Fetch a thumbnail per displayed source; keep source keys for correct pairing."""
+    sources = {source for _, source in reply_entries(result)}
+    pool = sorted(result.candidates, key=lambda c: -(c.similarity or 0))
     selected, seen = [], set()
     for candidate in pool:
-        if candidate.preview and candidate.preview not in seen:
-            seen.add(candidate.preview)
+        if candidate.source in sources and candidate.preview and candidate.source not in seen:
+            seen.add(candidate.source)
             selected.append(candidate)
-            if len(selected) == 3:
-                break
     async with httpx.AsyncClient(timeout=8) as client:
 
         async def download(candidate):
@@ -104,7 +99,7 @@ async def result_previews(result: Result) -> list[tuple[str, bytes]]:
                         response = await fetch(client, url, limit=2 * 1024 * 1024)
                         data = response.content
                     data = await asyncio.to_thread(prepare_preview, data)
-                    return candidate.title or candidate.source, data
+                    return candidate.source, data
             except Exception:
                 return None
 

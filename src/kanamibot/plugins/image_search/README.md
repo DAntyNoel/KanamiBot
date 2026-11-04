@@ -117,3 +117,5 @@ URL 仅接受公开 HTTP(S) 标准端口，拒绝本机/内网地址，逐跳检
 .venv/Scripts/python.exe -m pytest -q tests/test_image_search.py tests/test_lens_session.py
 .venv/Scripts/ruff.exe check --no-cache src/kanamibot/plugins/image_search src/kanamibot/lens_session.py scripts/lens_login.py tests/test_image_search.py tests/test_lens_session.py
 ```
+
+结果预览与对应图源放在同一条目内，相似图也逐条展示。结果超过 3 条时发送合并聊天记录，群聊与私聊均不附加引用；不超过 3 条时直接回复。

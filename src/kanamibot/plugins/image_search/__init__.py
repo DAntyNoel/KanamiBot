@@ -19,7 +19,7 @@ from kanamibot.core.timing import timed
 from .config import Config
 from .engines import Browser, infer_accounts, reverse_search
 from .images import prepare_image, prepare_preview, read_image, result_previews
-from .results import format_reply, select_accounts
+from .results import format_reply, reply_entries, select_accounts
 from .storage import Store
 
 __plugin_meta__ = PluginMetadata(
@@ -120,15 +120,22 @@ async def handle_search(bot: Bot, event: MessageEvent) -> None:
                     pass
             store.put(cache_key, result)
         text = format_reply(result, cached, show_failures=owner)
-        message = Message(MessageSegment.text(text))
-        previews = await result_previews(result)
-        if previews:
-            for index, (title, preview) in enumerate(previews, 1):
-                message += MessageSegment.text(f"\n预览 {index}：{title}\n")
-                message += MessageSegment.image(preview)
-        else:
-            message += MessageSegment.text("\n预览：查询原图（未获取到结果缩略图）\n")
-            message += MessageSegment.image(await asyncio.to_thread(prepare_preview, data))
+        entries = reply_entries(result)
+        summary = Message(
+            MessageSegment.text(
+                format_reply(result, cached, show_failures=owner, include_entries=False)
+            )
+        )
+        previews = dict(await result_previews(result))
+        messages = [summary]
+        for entry, source in entries:
+            item = Message(MessageSegment.text(entry))
+            if preview := previews.get(source):
+                item += MessageSegment.image(preview)
+            messages.append(item)
+        if not previews:
+            summary += MessageSegment.text("\n预览：查询原图（未获取到结果缩略图）\n")
+            summary += MessageSegment.image(await asyncio.to_thread(prepare_preview, data))
         if config.image_search_found_image and (
             result.accounts or config.image_search_send_on_miss
         ):
@@ -136,12 +143,41 @@ async def handle_search(bot: Bot, event: MessageEvent) -> None:
             if not path.is_absolute():
                 path = PROJECT_ROOT / path
             if path.is_file():
-                message += MessageSegment.image(path)
-        try:
-            await bot.send(event, MessageSegment.reply(event.message_id) + message)
-        except Exception:
-            # Rich media failures must not swallow a completed text search result.
-            await bot.send(event, MessageSegment.text(text))
+                summary += MessageSegment.image(path)
+        if len(entries) > 3:
+
+            async def forward(parts):
+                nodes = [
+                    MessageSegment.node_custom(
+                        user_id=bot.self_id,
+                        nickname="搜图结果",
+                        content=part,
+                    )
+                    for part in parts
+                ]
+                if group_id := getattr(event, "group_id", None):
+                    await bot.call_api("send_group_forward_msg", group_id=group_id, messages=nodes)
+                else:
+                    await bot.call_api(
+                        "send_private_forward_msg", user_id=event.user_id, messages=nodes
+                    )
+
+            try:
+                await forward(messages)
+            except Exception:
+                # Preserve the forward layout and omit quotes even when rich media fails.
+                await forward([Message(part.extract_plain_text()) for part in messages])
+        else:
+            message = Message()
+            for index, part in enumerate(messages):
+                if index:
+                    message += MessageSegment.text("\n\n")
+                message += part
+            try:
+                await bot.send(event, MessageSegment.reply(event.message_id) + message)
+            except Exception:
+                # Rich media failures must not swallow a completed text search result.
+                await bot.send(event, MessageSegment.text(text))
     except Exception:
         logger.exception("搜图处理失败")
         await bot.send(event, "搜图暂时失败，请稍后重试。")
