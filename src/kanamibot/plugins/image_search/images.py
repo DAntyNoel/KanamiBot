@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import warnings
 from io import BytesIO
@@ -11,9 +12,10 @@ from PIL import Image, ImageOps
 from kanamibot.core.utils.image import unwrap_images
 
 from .network import MAX_IMAGE_BYTES, fetch
+from .results import Result
 
 
-def prepare_image(data: bytes) -> tuple[bytes, str]:
+def prepare_image(data: bytes, *, max_side: int = 1600) -> tuple[bytes, str]:
     if len(data) > MAX_IMAGE_BYTES:
         raise ValueError("图片不能超过 15 MB")
     try:
@@ -23,7 +25,7 @@ def prepare_image(data: bytes) -> tuple[bytes, str]:
                 if original.width * original.height > 40_000_000:
                     raise ValueError("图片分辨率不能超过 4000 万像素")
                 image = ImageOps.exif_transpose(original)
-                image.thumbnail((1600, 1600))
+                image.thumbnail((max_side, max_side))
                 rgba = image.convert("RGBA")
                 background = Image.new("RGB", rgba.size, "white")
                 background.paste(rgba, mask=rgba.getchannel("A"))
@@ -71,3 +73,43 @@ async def read_image(bot: Bot, event: MessageEvent, argument: str) -> tuple[byte
             response = await fetch(client, source, limit=MAX_IMAGE_BYTES)
             data = response.content
     return data, public_url
+
+
+async def result_previews(result: Result) -> list[tuple[str, bytes]]:
+    """Fetch up to three result thumbnails; individual failures do not discard the results."""
+    sources = {account.source for account in result.accounts}
+    pool = [
+        c for c in result.candidates if not sources or c.source in sources or c.engine == "tracemoe"
+    ]
+    pool.sort(key=lambda c: -(c.similarity or 0))
+    selected, seen = [], set()
+    for candidate in pool:
+        if candidate.preview and candidate.preview not in seen:
+            seen.add(candidate.preview)
+            selected.append(candidate)
+            if len(selected) == 3:
+                break
+    async with httpx.AsyncClient(timeout=8) as client:
+
+        async def download(candidate):
+            try:
+                async with asyncio.timeout(10):
+                    url = candidate.preview
+                    if url.startswith("data:image/") and ";base64," in url:
+                        encoded = url.split(";base64,", 1)[1]
+                        if len(encoded) > 400_000:
+                            return None
+                        data = base64.b64decode(encoded, validate=True)
+                    else:
+                        response = await fetch(client, url, limit=2 * 1024 * 1024)
+                        data = response.content
+                    data = await asyncio.to_thread(prepare_preview, data)
+                    return candidate.title or candidate.source, data
+            except Exception:
+                return None
+
+        return [row for row in await asyncio.gather(*(download(c) for c in selected)) if row]
+
+
+def prepare_preview(data: bytes) -> bytes:
+    return prepare_image(data, max_side=512)[0]

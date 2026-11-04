@@ -21,6 +21,7 @@ class Candidate:
     links: list[str] = field(default_factory=list)
     snippet: str = ""
     weak: bool = False
+    preview: str = ""
 
 
 @dataclass
@@ -87,9 +88,15 @@ class Links(HTMLParser):
         self.rows: list[tuple[str, str]] = []
         self.href: str | None = None
         self.text: list[str] = []
+        self.images: list[str] = []
         self.feed(source)
 
     def handle_starttag(self, tag, attrs):
+        if tag == "img":
+            attributes = dict(attrs)
+            image = attributes.get("data-src") or attributes.get("src")
+            if image:
+                self.images.append(image)
         if tag == "a":
             self.href = dict(attrs).get("href")
             self.text = []
@@ -112,6 +119,14 @@ def external_links(source: str, base: str, excluded: list[str]) -> list[tuple[st
         if host and not any(host_matches(host, domain) for domain in excluded):
             rows.setdefault(url, title)
     return list(rows.items())[:60]
+
+
+def thumbnail(source: str, base: str) -> str:
+    for image in Links(source).images:
+        url = urljoin(base, image)
+        if urlsplit(url).scheme in {"http", "https"}:
+            return url
+    return ""
 
 
 def parse_saucenao(source: str) -> list[Candidate]:
@@ -137,6 +152,7 @@ def parse_saucenao(source: str) -> list[Candidate]:
                     clean(author[2], 40) if author else "",
                     [row[0] for row in links],
                     clean(block),
+                    preview=thumbnail(block, "https://saucenao.com/"),
                 )
             )
     return out
@@ -156,7 +172,16 @@ def parse_iqdb(source: str) -> list[Candidate]:
         for url, title in external_links(block, "https://iqdb.org/", ["iqdb.org"]):
             if re.search(r"\.(?:png|jpe?g|gif|webp|svg)(?:\?|$)", url, re.I):
                 continue
-            out.append(Candidate("iqdb", url, title, float(sim[1]) / 100, links=[url]))
+            out.append(
+                Candidate(
+                    "iqdb",
+                    url,
+                    title,
+                    float(sim[1]) / 100,
+                    links=[url],
+                    preview=thumbnail(block, "https://iqdb.org/"),
+                )
+            )
     return out[:12]
 
 
@@ -180,7 +205,16 @@ def parse_tracemoe(payload: dict) -> list[Candidate]:
         seconds = row.get("from")
         if isinstance(seconds, int | float):
             label += f" {int(seconds) // 60:02d}:{int(seconds) % 60:02d}"
-        out.append(Candidate("tracemoe", url, clean(label), similarity, links=[url]))
+        out.append(
+            Candidate(
+                "tracemoe",
+                url,
+                clean(label),
+                similarity,
+                links=[url],
+                preview=row.get("image") or "",
+            )
+        )
         if len(out) == 3:
             break
     return out
@@ -370,7 +404,7 @@ def select_accounts(result: Result, strict: bool, maximum: int) -> None:
     result.accounts = kept[:maximum]
 
 
-def format_reply(result: Result, cached: bool = False) -> str:
+def format_reply(result: Result, cached: bool = False, *, show_failures: bool = False) -> str:
     lines = ["🎯 搜图结果" + ("（缓存）" if cached else "")]
     labels = {
         "twitter": "Twitter",
@@ -405,7 +439,11 @@ def format_reply(result: Result, cached: bool = False) -> str:
         )
     if not result.accounts and not anime:
         if not result.used:
-            lines.append("❌ 这次没查成，所有引擎均请求失败。")
+            lines.append(
+                "❌ 这次没查成，所有引擎均请求失败。"
+                if show_failures
+                else "本次未获得搜图结果，请稍后重试。"
+            )
         elif result.candidates:
             lines.append(f"找到 {len(result.candidates)} 条相似图，但没有能确认的账号。")
         else:
@@ -421,7 +459,7 @@ def format_reply(result: Result, cached: bool = False) -> str:
         for candidate in sources[:3]:
             if candidate.engine != "tracemoe" and candidate.source:
                 lines.extend([f"相似图源：{candidate.title}", candidate.source])
-    if result.failures:
+    if show_failures and result.failures:
         lines.append(
             "部分引擎不可用："
             + "；".join(

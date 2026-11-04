@@ -17,7 +17,7 @@ nonebot.init(_env_file=None)
 assert nonebot.load_plugin("kanamibot.plugins.image_search") is not None
 
 from kanamibot.plugins import image_search as plugin  # noqa: E402
-from kanamibot.plugins.image_search import engines, network  # noqa: E402
+from kanamibot.plugins.image_search import engines, images, network  # noqa: E402
 from kanamibot.plugins.image_search.config import Config  # noqa: E402
 from kanamibot.plugins.image_search.images import prepare_image, read_image  # noqa: E402
 from kanamibot.plugins.image_search.results import (  # noqa: E402
@@ -105,12 +105,14 @@ def test_not_account(url):
 
 def test_saucenao_author_and_similarity():
     rows = parse_saucenao("""<div id="res0" class="result">
+        <div class="resultimage"><img src="/preview.jpg"></div>
         <div class="resultsimilarityinfo">95.25%</div>
         <div class="resulttitle"><strong>作品名字</strong></div>
         <a href="https://www.pixiv.net/artworks/42">source</a>
         Member: <a href="https://www.pixiv.net/member.php?id=12345">画师名字</a></div>""")
     assert len(rows) == 1
     assert rows[0].similarity == 0.9525 and rows[0].author == "画师名字"
+    assert rows[0].preview == "https://saucenao.com/preview.jpg"
     result = Result(candidates=rows)
     select_accounts(result, True, 3)
     assert result.accounts[0].url == "https://www.pixiv.net/users/12345"
@@ -119,9 +121,11 @@ def test_saucenao_author_and_similarity():
 
 def test_iqdb_similarity_belongs_to_each_table():
     rows = parse_iqdb("""<table><a href="https://danbooru.donmai.us/posts/1">one</a>
+        <img src="/first.jpg">
         95% similarity</table><table><a href="https://yande.re/post/show/2">two</a>
         62% similarity</table><a href="https://irrelevant.example/help">help</a>""")
     assert [r.similarity for r in rows] == [0.95, 0.62]
+    assert rows[0].preview == "https://iqdb.org/first.jpg" and rows[1].preview == ""
     with pytest.raises(ValueError, match="排队"):
         parse_iqdb("Place in queue")
 
@@ -135,6 +139,7 @@ def test_trace_moe_threshold_dedupe_and_reply():
                     "anilist": {"id": 42, "title": {"native": "动画名字"}},
                     "episode": 3,
                     "from": 135.6,
+                    "image": "https://example.com/frame.jpg",
                 },
                 {"similarity": 0.91, "anilist": {"id": 42}},
                 {"similarity": 0.86, "anilist": {"id": 43}},
@@ -142,6 +147,7 @@ def test_trace_moe_threshold_dedupe_and_reply():
         }
     )
     assert len(rows) == 1 and "02:15" in rows[0].title
+    assert rows[0].preview == "https://example.com/frame.jpg"
     text = format_reply(Result(candidates=rows, used=["tracemoe"]))
     assert "动画名字 第3集" in text and "没有能确认" not in text
 
@@ -356,13 +362,126 @@ def test_rich_media_failure_falls_back_to_text(monkeypatch, tmp_path):
     monkeypatch.setattr(plugin, "config", config)
     monkeypatch.setattr(plugin, "read_image", AsyncMock(return_value=(b"raw", "")))
     monkeypatch.setattr(plugin, "prepare_image", lambda data: (b"normalized", "image/jpeg"))
+    monkeypatch.setattr(plugin, "prepare_preview", lambda data: b"preview")
+    monkeypatch.setattr(plugin, "_last", {})
     event = SimpleNamespace(user_id=765, message_id=123, get_plaintext=lambda: "#搜图")
-    bot = SimpleNamespace(self_id="test", send=AsyncMock(side_effect=[None, RuntimeError(), None]))
+    bot = SimpleNamespace(
+        self_id="test", call_api=AsyncMock(), send=AsyncMock(side_effect=[RuntimeError(), None])
+    )
     run(plugin.handle_search(bot, event))
-    assert bot.send.await_count == 3
+    assert bot.send.await_count == 2
+    bot.call_api.assert_awaited_once_with(
+        "set_msg_emoji_like",
+        message_id=123,
+        emoji_id="124",
+        set=True,
+        _timeout=2.0,
+    )
     assert bot.send.call_args.args[1].type == "text"
     assert "artist" in bot.send.call_args.args[1].data["text"]
     assert not plugin._busy
+
+
+@pytest.mark.parametrize("owner", [False, True])
+@pytest.mark.parametrize("all_failed", [False, True])
+def test_engine_failure_visibility(owner, all_failed):
+    result = Result(
+        used=[] if all_failed else ["saucenao"],
+        failures={"lens": "站点要求人机验证"},
+    )
+    text = format_reply(result, show_failures=owner)
+    assert ("引擎" in text) is owner
+    assert ("谷歌 Lens" in text) is owner
+    assert ("人机验证" in text) is owner
+
+
+@pytest.mark.parametrize("owner", [False, True])
+@pytest.mark.parametrize("reaction_failed", [False, True])
+def test_result_message_has_preview_and_only_owner_sees_failures(
+    monkeypatch, owner, reaction_failed
+):
+    result = Result(
+        used=["saucenao"],
+        failures={"lens": "请求超时"},
+        accounts=[Account("twitter", "artist", "https://x.com/artist")],
+    )
+    monkeypatch.setattr(
+        plugin,
+        "store",
+        SimpleNamespace(
+            cache_key=lambda data: "cached",
+            cached=lambda key: result,
+        ),
+    )
+    monkeypatch.setattr(plugin, "_last", {})
+    monkeypatch.setattr(
+        plugin,
+        "get_driver",
+        lambda: SimpleNamespace(
+            config=SimpleNamespace(superusers={"765"} if owner else set()),
+        ),
+    )
+    monkeypatch.setattr(plugin, "read_image", AsyncMock(return_value=(b"image", "")))
+    monkeypatch.setattr(plugin, "prepare_image", lambda data: (data, "image/jpeg"))
+    monkeypatch.setattr(
+        plugin, "result_previews", AsyncMock(return_value=[("作品名字", b"preview")])
+    )
+    event = SimpleNamespace(user_id=765, message_id=123, get_plaintext=lambda: "#搜图")
+    bot = SimpleNamespace(
+        self_id="test",
+        send=AsyncMock(),
+        call_api=AsyncMock(
+            side_effect=RuntimeError("unsupported") if reaction_failed else None,
+        ),
+    )
+    run(plugin.handle_search(bot, event))
+    assert bot.send.await_count == 1
+    message = bot.send.call_args.args[1]
+    assert len(message["image"]) == 1
+    text = message.extract_plain_text()
+    assert "收到" not in text and "作品名字" in text
+    assert ("部分引擎不可用" in text) is owner
+    bot.call_api.assert_awaited_once()
+
+
+@pytest.mark.parametrize("size", [(2048, 1024), (1024, 2048), (200, 100)])
+def test_preview_dimensions_and_aspect_ratio(size):
+    output = BytesIO()
+    Image.new("RGB", size, "white").save(output, "PNG")
+    with Image.open(BytesIO(images.prepare_preview(output.getvalue()))) as preview:
+        assert preview.width <= 512 and preview.height <= 512
+        assert preview.width / preview.height == size[0] / size[1]
+        assert preview.width <= size[0] and preview.height <= size[1]
+
+
+def test_previews_download_failures_deduplication_and_selected_source(monkeypatch):
+    output = BytesIO()
+    Image.new("RGB", (1000, 2000), "white").save(output, "PNG")
+
+    async def fake_fetch(client, url, **kwargs):
+        if url.endswith("bad.jpg"):
+            raise ValueError("bad preview")
+        return httpx.Response(200, content=output.getvalue())
+
+    fetch_mock = AsyncMock(side_effect=fake_fetch)
+    monkeypatch.setattr(images, "fetch", fetch_mock)
+    result = Result(
+        candidates=[
+            Candidate(
+                "lens", "https://x.com/artist", "作品", preview="https://example.com/good.jpg"
+            ),
+            Candidate("saucenao", "https://x.com/artist", preview="https://example.com/good.jpg"),
+            Candidate("iqdb", "https://x.com/artist", preview="https://example.com/bad.jpg"),
+            Candidate("lens", "https://x.com/other", preview="https://example.com/other.jpg"),
+        ],
+        accounts=[
+            Account("twitter", "artist", "https://x.com/artist", source="https://x.com/artist")
+        ],
+    )
+    previews = run(images.result_previews(result))
+    assert len(previews) == 1 and fetch_mock.await_count == 2
+    with Image.open(BytesIO(previews[0][1])) as preview:
+        assert preview.size == (256, 512)
 
 
 def test_browser_engines_with_local_responses():
@@ -386,7 +505,10 @@ def test_browser_engines_with_local_responses():
                 if "/pcpage/" in request.url:
                     body = """<input type="file" onchange="location.href='/details?test=1'">"""
                 else:
-                    body = '<a href="https://x.com/artist_123">X作者名字 (@artist_123) / X</a>'
+                    body = (
+                        '<a href="https://x.com/artist_123">X作者名字 (@artist_123) / X'
+                        '<img src="https://example.com/thumb.jpg"></a>'
+                    )
                 await route.fulfill(status=200, content_type="text/html", body=body)
 
             await context.route("**/*", serve)
@@ -397,6 +519,7 @@ def test_browser_engines_with_local_responses():
                     )
                     assert len(rows) == 1 and rows[0].source == "https://x.com/artist_123"
                     assert rows[0].weak == (engine == "baidu")
+                    assert rows[0].preview == "https://example.com/thumb.jpg"
                 assert len(uploads) == 1 and b"synthetic-image" in uploads[0]
                 assert b'name="encoded_image"' in uploads[0]
             finally:

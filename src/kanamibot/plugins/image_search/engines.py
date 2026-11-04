@@ -38,6 +38,7 @@ EXCLUDED = {
 LINK_SCRIPT = """() => Array.from(document.querySelectorAll('a[href]'))
     .filter(a => !a.closest('header,footer,nav,[role=navigation]'))
     .slice(0, 300).map(a => ({url: a.href,
+        preview: a.querySelector('img')?.currentSrc || a.querySelector('img')?.src || '',
         title: (a.querySelector('h1,h2,h3,[role=heading]')?.textContent ||
                 a.getAttribute('aria-label') || a.textContent || '').trim().slice(0,200)}))"""
 
@@ -125,7 +126,15 @@ class Browser:
                 continue
             if url not in seen:
                 seen.add(url)
-                out.append(Candidate(engine, url, row["title"], weak=engine == "baidu"))
+                out.append(
+                    Candidate(
+                        engine,
+                        url,
+                        row["title"],
+                        weak=engine == "baidu",
+                        preview=row.get("preview", ""),
+                    )
+                )
         # Google opaque /goto cards need browser redirects. Abort at the external target.
         wrappers.sort(
             key=lambda r: (
@@ -145,7 +154,7 @@ class Browser:
             target = await self.resolve_wrapper(row["url"])
             if target and target not in seen:
                 seen.add(target)
-                out.append(Candidate(engine, target, row["title"]))
+                out.append(Candidate(engine, target, row["title"], preview=row.get("preview", "")))
         return out[:30]
 
     async def wait_results(self, page, engine: str) -> None:

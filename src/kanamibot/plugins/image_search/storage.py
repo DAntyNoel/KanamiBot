@@ -63,7 +63,7 @@ class Store:
             }
         }
         digest = hashlib.sha256(image + json.dumps(options, sort_keys=True).encode()).hexdigest()
-        return f"v1:{digest}"
+        return f"v2:{digest}"
 
     def cached(self, key: str) -> Result | None:
         if not self.config.image_search_cache_days:

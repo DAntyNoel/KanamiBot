@@ -12,12 +12,13 @@ from nonebot.plugin import PluginMetadata
 from nonebot.rule import Rule
 
 from kanamibot.core import ModuleRule
+from kanamibot.core.message_reactions import react_ok
 from kanamibot.core.paths import DATA_DIR, PROJECT_ROOT
 from kanamibot.core.timing import timed
 
 from .config import Config
 from .engines import Browser, infer_accounts, reverse_search
-from .images import prepare_image, read_image
+from .images import prepare_image, prepare_preview, read_image, result_previews
 from .results import format_reply, select_accounts
 from .storage import Store
 
@@ -104,7 +105,7 @@ async def handle_search(bot: Bot, event: MessageEvent) -> None:
         for stale in list(_last):
             if time.monotonic() - _last[stale] > max(config.image_search_cooldown, 60):
                 del _last[stale]
-        await bot.send(event, "收到，开始搜图。")
+        await react_ok(bot, event)
         if result is None:
             result = await reverse_search(data, mime, config, browser, public_url)
             select_accounts(
@@ -118,7 +119,16 @@ async def handle_search(bot: Bot, event: MessageEvent) -> None:
                 except TimeoutError:
                     pass
             store.put(cache_key, result)
-        message = Message(MessageSegment.text(format_reply(result, cached)))
+        text = format_reply(result, cached, show_failures=owner)
+        message = Message(MessageSegment.text(text))
+        previews = await result_previews(result)
+        if previews:
+            for index, (title, preview) in enumerate(previews, 1):
+                message += MessageSegment.text(f"\n预览 {index}：{title}\n")
+                message += MessageSegment.image(preview)
+        else:
+            message += MessageSegment.text("\n预览：查询原图（未获取到结果缩略图）\n")
+            message += MessageSegment.image(await asyncio.to_thread(prepare_preview, data))
         if config.image_search_found_image and (
             result.accounts or config.image_search_send_on_miss
         ):
@@ -131,7 +141,7 @@ async def handle_search(bot: Bot, event: MessageEvent) -> None:
             await bot.send(event, MessageSegment.reply(event.message_id) + message)
         except Exception:
             # Rich media failures must not swallow a completed text search result.
-            await bot.send(event, MessageSegment.text(format_reply(result, cached)))
+            await bot.send(event, MessageSegment.text(text))
     except Exception:
         logger.exception("搜图处理失败")
         await bot.send(event, "搜图暂时失败，请稍后重试。")
