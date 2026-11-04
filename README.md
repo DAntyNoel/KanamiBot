@@ -193,11 +193,13 @@ Python 追踪逻辑、SQLite 存储及结算图独立实现，未复制其 Kotli
 `#卡丘名片 玩家名` 查看名片。
 图片包含游戏头像与切换命令提示。
 
-插件启用后，每分钟轮询测试服 `Game_TYF/manifest.txt`，独立于战绩 API 健康状态。
+插件启用后，每分钟轮询测试服 `Game_TYF/manifest.txt` 和正式服客户端
+`Game_Release/manifest.txt`，独立于战绩 API 健康状态。
 首次成功获取仅建立基线；之后版本号或清单内容变化时，在群 `1062499136`
 中 @`2774133374` 提醒，包含前后版本号和清单链接。
-基线保存在 `data/strinova/tyf_manifest.json`，重启后继续使用；抓取、解析或发送失败
-保留旧基线，下分钟重试。正式服 `Game_Release/manifest.txt` 不在本次监测范围。
+两份基线分别保存在 `data/strinova/tyf_manifest.json` 和
+`data/strinova/release_manifest.json`，重启后继续使用；抓取、解析或发送失败
+保留旧基线，下分钟重试，一个来源失败不影响另一个来源检查。
 
 可以先独立运行本地脚本，输入昵称并保存 PNG：
 

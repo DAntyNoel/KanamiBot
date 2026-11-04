@@ -107,7 +107,7 @@ if ENABLED:
     require("nonebot_plugin_apscheduler")
     from nonebot_plugin_apscheduler import scheduler
 
-    from kanamibot.strinova.update_monitor import check_update
+    from kanamibot.strinova.update_monitor import MANIFEST_TARGETS, check_update
 
     @scheduler.scheduled_job(
         "interval", minutes=1, id="strinova_tyf_update", max_instances=1, coalesce=True
@@ -118,10 +118,11 @@ if ENABLED:
             bot = get_bot()
         except ValueError:
             return
-        try:
-            await check_update(bot)
-        except Exception:
-            logger.exception("[strinova] 测试服更新监测失败，保留基线等待下次重试")
+        for target in MANIFEST_TARGETS:
+            try:
+                await check_update(bot, target=target)
+            except Exception:
+                logger.exception("[strinova] {}更新监测失败，保留基线等待下次重试", target.name)
 
     strinova_matcher = on_regex(
         COMMAND.pattern, flags=COMMAND.flags, priority=8, block=True, rule=ModuleRule("strinova")
