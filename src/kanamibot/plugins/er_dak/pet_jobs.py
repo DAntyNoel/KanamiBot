@@ -120,9 +120,9 @@ async def command(bot: Bot, event, args):
         return f"已取消「{args[1]}」的订阅。" if removed else "本群没有这位玩家的有效订阅。"
     added = await tracker.subscribe(bot_id, group, event.user_id, args[1])
     return (
-        f"已添加「{args[1]}」的群宠订阅，有效期 7 天，首次不补发历史对局。"
+        f"已添加「{args[1]}」的群宠订阅，有效期 7 天"
         if added
-        else "这位玩家已在本群订阅中，不会重复订阅或延长有效期。"
+        else "已添加过订阅啦"
     )
 
 

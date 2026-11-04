@@ -54,7 +54,7 @@ class PetStore:
             if player in {r[0] for r in active}:
                 return False
             if len(active) >= 3:
-                raise ValueError("每个群最多追踪 3 位玩家，请先取消旧订阅。")
+                raise ValueError("群宠列表已满")
             db.execute(
                 """INSERT INTO pets
                 (bot, group_id, player, nickname, requester, token, last_match,

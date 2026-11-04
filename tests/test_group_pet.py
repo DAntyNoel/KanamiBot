@@ -71,7 +71,7 @@ def test_baseline_duplicate_limit_and_restart(rig):
         for name in ("Other", "Third"):
             rig.source.return_value = Snapshot(name)
             await rig.tracker.subscribe("bot", 1, 7, name)
-        with pytest.raises(ValueError, match="3 位"):
+        with pytest.raises(ValueError, match="群宠列表已满"):
             await rig.tracker.subscribe("bot", 1, 7, "Fourth")
         restored = PetStore(rig.store.path)
         assert (

@@ -65,7 +65,7 @@ class PetTracker:
             if any(r["player"] == nickname.casefold() for r in rows):
                 return False
             if len(rows) >= 3:
-                raise ValueError("每个群最多追踪 3 位玩家，请先取消旧订阅。")
+                raise ValueError("群宠列表已满")
             snapshot = await asyncio.wait_for(self.subscription_source(nickname), 90)
             if not self.enabled(bot, group):
                 raise ValueError("本群永恒轮回模块已关闭，暂时无法添加订阅。")
