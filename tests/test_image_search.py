@@ -303,6 +303,28 @@ def test_compressed_response_not_decoded_twice(monkeypatch):
     run(scenario())
 
 
+def test_proxy_dns_exception_is_limited_to_fixed_search_domains(monkeypatch):
+    async def scenario():
+        loop = asyncio.get_running_loop()
+        resolver = AsyncMock(return_value=[(2, 1, 6, "", ("127.0.0.1", 443))])
+        monkeypatch.setattr(loop, "getaddrinfo", resolver)
+        await network.validate_url("https://www.google.com/", proxy_remote_dns=True)
+        await network.validate_url("https://lens.google.com/", proxy_remote_dns=True)
+        resolver.assert_not_awaited()
+        for url, proxied in (
+            ("https://www.google.com/", False),
+            ("https://google.com.evil.example/", True),
+            ("https://example.com/image.jpg", True),
+            ("https://127.0.0.1/", True),
+        ):
+            with pytest.raises(ValueError, match="内网"):
+                await network.validate_url(url, proxy_remote_dns=proxied)
+        with pytest.raises(ValueError, match="标准端口"):
+            await network.validate_url("https://www.google.com:8080/", proxy_remote_dns=True)
+
+    run(scenario())
+
+
 def test_reply_lookup_accepts_onebot_segment_dicts():
     from nonebot.adapters.onebot.v11 import Message, MessageSegment
 

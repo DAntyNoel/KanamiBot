@@ -85,7 +85,7 @@ class Browser:
             if request.method not in {"GET", "HEAD", "OPTIONS"} and not upload_allowed(request.url):
                 await route.abort()
                 return
-            await validate_url(request.url)
+            await validate_url(request.url, proxy_remote_dns=bool(self.config.image_search_proxy))
             await route.continue_()
         except (ValueError, OSError) as exc:
             logger.warning("搜图浏览器拒绝访问 %s：%s", urlsplit(request.url).hostname, exc)
@@ -192,7 +192,10 @@ class Browser:
                 urlsplit(request.url).hostname or "", "google.com"
             ):
                 try:
-                    await validate_url(request.url)
+                    await validate_url(
+                        request.url,
+                        proxy_remote_dns=bool(self.config.image_search_proxy),
+                    )
                     found = request.url
                 except (ValueError, OSError):
                     pass

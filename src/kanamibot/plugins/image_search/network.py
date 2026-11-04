@@ -20,6 +20,18 @@ UPLOAD_DOMAINS = (
     "yandex.ru",
     "catbox.moe",
 )
+PROXY_DNS_DOMAINS = UPLOAD_DOMAINS + (
+    "gstatic.com",
+    "googleusercontent.com",
+    "yastatic.net",
+    "yandex.net",
+    "bdstatic.com",
+    "bdimg.com",
+    "baidupcs.com",
+    "microsoft.com",
+    "msn.com",
+    "live.com",
+)
 
 
 def upload_allowed(url: str) -> bool:
@@ -27,7 +39,7 @@ def upload_allowed(url: str) -> bool:
     return any(host == domain or host.endswith("." + domain) for domain in UPLOAD_DOMAINS)
 
 
-async def validate_url(url: str) -> None:
+async def validate_url(url: str, *, proxy_remote_dns: bool = False) -> None:
     parts = urlsplit(url)
     if (
         parts.scheme not in {"http", "https"}
@@ -37,6 +49,14 @@ async def validate_url(url: str) -> None:
         or parts.port not in {None, 80, 443}
     ):
         raise ValueError("仅支持公开 HTTP(S) 地址和标准端口")
+    # An explicit browser proxy resolves trusted search sites itself. Local hosts/Fake-IP
+    # DNS can differ from the proxy's DNS, so do not resolve these fixed domains locally.
+    # Arbitrary result/image URLs and IP literals still take the full address check below.
+    if proxy_remote_dns and any(
+        parts.hostname == domain or parts.hostname.endswith("." + domain)
+        for domain in PROXY_DNS_DOMAINS
+    ):
+        return
     addresses = await asyncio.get_running_loop().getaddrinfo(
         parts.hostname,
         parts.port or (443 if parts.scheme == "https" else 80),
