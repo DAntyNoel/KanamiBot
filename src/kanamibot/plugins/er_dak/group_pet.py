@@ -184,10 +184,15 @@ class PetTracker:
                     )
                 except Exception as exc:
                     logging.getLogger(__name__).warning(
-                        "Group pet %s failed for group %s: %s",
-                        phase,
+                        "群宠订阅：群 %s 的玩家「%s」%s失败，%s",
                         row["group_id"],
-                        type(exc).__name__,
+                        row["nickname"],
+                        phase,
+                        (
+                            "上游接口限流，将自动延后重试"
+                            if isinstance(exc, RateLimited)
+                            else f"异常类型：{type(exc).__name__}"
+                        ),
                     )
                     # Cancellation propagates; only an explicit lookup not-found stops tracking.
                     if phase == "查询战绩" and isinstance(exc, PlayerNotFound):
