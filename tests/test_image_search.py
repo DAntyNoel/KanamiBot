@@ -425,7 +425,11 @@ def test_result_message_has_preview_and_only_owner_sees_failures(
     result = Result(
         used=["saucenao"],
         failures={"lens": "请求超时"},
-        accounts=[Account("twitter", "artist", "https://x.com/artist")],
+        accounts=[
+            Account(
+                "twitter", "artist", "https://x.com/artist", source="https://x.com/artist/status/42"
+            )
+        ],
     )
     monkeypatch.setattr(
         plugin,
@@ -446,7 +450,9 @@ def test_result_message_has_preview_and_only_owner_sees_failures(
     monkeypatch.setattr(plugin, "read_image", AsyncMock(return_value=(b"image", "")))
     monkeypatch.setattr(plugin, "prepare_image", lambda data: (data, "image/jpeg"))
     monkeypatch.setattr(
-        plugin, "result_previews", AsyncMock(return_value=[("https://x.com/artist", b"preview")])
+        plugin,
+        "result_previews",
+        AsyncMock(return_value=[("https://x.com/artist/status/42", b"preview")]),
     )
     event = SimpleNamespace(user_id=765, message_id=123, get_plaintext=lambda: "#搜图")
     bot = SimpleNamespace(
@@ -460,6 +466,10 @@ def test_result_message_has_preview_and_only_owner_sees_failures(
     assert bot.send.await_count == 1
     message = bot.send.call_args.args[1]
     assert len(message["image"]) == 1
+    assert message[-1].type == "text"
+    assert message[-1].data["text"].endswith("图片链接：\nhttps://x.com/artist/status/42")
+    assert message[-2].type == "image"
+    assert "https://x.com/artist" in message.extract_plain_text()
     text = message.extract_plain_text()
     assert "收到" not in text and "artist" in text
     assert ("部分引擎不可用" in text) is owner

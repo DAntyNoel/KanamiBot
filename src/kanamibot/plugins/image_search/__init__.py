@@ -129,9 +129,12 @@ async def handle_search(bot: Bot, event: MessageEvent) -> None:
         previews = dict(await result_previews(result))
         messages = [summary]
         for entry, source in entries:
-            item = Message(MessageSegment.text(entry))
+            body, separator, source_link = entry.partition("\n图片链接：\n")
+            item = Message(MessageSegment.text(body))
             if preview := previews.get(source):
                 item += MessageSegment.image(preview)
+            if separator:
+                item += MessageSegment.text(f"{separator}{source_link}")
             messages.append(item)
         if not previews:
             summary += MessageSegment.text("\n预览：查询原图（未获取到结果缩略图）\n")

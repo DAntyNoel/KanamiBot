@@ -420,10 +420,11 @@ def reply_entries(result: Result) -> list[tuple[str, str]]:
         note = {"weak": "（相似图，未核实）", "inferred": "（推断，未核实）"}.get(
             account.confidence, ""
         )
+        source_link = f"\n图片链接：\n{account.source}" if account.source else ""
         entries.append(
             (
                 f"🌐 平台：{labels[account.platform]}\n👤 名字：{name}\n"
-                f"🆔 账号：{handle} · {account.url}{note}",
+                f"🆔 账号：{handle} · {account.url}{note}{source_link}",
                 account.source or account.url,
             )
         )
