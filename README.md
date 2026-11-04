@@ -82,6 +82,14 @@ uv sync
 `#SK 终末地签到`、`#SK 终末地抽卡记录`、`#SK 战争回响`，用 `#SK 帮助` 查看完整功能。
 群查询开关为 `/enable skland`、`/disable skland`，不会停止后台账号签到。
 
+## 以图搜图
+
+引用图片发送 `#搜图`，或把命令和图片一起发送；也支持 `#搜图 图片URL`。
+默认查询谷歌 Lens、SauceNAO 和 trace.moe，可返回图源、作者账号或动画番名与集数。
+`#搜图 帮助` 查看用法；群开关为 `/enable image_search`、`/disable image_search`。
+搜图会把图片提交给配置的第三方引擎，无需 API key。
+全部引擎、浏览器、代理和配额配置见 [搜图说明](src/kanamibot/plugins/image_search/README.md)。
+
 ## 永恒轮回查询
 
 命令头后必须有空格（支持半角和全角空格）：
