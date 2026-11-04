@@ -32,10 +32,20 @@ def interval(started_at, now):
 
 class PetTracker:
     def __init__(
-        self, store: PetStore, source, render, send, enabled, *, clock=time.time, send_interval=6.1
+        self,
+        store: PetStore,
+        source,
+        render,
+        send,
+        enabled,
+        *,
+        clock=time.time,
+        send_interval=6.1,
+        subscription_source=None,
     ):
         self.store, self.source, self.render = store, source, render
         self.send, self.enabled, self.clock = send, enabled, clock
+        self.subscription_source = subscription_source or source
         self.send_interval = send_interval
         self._tick_lock = asyncio.Lock()
         self._subscribe_lock = asyncio.Lock()
@@ -55,10 +65,10 @@ class PetTracker:
             if any(r["player"] == nickname.casefold() for r in rows):
                 return False
             if len(rows) >= 3:
-                raise ValueError("我在每个群最多追踪 3 位玩家，请先取消旧订阅。")
-            snapshot = await asyncio.wait_for(self.source(nickname), 90)
+                raise ValueError("每个群最多追踪 3 位玩家，请先取消旧订阅。")
+            snapshot = await asyncio.wait_for(self.subscription_source(nickname), 90)
             if not self.enabled(bot, group):
-                raise ValueError("本群永恒轮回模块已关闭，我暂时无法添加订阅。")
+                raise ValueError("本群永恒轮回模块已关闭，暂时无法添加订阅。")
             now = self.clock()
             return self.store.add(
                 bot,
@@ -105,7 +115,7 @@ class PetTracker:
                         phase = "发送到期提醒"
                         if await self._deliver(
                             row,
-                            f"我已暂停追踪「{row['nickname']}」：7 天订阅已到期。"
+                            f"已暂停追踪「{row['nickname']}」：7 天订阅已到期。"
                             "需要继续时，请使用 #BS 群宠 添加 玩家名 重新订阅。",
                             expiry=True,
                         ):
@@ -146,7 +156,7 @@ class PetTracker:
                         phase = "发送对局"
                         if not await self._deliver(
                             row,
-                            f"我发现群宠「{snapshot.nickname}」刚刚完成了一场对局！",
+                            f"群宠「{snapshot.nickname}」刚刚完成了一场对局！",
                             image,
                         ):
                             continue
@@ -160,7 +170,7 @@ class PetTracker:
                             if not await self._deliver(
                                 row,
                                 f"「{snapshot.nickname}」已经 {days} 天 {hours} 小时 "
-                                f"{remainder // 60} 分钟没有游玩了，我来提醒你关注一下近况。",
+                                f"{remainder // 60} 分钟没有游玩了，可关注其近期状态。",
                             ):
                                 continue
                             changes["inactivity_match"] = latest

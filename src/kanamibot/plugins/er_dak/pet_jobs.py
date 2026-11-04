@@ -26,7 +26,7 @@ _renderer = None
 _poll_tasks = set()
 
 HELP = (
-    "我可以替本群追踪玩家的新对局。\n"
+    "群宠订阅可追踪玩家的新对局，并推送结算图。\n"
     "#BS 群宠 添加 <玩家名>\n#BS 群宠 列表\n#BS 群宠 取消 <玩家名>\n"
     "添加、取消仅限群管理员；每群最多 3 人，有效期 7 天，重复添加不续期。\n"
     "首次不补发历史，每次只推最新一局；昵称含空格请加双引号。"
@@ -59,19 +59,21 @@ async def get_tracker():
                     message += MessageSegment.image(image)
                 await get_bots()[bot].send_group_msg(group_id=group, message=message)
 
+            source = PetSource(runtime.client)
             _tracker = PetTracker(
                 PetStore(DATA_DIR / "er_dak" / "group-pets.sqlite3"),
-                PetSource(runtime.client),
+                source,
                 render,
                 send,
                 enabled,
+                subscription_source=source.for_subscription,
             )
     return _tracker
 
 
 async def command(bot: Bot, event, args):
     if not isinstance(event, GroupMessageEvent):
-        return "我只能在群聊中管理群宠订阅。"
+        return "群宠订阅仅支持在群聊中管理。"
     if not args or args == ("帮助",):
         return HELP
     action = args[0]
@@ -89,7 +91,7 @@ async def command(bot: Bot, event, args):
         if not visible:
             return "本群还没有群宠订阅。\n" + HELP
         now = time.time()
-        lines = ["我正在替本群追踪："]
+        lines = ["本群群宠订阅："]
         for row in visible:
             remaining = max(0, int(row["expires"] - now))
             status = (
@@ -115,12 +117,12 @@ async def command(bot: Bot, event, args):
         return "\n\n".join(lines)
     if action == "取消":
         removed = tracker.store.remove(bot_id, group, args[1])
-        return "我已取消这位玩家的订阅。" if removed else "本群没有这位玩家的有效订阅。"
+        return f"已取消「{args[1]}」的订阅。" if removed else "本群没有这位玩家的有效订阅。"
     added = await tracker.subscribe(bot_id, group, event.user_id, args[1])
     return (
-        f"我已开始追踪「{args[1]}」，有效期 7 天，首次不补发历史对局。"
+        f"已添加「{args[1]}」的群宠订阅，有效期 7 天，首次不补发历史对局。"
         if added
-        else "这位玩家已在本群订阅中，我不会重复订阅或延长有效期。"
+        else "这位玩家已在本群订阅中，不会重复订阅或延长有效期。"
     )
 
 

@@ -380,3 +380,103 @@ def test_sync_rate_limit_retries_then_fails_without_reading_matches(tmp_path, mo
         assert len(calls) == 3 and all("player-sync" in path for path in calls)
 
     run(scenario())
+
+
+@pytest.mark.parametrize("http_limited", [False, True])
+def test_subscribe_uses_verified_baseline_when_sync_is_limited(tmp_path, monkeypatch, http_limited):
+    from kanamibot.plugins.er_dak import match_detail
+
+    calls = []
+
+    def handle(request):
+        calls.append(request.url.path)
+        if "player-sync" in request.url.path:
+            return httpx.Response(429 if http_limited else 200, json={"retry_after": 1000})
+        if request.url.path.endswith("/profile"):
+            return httpx.Response(200, json={"player": {"name": "Player"}})
+        return httpx.Response(
+            200,
+            json={
+                "matches": [
+                    {
+                        "nickname": "Player",
+                        "gameId": 99,
+                        "seasonId": 41,
+                        "startDtm": "2026-11-04T12:00:00+0800",
+                    }
+                ]
+            },
+        )
+
+    monkeypatch.setattr(match_detail.asyncio, "sleep", AsyncMock())
+
+    async def scenario():
+        config = ERBSConfig(private_database_path=tmp_path / "cache.db", retry_count=0)
+        async with AsyncERBSClient(config, transport=httpx.MockTransport(handle)) as client:
+            source = PetSource(client)
+            store = PetStore(tmp_path / "pets.db")
+            tracker = PetTracker(
+                store,
+                source,
+                AsyncMock(),
+                AsyncMock(),
+                lambda *_: True,
+                subscription_source=source.for_subscription,
+            )
+            assert await tracker.subscribe("bot", 1, 7, "Player")
+            baseline = store.rows("bot", 1)[0]
+            assert baseline["last_match"] == 99
+            assert calls[-2:] == [
+                "/api/v1/players/Player/profile",
+                "/api/v1/players/Player/matches",
+            ]
+            # Polling still requires sync success; registration fallback is never used here.
+            calls.clear()
+            with pytest.raises(RateLimited):
+                await source("Player")
+            assert all("player-sync" in path for path in calls)
+
+    run(scenario())
+
+
+@pytest.mark.parametrize(
+    "profile,matches",
+    [({}, []), ({"player": {"name": "Player"}}, [{"nickname": "Other", "gameId": 99}])],
+)
+def test_sync_limited_registration_rejects_unverified_data(tmp_path, monkeypatch, profile, matches):
+    from kanamibot.plugins.er_dak import match_detail
+
+    def handle(request):
+        if "player-sync" in request.url.path:
+            return httpx.Response(200, json={"retry_after": 1000})
+        return httpx.Response(
+            200, json=profile if request.url.path.endswith("/profile") else {"matches": matches}
+        )
+
+    monkeypatch.setattr(match_detail.asyncio, "sleep", AsyncMock())
+
+    async def scenario():
+        async with AsyncERBSClient(
+            ERBSConfig(private_database_path=tmp_path / "cache.db"),
+            transport=httpx.MockTransport(handle),
+        ) as client:
+            source = PetSource(client)
+            store = PetStore(tmp_path / "pets.db")
+            tracker = PetTracker(
+                store,
+                source,
+                AsyncMock(),
+                AsyncMock(),
+                lambda *_: True,
+                subscription_source=source.for_subscription,
+            )
+            with pytest.raises(UpstreamUnavailable):
+                await tracker.subscribe("bot", 1, 7, "Player")
+            assert store.rows("bot") == []
+
+    run(scenario())
+
+
+def test_group_pet_help_uses_neutral_wording():
+    assert "我" not in pet_jobs.HELP
+    assert "群宠订阅" in pet_jobs.HELP

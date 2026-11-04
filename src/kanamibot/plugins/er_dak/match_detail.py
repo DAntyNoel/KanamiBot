@@ -41,15 +41,18 @@ class PetSource:
         self._lock = asyncio.Lock()
         self._last_lookup = 0.0
 
-    async def __call__(self, nickname):
+    async def __call__(self, nickname, *, allow_sync_limited=False):
         async with self._lock:
             delay = 2 - (time.monotonic() - self._last_lookup)
             if delay > 0:
                 await asyncio.sleep(delay)
             self._last_lookup = time.monotonic()
-            return await self._fetch(nickname)
+            return await self._fetch(nickname, allow_sync_limited=allow_sync_limited)
 
-    async def _fetch(self, nickname):
+    async def for_subscription(self, nickname):
+        return await self(nickname, allow_sync_limited=True)
+
+    async def _sync(self, nickname):
         # use_cache=False also disables stale-on-error fallback. Tracking must not use old evidence.
         for attempt in range(3):
             synced = await self.client._request_json(
@@ -67,7 +70,25 @@ class PetSource:
             canonical = synced.get("player_name")
             if synced.get("not_found") or not isinstance(canonical, str) or not canonical.strip():
                 raise UpstreamUnavailable("DAK player sync returned no identity")
-            break
+            return canonical
+
+    async def _fetch(self, nickname, *, allow_sync_limited=False):
+        try:
+            canonical = await self._sync(nickname)
+        except RateLimited as exc:
+            if not allow_sync_limited:
+                raise
+            # Registration needs a verified baseline, not a successful refresh job.
+            # A profile 404 here is not proof of account deletion: DAK may not index it yet.
+            profile = await self.client._request_json(
+                f"/api/v1/players/{quote(nickname, safe='')}/profile",
+                ttl=0,
+                use_cache=False,
+            )
+            player = profile.get("player")
+            canonical = player.get("name") if isinstance(player, dict) else None
+            if not isinstance(canonical, str) or not canonical.strip():
+                raise UpstreamUnavailable("DAK player profile returned no identity") from exc
         data = await self.client._request_json(
             f"/api/v1/players/{quote(canonical, safe='')}/matches",
             params={"matchingMode": "ALL", "teamMode": "ALL", "page": 1},
@@ -262,7 +283,5 @@ class MatchDetailRenderer(SkiaCardRenderer):
                     self._label(canvas, skill.get("name"), x - 4, y + 130, size=12, width=86)
                 y += 148
             y += 8
-        self._label(
-            canvas, "DAK.GG · 我为你记录这一局的结算", 28, height - 14, size=16, color=0xFF6D7889
-        )
+        self._label(canvas, "DAK.GG · 对局结算", 28, height - 14, size=16, color=0xFF6D7889)
         return bytes(surface.makeImageSnapshot().encodeToData())
