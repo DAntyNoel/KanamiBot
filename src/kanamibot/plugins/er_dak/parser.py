@@ -24,6 +24,9 @@ DAK_ACTIONS = {
     "查询装备",
 }
 SUBCOMMANDS = DAK_ACTIONS | {
+    "群宠",
+    "对局",
+    "查询对局",
     "帮助",
     "来源",
     "绑定",

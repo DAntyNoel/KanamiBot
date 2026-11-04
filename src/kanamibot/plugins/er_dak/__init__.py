@@ -8,7 +8,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from nonebot import get_driver, on_regex
-from nonebot.adapters.onebot.v11 import GroupMessageEvent, MessageEvent, MessageSegment
+from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, MessageEvent, MessageSegment
+from nonebot.exception import FinishedException
 from nonebot.internal.matcher import Matcher
 from nonebot.log import logger
 from nonebot.plugin import PluginMetadata
@@ -41,6 +42,8 @@ HELP_TEXT = """永恒轮回查询
 命令头后必须有空格；自动查询优先角色，同名玩家请使用 #BS战绩。
 含空格的名称请加双引号；角色支持名称、英文名、ID 和拼音。
 #BS 绑定 <昵称> | 解绑
+#BS 群宠 添加 <昵称> | 列表 | 取消 <昵称>
+#BS 对局 <对局ID> <昵称> <赛季ID>：全场结算图
 #BS 查询/段位/统计/近期/实验体/皮肤/队友 [昵称]
 #BS 战绩 [昵称] [1-10]
 #BS 多查 <昵称1> <昵称2> [昵称3] | 对比 <昵称1> <昵称2>
@@ -77,6 +80,9 @@ try:
 except ImportError as exc:
     logger.warning(f"[er_dak] ERBS-plugin submodule/dependency unavailable; plugin disabled: {exc}")
 else:
+    from . import pet_jobs
+    from .match_detail import MatchDetailRenderer, detail_card
+
     _user_cooldowns: dict[int, float] = {}
     _group_cooldowns: dict[int, float] = {}
     _runtime_lock = asyncio.Lock()
@@ -106,6 +112,7 @@ else:
 
     async def _shutdown_runtime() -> None:
         global _runtime
+        await pet_jobs.shutdown()
         if _runtime is None:
             return
         await _runtime.renderer.close()
@@ -242,7 +249,7 @@ else:
         raise InvalidQuery("未知子命令，请使用 #BS 帮助。")
 
     @er_matcher.handle()
-    async def handle_er(event: MessageEvent, matcher: Matcher) -> None:
+    async def handle_er(bot: Bot, event: MessageEvent, matcher: Matcher) -> None:
         try:
             command = parse_command(event.get_plaintext())
         except ValueError as exc:
@@ -267,12 +274,30 @@ else:
             await matcher.finish(cooldown)
         try:
             runtime = await _get_runtime()
+            if command.action == "群宠":
+                result = await pet_jobs.command(bot, event, command.args)
+                await matcher.finish(result)
+            if command.action in {"对局", "查询对局"}:
+                args = command.args
+                if (len(args) != 3 or not args[0].isdigit() or int(args[0]) <= 0
+                        or not args[2].isdigit()):
+                    raise InvalidQuery("用法：#BS 对局 <对局ID> <昵称> <赛季ID>（钴协议为 0）")
+                card = await detail_card(runtime.client, args[1], int(args[2]), int(args[0]))
+                renderer = MatchDetailRenderer(runtime.client.config)
+                try:
+                    image = await renderer.render(card)
+                finally:
+                    await renderer.close()
+                await matcher.finish(MessageSegment.reply(event.message_id)
+                                     + MessageSegment.image(image))
             card = await _card_for(
                 runtime.service, event, command, progress=SummaryProgressReporter(matcher.send),
             )
             card = annotate_query_payload(card)
             with timing_span("er_dak.render"):
                 image = await runtime.renderer.render(card)
+        except FinishedException:
+            raise
         except PlayerNotFound:
             source = "ERCraft" if command.action == "summary" else "DAK.GG"
             await matcher.finish(f"未找到该 {source} 玩家，请检查昵称。")
