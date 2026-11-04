@@ -46,6 +46,11 @@ def run(coroutine):
         ("#搜图", True),
         ("#搜图 帮助", True),
         ("#搜图\u3000https://example.com/a", True),
+        ("@12345678 #搜图", True),
+        ("@12345678\u3000#搜图 帮助", True),
+        ("@12345678 @87654321 #搜图", True),
+        ("@12345678 #搜图片", False),
+        ("随便 @12345678 #搜图", False),
         ("#搜图片", False),
         ("/鱼鱼找鸡", False),
         ("随便 #搜图", False),
@@ -53,6 +58,17 @@ def run(coroutine):
 )
 def test_command_boundaries(text, expected):
     assert run(plugin.command_rule(SimpleNamespace(get_plaintext=lambda: text))) is expected
+
+
+@pytest.mark.parametrize("typed", [True, False])
+def test_leading_mentions_preserve_command_arguments(typed):
+    from nonebot.adapters.onebot.v11 import Message, MessageSegment
+
+    message = Message(MessageSegment.text("@12345678") if typed else MessageSegment.at(12345678))
+    message += MessageSegment.text(" #搜图 https://example.com/image.jpg")
+    event = SimpleNamespace(get_plaintext=message.extract_plain_text)
+    assert run(plugin.command_rule(event))
+    assert plugin.command_text(event)[3:].strip() == "https://example.com/image.jpg"
 
 
 @pytest.mark.parametrize(

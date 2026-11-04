@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 from pathlib import Path
 
@@ -33,16 +34,22 @@ _busy: set[str] = set()
 _last: dict[str, float] = {}
 HELP = (
     "引用图片发送 #搜图，或把 #搜图 和图片一起发送。\n"
+    "支持在命令前艾特，例如 @12345678 #搜图。\n"
     "也支持 #搜图 https://公开图片地址；每次查第一张图片。\n"
     "可查询图源、作者社交账号和动画番名/集数。推断与相似图结果会注明。\n"
     "搜图会将图片提交给配置的第三方识图引擎。"
 )
 
 
+def command_text(event: MessageEvent) -> str:
+    # OneBot at segments are already excluded by get_plaintext(); also accept typed QQ mentions.
+    return re.sub(r"^(?:@\d+\s+)+", "", event.get_plaintext().strip())
+
+
 async def command_rule(event: MessageEvent) -> bool:
     if not config.image_search_enabled:
         return False
-    text = event.get_plaintext().strip()
+    text = command_text(event)
     return text == "#搜图" or text.startswith(("#搜图 ", "#搜图\n", "#搜图\u3000", "#搜图\t"))
 
 
@@ -53,7 +60,7 @@ get_driver().on_shutdown(browser.close)
 @search.handle()
 @timed()
 async def handle_search(bot: Bot, event: MessageEvent) -> None:
-    argument = event.get_plaintext().strip()[3:].strip()
+    argument = command_text(event)[3:].strip()
     if argument in {"帮助", "help"}:
         await search.finish(HELP)
     if argument and not argument.startswith(("http://", "https://")):
