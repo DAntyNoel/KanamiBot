@@ -9,6 +9,7 @@ from playwright.async_api import BrowserContext, Playwright, async_playwright
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from kanamibot.core.paths import DATA_DIR
+from kanamibot.lens_session import PROBE_SCRIPT, USER_AGENT, CookieFile
 
 from .config import Config
 from .network import fetch, upload_allowed, validate_url
@@ -26,7 +27,7 @@ from .results import (
 )
 
 logger = logging.getLogger(__name__)
-UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36"
+UA = USER_AGENT
 NETWORK_ENGINES = {"saucenao", "iqdb", "tracemoe"}
 EXCLUDED = {
     "lens": ["google.com", "gstatic.com", "googleusercontent.com"],
@@ -51,6 +52,23 @@ class Browser:
         self.lock = asyncio.Lock()
         self.playwright: Playwright | None = None
         self.context: BrowserContext | None = None
+        self.cookies = (
+            CookieFile(config.image_search_cookie_file) if config.image_search_cookie_file else None
+        )
+
+    async def reload_cookies(self) -> None:
+        if self.cookies is not None and self.context is not None:
+            try:
+                await self.cookies.reload(self.context, self.config.image_search_google_cookie)
+            except Exception as exc:
+                logger.warning("导入 Lens Cookie 失败：%s", type(exc).__name__)
+
+    async def save_cookies(self) -> None:
+        if self.cookies is not None and self.context is not None:
+            try:
+                await self.cookies.save(self.context, source="successful-query")
+            except Exception as exc:
+                logger.warning("保存 Lens Cookie 失败：%s", type(exc).__name__)
 
     async def ensure(self) -> BrowserContext:
         if self.context is None:
@@ -223,6 +241,7 @@ class Browser:
         async with self.lock:
             async with asyncio.timeout(self.config.image_search_timeout):
                 context = await self.ensure()
+                await self.reload_cookies()
                 page = await context.new_page()
                 page.set_default_timeout(self.config.image_search_timeout * 1000)
                 try:
@@ -296,6 +315,8 @@ class Browser:
                             await page.wait_for_timeout(2200)
                             await self.wait_results(page, engine)
                             rows = await self.links(page, engine) + rows
+                    if engine in {"lens", "google"}:
+                        await self.save_cookies()
                     return rows
                 finally:
                     await page.close()
@@ -303,7 +324,9 @@ class Browser:
     async def web_search(self, query: str, google: bool = False) -> list[Candidate]:
         async with self.lock:
             async with asyncio.timeout(min(25, self.config.image_search_timeout)):
-                page = await (await self.ensure()).new_page()
+                context = await self.ensure()
+                await self.reload_cookies()
+                page = await context.new_page()
                 try:
                     domain = "www.google.com" if google else "www.bing.com"
                     await page.goto(
@@ -311,6 +334,8 @@ class Browser:
                         wait_until="domcontentloaded",
                     )
                     await page.wait_for_timeout(1200)
+                    if google and not (await page.evaluate(PROBE_SCRIPT))["blocked"]:
+                        await self.save_cookies()
                     excluded = EXCLUDED["google" if google else "bing"]
                     return [
                         Candidate("search", url, title)

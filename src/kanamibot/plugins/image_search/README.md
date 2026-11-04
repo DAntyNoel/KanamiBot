@@ -78,9 +78,42 @@ URL 仅接受公开 HTTP(S) 标准端口，拒绝本机/内网地址，逐跳检
 以上目录均被 Git 忽略。浏览器首次需要时启动并复用，NoneBot 关闭时回收本插件创建的浏览器。
 使用仓库通常的 Chromium 安装步骤即可；无需运行原插件安装脚本。
 
+## Lens 人工认证与 Cookie
+
+双击仓库根目录的 `lens-login.cmd`，或在终端运行：
+
+```powershell
+.\lens-login.cmd
+# 可选：覆盖代理、等待时间，或使用指定图片触发测试搜索
+.\lens-login.cmd --proxy http://127.0.0.1:7897 --timeout 600
+.\lens-login.cmd --image D:\Pictures\test.jpg
+```
+
+工具读取本仓库 `.env` 的搜图代理和浏览器配置，打开可见浏览器并自动上传内置几何测试图。
+若出现 Google 验证，管理员在浏览器内手动完成即可，无需复制 Cookie 或回终端按确认。
+工具连续确认实际 Lens 结果页后，自动保存 Google Cookie 并关闭认证浏览器。
+无匹配的 Lens 结果页也可以保存；普通 Google 搜索页、验证码页、仅有 Cookie 都不算验证通过。
+默认等待 10 分钟；超时、提前关闭窗口或取消时不覆盖现有 Cookie。
+如果手动操作后停在首页，可以在这个窗口内再完成一次 Lens 图片搜索。
+
+- `data/image_search/browser-login/` 是认证工具专用资料目录，与 Bot 的 `browser/` 分离，
+  可以在 Bot 运行期间使用；同一时间只运行一个认证窗口。
+- `IMAGE_SEARCH_COOKIE_FILE` 默认 `data/image_search/google_cookies.json`，相对路径从仓库根目录计算。
+  支持 Playwright Cookie 数组、`storage_state` 的 `cookies` 数组及本工具的导出格式。
+  只导入/导出 Google 域 Cookie，保留域名、路径、有效期和安全属性；不导入其他站点会话。
+- `IMAGE_SEARCH_GOOGLE_COOKIE` 可选填浏览器复制的完整 Cookie 请求头，仅在 Cookie 文件不存在时
+  作为初始值。正常使用认证工具无需填写。更新后的文件优先，不会反复用旧请求头覆盖。
+- Bot 在每次浏览器查询前检查 Cookie 文件变化并自动导入；成功完成 Google 查询后自动保存服务端
+  更新的 Cookie。查询期间若文件已被人工认证更新，Bot 跳过旧会话保存，下次查询加载新文件。
+- Cookie 和认证资料均存放于忽略的 `data/`，不输出 Cookie 值到日志，不提交到仓库。
+  认证工具不会启动、停止或重启 NoneBot、NapCat，也不会读取个人 Chrome / Edge 资料。
+
+首次升级到支持 Cookie 热加载的版本仍需重启本仓库 NoneBot；之后重新认证不需要重启。
+人工认证通过不保证 Google 永久免验证，失效后重新运行此 CMD。工具不会自动解答验证码。
+
 ## 验证
 
 ```powershell
-.venv/Scripts/python.exe -m pytest -q tests/test_image_search.py
-.venv/Scripts/ruff.exe check --no-cache src/kanamibot/plugins/image_search tests/test_image_search.py
+.venv/Scripts/python.exe -m pytest -q tests/test_image_search.py tests/test_lens_session.py
+.venv/Scripts/ruff.exe check --no-cache src/kanamibot/plugins/image_search src/kanamibot/lens_session.py scripts/lens_login.py tests/test_image_search.py tests/test_lens_session.py
 ```

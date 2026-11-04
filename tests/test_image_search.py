@@ -506,7 +506,37 @@ def test_previews_download_failures_deduplication_and_selected_source(monkeypatc
         assert preview.size == (256, 512)
 
 
-def test_browser_engines_with_local_responses():
+def test_running_search_browser_reloads_cookie_file_without_restart(tmp_path):
+    import json
+
+    async def scenario():
+        path = tmp_path / "cookies.json"
+        cookie = {"name": "NID", "value": "verified", "domain": ".google.com", "path": "/"}
+        path.write_text(json.dumps({"cookies": [cookie]}), encoding="utf-8")
+        browser = engines.Browser(Config(image_search_cookie_file=str(path)))
+        context = SimpleNamespace(
+            cookies=AsyncMock(return_value=[{**cookie, "value": "old"}]),
+            clear_cookies=AsyncMock(),
+            add_cookies=AsyncMock(),
+        )
+        browser.context = context
+        await browser.reload_cookies()
+        assert context.add_cookies.call_args.args[0][0]["value"] == "verified"
+        path.write_text(
+            json.dumps({"cookies": [{**cookie, "value": "newer-login"}]}), encoding="utf-8"
+        )
+        await browser.save_cookies()
+        assert json.loads(path.read_text())["cookies"][0]["value"] == "newer-login"
+        await browser.reload_cookies()
+        assert context.add_cookies.call_args.args[0][0]["value"] == "newer-login"
+        context.cookies.return_value = [{**cookie, "value": "renewed-by-google"}]
+        await browser.save_cookies()
+        assert json.loads(path.read_text())["cookies"][0]["value"] == "renewed-by-google"
+
+    run(scenario())
+
+
+def test_browser_engines_with_local_responses(tmp_path):
     """Run real Chromium multipart/navigation/DOM paths without contacting the search sites."""
     from playwright.async_api import async_playwright
 
@@ -516,7 +546,12 @@ def test_browser_engines_with_local_responses():
                 pytest.skip("Playwright Chromium is not installed")
             chromium = await playwright.chromium.launch(headless=True)
             context = await chromium.new_context()
-            browser = engines.Browser(Config(image_search_timeout=10))
+            browser = engines.Browser(
+                Config(
+                    image_search_timeout=10,
+                    image_search_cookie_file=str(tmp_path / "cookies.json"),
+                )
+            )
             browser.context = context
             uploads = []
 

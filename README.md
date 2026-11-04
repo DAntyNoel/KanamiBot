@@ -89,6 +89,8 @@ uv sync
 `#搜图 帮助` 查看用法；群开关为 `/enable image_search`、`/disable image_search`。
 搜图会把图片提交给配置的第三方引擎，无需 API key。
 全部引擎、浏览器、代理和配额配置见 [搜图说明](src/kanamibot/plugins/image_search/README.md)。
+Lens 要求人机验证时，双击 `lens-login.cmd`，在弹出的浏览器内完成验证，工具会自动保存 Cookie；
+搜图插件下一次查询自动读取，不需要重复重启。
 
 ## 永恒轮回查询
 
