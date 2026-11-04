@@ -14,6 +14,7 @@ from urllib.parse import quote
 
 from erbs_plugin import PlayerNotFound, RateLimited, SkiaCardRenderer, UpstreamUnavailable
 from erbs_plugin.models import CardPayload
+from erbs_plugin.rendering.dak import DARK, INK, LINE, MUTED, WHITE, Drawing, num
 
 from .group_pet import Snapshot
 
@@ -138,22 +139,25 @@ async def build_detail_card(client, data, nickname, game_id):
                 "items",
                 "trait-skills",
                 "tactical-skills",
+                "masteries",
             )
         )
     )
     maps = []
     for table, key in zip(
-        tables, ("characters", "items", "traitSkills", "tacticalSkills"), strict=True
+        tables, ("characters", "items", "traitSkills", "tacticalSkills", "masteries"), strict=True
     ):
         maps.append({number(r.get("id") or r.get("code")): r for r in table.get(key, [])})
-    characters, items, traits, tactics = maps
+    characters, items, traits, tactics, weapons = maps
+    trait_groups = {r["key"]: r for r in tables[2].get("traitSkillGroups", [])}
 
     def asset(table, code, prefix):
         code = number(code)
         entry = table.get(code, {})
         return {
             "name": entry.get("name") or (f"{prefix} {code}" if code else "—"),
-            "imageUrl": entry.get("imageUrl"),
+            "imageUrl": entry.get("imageUrl") or entry.get("iconUrl"),
+            "grade": entry.get("grade"),
         }
 
     def shown(row, key):
@@ -162,6 +166,16 @@ async def build_detail_card(client, data, nickname, game_id):
     teams = defaultdict(list)
     for row in rows:
         character = asset(characters, row.get("characterNum"), "实验体")
+        skin = next(
+            (
+                s
+                for s in characters.get(number(row.get("characterNum")), {}).get("skins", [])
+                if s.get("id") == row.get("skinCode")
+            ),
+            {},
+        )
+        if skin.get("imageUrl"):
+            character["imageUrl"] = skin["imageUrl"].replace("CharResult_", "CharProfile_")
         equipment = row.get("equipment") or []
         if isinstance(equipment, dict):
             equipment = list(equipment.values())
@@ -171,6 +185,8 @@ async def build_detail_card(client, data, nickname, game_id):
             *(row.get("traitSecondSub") or []),
         ]
         tactical = tactics.get(number(row.get("tacticalSkillGroup")), {})
+        secondary = next(iter(row.get("traitSecondSub") or []), None)
+        secondary_group = trait_groups.get(traits.get(number(secondary), {}).get("group"), {})
         player = {
             "nickname": str(row.get("nickname") or "—"),
             "focused": str(row.get("nickname", "")).casefold() == nickname.casefold(),
@@ -181,8 +197,16 @@ async def build_detail_card(client, data, nickname, game_id):
                 str(shown(row, k)) for k in ("playerKill", "playerDeaths", "playerAssistant")
             ),
             "damage": shown(row, "damageToPlayer"),
+            "monsterDamage": shown(row, "damageToMonster"),
+            "credits": shown(row, "totalGainVFCredit"),
+            "teamKills": shown(row, "teamKill"),
             "taken": shown(row, "damageFromPlayer"),
             "rp": f"{shown(row, 'mmrAfter')} ({shown(row, 'mmrGain')})",
+            "rpAfter": row.get("mmrAfter"),
+            "weapon": asset(weapons, row.get("bestWeapon"), "武器"),
+            "coreTrait": asset(traits, row.get("traitFirstCore"), "潜能"),
+            "secondaryGroup": secondary_group,
+            "tacticalLevel": shown(row, "tacticalSkillLevel"),
             "equipment": [asset(items, code, "装备") for code in equipment[:5]],
             "traits": [asset(traits, code, "潜能") for code in perks if code],
             "tactical": tactical or {"name": f"战术 {row.get('tacticalSkillGroup', '—')}"},
@@ -209,7 +233,11 @@ async def build_detail_card(client, data, nickname, game_id):
         title=f"对局结算 · {game_id}",
         subtitle=f"{nickname} · {when} · {rows[0].get('serverName', '—')}",
         sections=sections,
-        footer={"source": "DAK.GG"},
+        footer={
+            "source": "DAK.GG",
+            "averageRp": (data.get("matchTier") or {}).get("mmr"),
+            "mode": {2: "匹配", 3: "排位", 6: "钴协议"}.get(rows[0].get("matchingMode"), "对局"),
+        },
     )
 
 
@@ -218,70 +246,97 @@ class MatchDetailRenderer(SkiaCardRenderer):
 
     def _render(self, payload):
         self._initialize()
-        height = 160 + sum(48 + 148 * len(s["items"]) for s in payload.sections)
-        surface = self._skia.Surface.MakeRasterN32Premul(1100, height)
-        canvas = surface.getCanvas()
-        canvas.clear(0xFFF3F5F8)
-        self._rect(canvas, 0, 0, 1100, 110, 0xFF202B40, 0)
-        self._label(canvas, payload.title, 28, 44, size=30, color=0xFFFFFFFF, bold=True)
-        self._label(canvas, payload.subtitle, 28, 81, size=19, color=0xFFCAD4E6, width=1044)
-        colors = (
-            0xFF4266D5,
-            0xFF169779,
-            0xFF9963B8,
-            0xFFCF8528,
-            0xFF318CB0,
-            0xFFB85C85,
-            0xFF6A8C32,
-            0xFF9C6D4C,
+        row_height, rank_width = 96, 74
+        top = 162
+        height = top + sum(len(section["items"]) * row_height for section in payload.sections)
+        d = Drawing(self, 1100, height)
+        d.rect(0, 0, 1100, 48, WHITE)
+        d.text(payload.subtitle, 20, 30, 16, MUTED, width=890)
+        d.text(payload.title.split(" · ")[-1], 934, 30, 16, MUTED, width=150)
+        d.rect(0, 48, 1100, 54, 0xFFEE818B)
+        average = payload.footer.get("averageRp")
+        average = num(average, 0) if isinstance(average, (int, float)) and average > 0 else "—"
+        d.center(
+            f"对局平均 RP {average}  ·  {payload.footer.get('mode', '对局')}",
+            0,
+            82,
+            1100,
+            18,
+            WHITE,
+            True,
         )
-        y = 126
-        for index, section in enumerate(payload.sections):
-            color = colors[index % len(colors)]
-            self._label(canvas, section["title"], 28, y + 24, size=22, color=color, bold=True)
-            y += 40
+        d.rect(0, 102, 1100, 60, 0xFFE8EFF1)
+        d.center("#", 0, 138, rank_width, 15, MUTED)
+        d.text("玩家", 90, 138, 16, MUTED)
+        for label, x, width in (
+            ("TK / K / D / A", 494, 146),
+            ("伤害", 640, 95),
+            ("荣誉值", 850, 90),
+            ("物品出装", 940, 160),
+        ):
+            d.center(label, x, 138, width, 15, MUTED)
+        d.center("对野生动物", 735, 127, 115, 14, MUTED)
+        d.center("造成的伤害", 735, 146, 115, 14, MUTED)
+        players = [p for section in payload.sections for p in section["items"]]
+        max_damage = max((number(p["damage"]) for p in players), default=1) or 1
+        max_monster = max((number(p["monsterDamage"]) for p in players), default=1) or 1
+
+        def metric(value, maximum, x, y, width, color):
+            d.rect(x + (width - 58) / 2, y + 29, 58, 11, LINE, 6)
+            if isinstance(value, (int, float)) and value > 0:
+                d.rect(
+                    x + (width - 58) / 2, y + 29, max(4, 58 * min(1, value / maximum)), 11, color, 6
+                )
+            d.center(num(value, 0), x, y + 61, width, 17, MUTED)
+
+        y = top
+        for section in payload.sections:
+            team_height = len(section["items"]) * row_height
+            highlighted = any(p["focused"] for p in section["items"])
+            d.rect(0, y, 1100, team_height, 0xFFFFFBEA if highlighted else WHITE)
+            d.rect(0, y, rank_width, team_height, 0xFFFFF9E5 if highlighted else 0xFFFAFAFA)
+            rank = min(p["rank"] for p in section["items"])
+            d.center(
+                f"#{rank}" if rank < 999 else "—", 0, y + team_height / 2 + 6, rank_width, 17, INK
+            )
             for p in section["items"]:
-                self._rect(canvas, 24, y, 1052, 140, 0xFFFFFFFF)
-                self._rect(canvas, 24, y, 5, 140, color, 0)
-                self._image(canvas, p["character"]["imageUrl"], 40, y + 14, 68, 68)
-                name_color = 0xFFD83C4B if p["focused"] else 0xFF202733
-                self._label(
-                    canvas,
+                d.image(p["character"]["imageUrl"], 92, y + 18, 60, 60, circle=True)
+                d.rect(131, y + 58, 28, 23, WHITE, 11)
+                d.center(p["level"], 131, y + 75, 28, 14)
+                icons = [p["weapon"], p["coreTrait"], p["tactical"], p["secondaryGroup"]]
+                for index, icon in enumerate(icons):
+                    d.image(
+                        icon.get("imageUrl"),
+                        169 + index % 2 * 30,
+                        y + 21 + index // 2 * 30,
+                        27,
+                        27,
+                        circle=index % 2 == 1,
+                        bg=0xFF45474B if index % 2 == 0 else WHITE,
+                    )
+                d.rect(181, y + 66, 15, 16, DARK, 3)
+                d.center(p["tacticalLevel"], 181, y + 79, 15, 11, WHITE)
+                d.text(
                     p["nickname"],
-                    124,
-                    y + 30,
-                    size=23,
-                    color=name_color,
-                    bold=True,
-                    width=365,
+                    244,
+                    y + 39,
+                    18,
+                    0xFFD85160 if p["focused"] else 0xFF153E68,
+                    p["focused"],
+                    242,
                 )
-                self._label(
-                    canvas,
-                    f"{p['character']['name']} · Lv.{p['level']}",
-                    124,
-                    y + 58,
-                    size=18,
-                    width=365,
-                )
-                self._label(canvas, f"K / D / A  {p['kda']}", 510, y + 30, size=21)
-                self._label(
-                    canvas,
-                    f"伤害 {p['damage']}   承伤 {p['taken']}   RP {p['rp']}",
-                    510,
-                    y + 58,
-                    size=17,
-                    width=540,
-                )
-                for slot, item in enumerate(p["equipment"]):
-                    x = 124 + slot * 72
-                    self._image(canvas, item["imageUrl"], x, y + 69, 48, 42)
-                    self._label(canvas, item["name"], x - 5, y + 130, size=12, width=69)
-                skills = [p["tactical"], *p["traits"]]
-                for slot, skill in enumerate(skills):
-                    x = 510 + slot * 89
-                    self._image(canvas, skill.get("imageUrl"), x, y + 69, 38, 38)
-                    self._label(canvas, skill.get("name"), x - 4, y + 130, size=12, width=86)
-                y += 148
-            y += 8
-        self._label(canvas, "DAK.GG · 对局结算", 28, height - 14, size=16, color=0xFF6D7889)
-        return bytes(surface.makeImageSnapshot().encodeToData())
+                rp = num(p["rpAfter"], 0)
+                d.text(f"{rp} RP", 244, y + 65, 16, MUTED, width=240)
+                d.center(f"{p['teamKills']} / {p['kda']}", 494, y + 53, 146, 17, INK, True)
+                metric(p["damage"], max_damage, 640, y, 95, 0xFFCD9474)
+                metric(p["monsterDamage"], max_monster, 735, y, 115, 0xFF789638)
+                d.center(num(p["credits"], 0), 850, y + 53, 90, 17, MUTED)
+                for slot in range(5):
+                    x = 950 + (slot % 3 if slot < 3 else slot - 3 + 0.5) * 47
+                    ey = y + 16 + (0 if slot < 3 else 34)
+                    d.rect(x, ey, 43, 29, LINE, 4)
+                    if slot < len(p["equipment"]):
+                        d.item(p["equipment"][slot], x, ey, 43, 29)
+                y += row_height
+            d.line(0, y - 1, 1100)
+        return d.finish()

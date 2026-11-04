@@ -272,6 +272,7 @@ def test_match_validation_and_renderer(tmp_path):
         "tacticalSkillGroup": 60,
     }
     tables = {
+        "masteries": [],
         "characters": [{"id": 1, "name": "实验体"}],
         "items": [{"id": 100, "name": "武器"}],
         "trait-skills": {"traitSkills": [{"id": 10, "name": "潜能"}]},
