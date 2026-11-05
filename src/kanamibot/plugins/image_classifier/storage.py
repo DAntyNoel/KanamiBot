@@ -5,8 +5,10 @@ import json
 import os
 import re
 import shutil
+import sqlite3
 import threading
 import uuid
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -24,6 +26,37 @@ class ResultStore:
         self.root = root.resolve()
         self._lock = threading.Lock()
         self._images: dict[str, Path] = {}
+
+    def reviewed_before(self, user: str, cutoff: datetime) -> set[str]:
+        with self._review_db() as db:
+            return {
+                row[0]
+                for row in db.execute(
+                    "SELECT digest FROM delivered WHERE user = ? AND delivered_at < ?",
+                    (user, cutoff.astimezone(UTC).isoformat()),
+                )
+            }
+
+    def mark_reviewed(self, user: str, digests: list[str], now: datetime) -> None:
+        with self._review_db() as db:
+            db.executemany(
+                "INSERT OR IGNORE INTO delivered(user, digest, delivered_at) VALUES (?, ?, ?)",
+                [(user, digest, now.astimezone(UTC).isoformat()) for digest in digests],
+            )
+
+    @contextmanager
+    def _review_db(self):
+        # Metadata only; keep delivery history outside per-image retention directories.
+        self.root.mkdir(parents=True, exist_ok=True)
+        db = sqlite3.connect(self.root / "review_history.sqlite3", timeout=30)
+        try:
+            with db:
+                db.execute("""CREATE TABLE IF NOT EXISTS delivered (
+                    user TEXT NOT NULL, digest TEXT NOT NULL, delivered_at TEXT NOT NULL,
+                    PRIMARY KEY (user, digest))""")
+                yield db
+        finally:
+            db.close()
 
     def save(
         self,
@@ -112,7 +145,7 @@ class ResultStore:
                             summarize(
                                 classification["anime_scores"],
                                 classification["nsfw_scores"],
-                            settings,
+                                settings,
                                 classification.get("anime_real_scores"),
                             )
                         )

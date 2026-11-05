@@ -20,7 +20,7 @@ from nonebot.params import CommandArg
 from nonebot.permission import SUPERUSER
 
 from .config import Settings
-from .review import preview_page
+from .review import daily_preview_pages, preview_page
 from .service import ClassificationService, ImageJob
 
 require("nonebot_plugin_apscheduler")
@@ -87,11 +87,22 @@ async def preview_images(
 ) -> None:
     try:
         data, text = await asyncio.to_thread(
-            preview_page, service.store, settings, int(args.extract_plain_text().strip() or "1")
+            preview_page,
+            service.store,
+            settings,
+            int(args.extract_plain_text().strip() or "1"),
+            user=str(event.user_id),
         )
     except ValueError as exc:
         await preview.finish(str(exc))
-    await preview.finish(MessageSegment.image(data) + MessageSegment.text(text))
+    await preview.finish(_review_message(data, text))
+
+
+def _review_message(data: bytes, text: str) -> Message:
+    message = Message(text)
+    if data:
+        message.insert(0, MessageSegment.image(data))
+    return message
 
 
 @save.handle()
@@ -129,17 +140,24 @@ async def nightly_review() -> None:
     bots = [bot for bot in get_bots().values() if isinstance(bot, Bot)]
     if not bots:
         return
-    data, text = await asyncio.to_thread(preview_page, service.store, settings)
-    for user in driver.config.superusers:
-        if not user.isdecimal():
-            continue
-        # Try another connected bot only when delivery failed.
-        for bot in bots:
-            try:
-                await bot.send_private_msg(
-                    user_id=int(user),
-                    message=MessageSegment.image(data) + MessageSegment.text(text),
-                )
+    users = [int(user) for user in driver.config.superusers if user.isdecimal()]
+    if not users:
+        return
+    for user in users:
+        pages = daily_preview_pages(service.store, settings, user=str(user))
+        while (page := await asyncio.to_thread(next, pages, None)) is not None:
+            data, text, digests = page
+            # A failed page/recipient must not prevent the remaining review sheets.
+            for bot in bots:
+                try:
+                    await bot.send_private_msg(user_id=user, message=_review_message(data, text))
+                except Exception:
+                    logger.warning("[image_classifier] nightly preview delivery failed")
+                    continue
+                try:
+                    await asyncio.to_thread(
+                        service.store.mark_reviewed, str(user), digests, datetime.now(UTC)
+                    )
+                except Exception:
+                    logger.exception("[image_classifier] could not persist review delivery history")
                 break
-            except Exception:
-                logger.warning("[image_classifier] nightly preview delivery failed")

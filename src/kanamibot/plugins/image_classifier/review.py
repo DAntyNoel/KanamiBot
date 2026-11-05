@@ -4,19 +4,40 @@ from __future__ import annotations
 
 import io
 import math
+from collections import defaultdict
+from collections.abc import Iterator
+from datetime import UTC, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
-from PIL import Image, ImageDraw, ImageOps
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 
-from .config import Settings
+from .config import ROOT, Settings
 from .storage import ResultStore
 
+SHANGHAI = ZoneInfo("Asia/Shanghai")
+THUMB_SIZE = (200, 200)
+# Match the gallery font without importing core's gallery registries and caches.
+FONT_PATH = ROOT.parents[1] / "files" / "fonts" / "MiSans-Regular.ttf"
 
-def preview_page(store: ResultStore, settings: Settings, page: int = 1) -> tuple[bytes, str]:
-    if page < 1:
-        raise ValueError("页码必须大于0")
-    candidates = []
+
+def _daily_plan(
+    store: ResultStore,
+    settings: Settings,
+    now: datetime,
+    user: str | None = None,
+    exclude_today: bool = False,
+):
+    today = now.astimezone(SHANGHAI).date()
+    cutoff = datetime.combine(today, time.min, SHANGHAI)
+    if exclude_today:
+        cutoff += timedelta(days=1)
+    reviewed = store.reviewed_before(user, cutoff) if user is not None else set()
+    groups = defaultdict(list)
     seen = set()
-    for path, record in store.records():
+    for path, record in store.records(now=now):
+        saved = datetime.fromisoformat(record["saved_at"])
+        if saved > now or saved.astimezone(SHANGHAI).date() != today:
+            continue
         classification = record["classification"]
         if (
             classification["dimension"] not in settings.preview_dimensions
@@ -24,42 +45,108 @@ def preview_page(store: ResultStore, settings: Settings, page: int = 1) -> tuple
             or classification["category_a"] not in settings.preview_categories_a
             or (classification["category_b"] or "unknown") not in settings.preview_categories_b
             or record["sha256"] in seen
+            or record["sha256"] in reviewed
         ):
             continue
         seen.add(record["sha256"])
-        candidates.append((path, record))
-    pages = max(1, math.ceil(len(candidates) / settings.preview_page_size))
-    if page > pages:
-        raise ValueError(f"共{pages}页")
-    selected = candidates[
-        (page - 1) * settings.preview_page_size : page * settings.preview_page_size
-    ]
-    canvas = Image.new("RGB", (4 * 240, max(1, math.ceil(len(selected) / 4)) * 210), "white")
+        groups[classification["category_a"], classification["category_b"] or "unknown"].append(
+            (path, record)
+        )
+    pages = []
+    for category, records in sorted(groups.items()):
+        for start in range(0, len(records), settings.preview_page_size):
+            pages.append((category, records[start : start + settings.preview_page_size]))
+    return today, len(seen), pages
+
+
+def preview_page(
+    store: ResultStore,
+    settings: Settings,
+    page: int = 1,
+    *,
+    now: datetime | None = None,
+    user: str | None = None,
+) -> tuple[bytes, str]:
+    if page < 1:
+        raise ValueError("页码必须大于0")
+    today, total, pages = _daily_plan(store, settings, now or datetime.now(UTC), user)
+    if page > max(1, len(pages)):
+        raise ValueError(f"共{max(1, len(pages))}页")
+    if not pages:
+        return b"", f"{today} 今日图片筛选：0张。"
+    category, selected = pages[page - 1]
+    return _render_page(store, settings, today, total, category, selected, page, len(pages))[:2]
+
+
+def daily_preview_pages(
+    store: ResultStore,
+    settings: Settings,
+    *,
+    now: datetime | None = None,
+    user: str | None = None,
+) -> Iterator[tuple[bytes, str, list[str]]]:
+    """Snapshot candidates once; render one bounded page at a time off the event loop."""
+    today, total, pages = _daily_plan(store, settings, now or datetime.now(UTC), user, True)
+    if not pages:
+        yield b"", f"{today} 今日图片筛选：0张。", []
+    for page, (category, selected) in enumerate(pages, 1):
+        yield _render_page(store, settings, today, total, category, selected, page, len(pages))
+
+
+def _render_page(store, settings, today, total, category, selected, page, pages):
+    # Follow image.create_image_gallery's centered thumbnail grid and numbered captions.
+    columns = min(5, math.ceil(math.sqrt(len(selected))))
+    rows = math.ceil(len(selected) / columns)
+    padding, cell_w, cell_h, header = 15, 200, 240, 56
+    canvas = Image.new(
+        "RGB",
+        (columns * (cell_w + padding) + padding, header + rows * (cell_h + padding) + padding),
+        "#f0f0f0",
+    )
     draw = ImageDraw.Draw(canvas)
+    try:
+        font = ImageFont.truetype(str(FONT_PATH), size=14)
+    except OSError:
+        font = ImageFont.load_default(size=14)
+    group_label = "/".join(category)
+    draw.text((padding, 6), f"{today}  {page}/{pages}", font=font, fill="black")
+    draw.text((padding, 28), group_label, font=font, fill="black")
     ids = []
-    for index, (path, record) in enumerate(selected):
-        x, y = index % 4 * 240, index // 4 * 210
+    digests = []
+    for index, (path, record) in enumerate(selected, 1):
+        x = padding + (index - 1) % columns * (cell_w + padding)
+        y = header + padding + (index - 1) // columns * (cell_h + padding)
         token = record["sha256"][:16]
+        available = True
         try:
             with Image.open(io.BytesIO(store.image_bytes(path, record))) as image:
                 if image.width * image.height > settings.max_pixels:
                     raise ValueError("Image exceeds pixel limit")
-                thumbnail = ImageOps.exif_transpose(image).convert("RGB")
-                thumbnail.thumbnail((232, 180))
-                canvas.paste(thumbnail, (x + 4, y + 2))
-            draw.text((x + 4, y + 186), token, fill="black")
-            ids.append(f"{token} {classification_label(record['classification'])}")
+                thumbnail = ImageOps.exif_transpose(image).convert("RGBA")
+                thumbnail.thumbnail(THUMB_SIZE, Image.Resampling.LANCZOS)
+                canvas.paste(
+                    thumbnail,
+                    (x + (cell_w - thumbnail.width) // 2, y + (200 - thumbnail.height) // 2),
+                    thumbnail,
+                )
+                digests.append(record["sha256"])
         except (OSError, ValueError):
-            draw.text((x + 4, y + 186), "source unavailable", fill="black")
+            available = False
+            draw.rectangle((x, y, x + 200, y + 200), fill="#cccccc")
+            draw.text((x + 10, y + 90), "source unavailable", font=font, fill="black")
+        draw.text((x, y + 203), f"[{index}] {group_label}", font=font, fill="black")
+        draw.text((x, y + 222), token, font=font, fill="black")
+        label = classification_label(record["classification"])
+        ids.append(f"[{index}] {token} {label}" + ("" if available else "（源图已失效）"))
     output = io.BytesIO()
     canvas.save(output, format="JPEG", quality=80)
     text = (
-        f"图片筛选：{len(candidates)}张，第{page}/{pages}页（最近48小时，按内容去重）。\n"
-        "动图预览仅显示首帧，保存时保留原文件。\n"
+        f"{today} 今日图片筛选：{total}张，第{page}/{pages}页，本页 {group_label}。\n"
+        "北京时间当日保存记录，按内容去重；仅发送缩略图拼图，动图仅显示首帧。\n"
         "#图片预览 页码\n#图片保存 编号 [目录名]\n"
         f"可选目录：{', '.join(settings.saved_dirs)}\n" + "\n".join(ids)
     )
-    return output.getvalue(), text
+    return output.getvalue(), text, digests
 
 
 def classification_label(result: dict) -> str:

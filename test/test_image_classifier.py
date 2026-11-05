@@ -526,6 +526,113 @@ class ServiceTest(unittest.IsolatedAsyncioTestCase):
 
 
 class ReviewIntegrationTest(unittest.IsolatedAsyncioTestCase):
+    async def test_daily_thumbnail_groups_include_all_pages_and_shanghai_day_boundary(self):
+        import hashlib
+
+        from kanamibot.plugins.image_classifier.review import daily_preview_pages, preview_page
+
+        now = datetime(2026, 11, 5, 15, tzinfo=UTC)
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ResultStore(Path(tmp))
+            inputs = []
+            for color, when, nsfw in [
+                ("purple", datetime(2026, 11, 4, 15, 59, 59, tzinfo=UTC), 0.05),
+                ("red", datetime(2026, 11, 4, 16, tzinfo=UTC), 0.05),
+                ("green", now, 0.05),
+                ("blue", now, 0.05),
+                ("yellow", now, 0.4),
+                ("red", now, 0.05),  # duplicate still occupies only one tile
+            ]:
+                image = io.BytesIO()
+                Image.new("RGB", (800, 600), color).save(image, format="PNG")
+                data = image.getvalue()
+                classifier = fake_classifier()
+                classifier.nsfw.predict.return_value = {"nsfw": nsfw, "normal": 1 - nsfw}
+                store.save(
+                    data, classifier.classify(data), source={}, models={}, thresholds={}, now=when
+                )
+                inputs.append(data)
+            settings = Settings(preview_page_size=2)
+            pages = list(daily_preview_pages(store, settings, now=now))
+            self.assertEqual(len(pages), 3)
+            self.assertEqual([len(page[2]) for page in pages], [1, 2, 1])
+            for data, text, _ in pages:
+                self.assertNotIn(data, inputs)
+                with Image.open(io.BytesIO(data)) as image:
+                    self.assertEqual(image.format, "JPEG")
+                    self.assertLessEqual(image.width, 445)
+                    self.assertLessEqual(image.height, 326)
+                self.assertIn("4张", text)
+                self.assertNotIn(hashlib.sha256(inputs[0]).hexdigest()[:16], text)
+            self.assertIn("本页 A3/B2", pages[0][1])
+            self.assertIn("本页 A3/B3", pages[1][1])
+            self.assertEqual(preview_page(store, settings, 3, now=now), pages[2][:2])
+
+    async def test_yesterday_delivered_content_excluded_after_restart_per_recipient(self):
+        import hashlib
+
+        from kanamibot.plugins.image_classifier.review import daily_preview_pages, preview_page
+
+        now = datetime(2026, 11, 5, 15, tzinfo=UTC)
+        digest = hashlib.sha256(png_bytes()).hexdigest()
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ResultStore(Path(tmp))
+            store.save(
+                png_bytes(),
+                fake_classifier().classify(png_bytes()),
+                source={},
+                models={},
+                thresholds={},
+                now=now,
+            )
+            store.mark_reviewed("123", [digest], now - timedelta(days=1))
+            store = ResultStore(Path(tmp))
+            self.assertEqual(preview_page(store, Settings(), now=now, user="123")[0], b"")
+            self.assertEqual(
+                list(daily_preview_pages(store, Settings(), now=now, user="123"))[0][2], []
+            )
+            self.assertEqual(
+                list(daily_preview_pages(store, Settings(), now=now, user="456"))[0][2], [digest]
+            )
+            store.mark_reviewed("456", [digest], now)
+            self.assertEqual(
+                list(daily_preview_pages(store, Settings(), now=now, user="456"))[0][2], []
+            )
+            # Manual review still permits revisiting today's delivered sheet for selection.
+            self.assertTrue(preview_page(store, Settings(), now=now, user="456")[0])
+            store.cleanup(now=now + timedelta(days=3))
+            self.assertIn(digest, store.reviewed_before("123", now))
+
+    async def test_nightly_sends_each_sheet_and_marks_only_successful_pages(self):
+        import base64
+
+        from nonebot.adapters.onebot.v11 import Bot
+
+        from kanamibot.plugins.image_classifier import handlers
+
+        bot = Mock(spec=Bot)
+        bot.send_private_msg = AsyncMock(side_effect=[RuntimeError("fail"), {}, {}])
+        pages = [
+            (b"thumbnail-one", "page1", ["a" * 64]),
+            (b"thumbnail-two", "page2", ["b" * 64]),
+            (b"", "empty", []),
+        ]
+        with (
+            patch.object(handlers.settings, "enabled", True),
+            patch.object(handlers.driver.config, "superusers", {"123"}),
+            patch.object(handlers, "get_bots", return_value={"100": bot}),
+            patch.object(handlers, "daily_preview_pages", return_value=iter(pages)),
+            patch.object(handlers.service.store, "mark_reviewed") as mark,
+        ):
+            await handlers.nightly_review()
+        self.assertEqual(bot.send_private_msg.await_count, 3)
+        self.assertEqual(mark.call_count, 2)
+        self.assertEqual(mark.call_args_list[0].args[1], ["b" * 64])
+        payload = bot.send_private_msg.await_args_list[1].kwargs["message"]
+        self.assertEqual(len(payload["image"]), 1)
+        self.assertEqual(base64.b64decode(payload["image"][0].data["file"][9:]), b"thumbnail-two")
+        self.assertFalse(bot.send_private_msg.await_args_list[2].kwargs["message"]["image"])
+
     async def test_legacy_scores_reclassified_and_ab_preview_filters(self) -> None:
         from dataclasses import replace
 
@@ -620,7 +727,12 @@ class ReviewIntegrationTest(unittest.IsolatedAsyncioTestCase):
             patch.object(handlers.settings, "enabled", True),
             patch.object(handlers.driver.config, "superusers", {"123", "456"}),
             patch.object(handlers, "get_bots", return_value={"100": bot}),
-            patch.object(handlers, "preview_page", return_value=(png_bytes(), "preview")),
+            patch.object(
+                handlers,
+                "daily_preview_pages",
+                side_effect=lambda *a, **kw: iter([(png_bytes(), "preview", [])]),
+            ),
+            patch.object(handlers.service.store, "mark_reviewed"),
         ):
             await handlers.nightly_review()
         self.assertEqual(bot.send_private_msg.await_count, 2)
