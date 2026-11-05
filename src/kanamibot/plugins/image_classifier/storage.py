@@ -43,6 +43,11 @@ class ResultStore:
                 "INSERT OR IGNORE INTO delivered(user, digest, delivered_at) VALUES (?, ?, ?)",
                 [(user, digest, now.astimezone(UTC).isoformat()) for digest in digests],
             )
+            db.executemany(
+                "INSERT OR IGNORE INTO review_visible SELECT user, day, a, b, position "
+                "FROM review_numbers WHERE user=? AND digest=?",
+                [(user, digest) for digest in digests],
+            )
 
     @contextmanager
     def _review_db(self):
@@ -54,9 +59,63 @@ class ResultStore:
                 db.execute("""CREATE TABLE IF NOT EXISTS delivered (
                     user TEXT NOT NULL, digest TEXT NOT NULL, delivered_at TEXT NOT NULL,
                     PRIMARY KEY (user, digest))""")
+                db.execute("""CREATE TABLE IF NOT EXISTS review_numbers (
+                    user TEXT NOT NULL, day TEXT NOT NULL, a TEXT NOT NULL, b TEXT NOT NULL,
+                    position INTEGER NOT NULL, digest TEXT NOT NULL,
+                    PRIMARY KEY (user, day, a, b, position), UNIQUE (user, day, a, b, digest))""")
+                db.execute("""CREATE TABLE IF NOT EXISTS review_visible (
+                    user TEXT NOT NULL, day TEXT NOT NULL, a TEXT NOT NULL, b TEXT NOT NULL,
+                    position INTEGER NOT NULL, PRIMARY KEY (user, day, a, b, position))""")
                 yield db
         finally:
             db.close()
+
+    def number_review(self, user: str, day: str, groups: dict) -> None:
+        """Append numbers; never shift a previously displayed position when new images arrive."""
+        with self._review_db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            for (a, b), records in groups.items():
+                existing = {
+                    digest: pos
+                    for pos, digest in db.execute(
+                        "SELECT position, digest FROM review_numbers "
+                        "WHERE user=? AND day=? AND a=? AND b=?",
+                        (user, day, a, b),
+                    )
+                }
+                position = max(existing.values(), default=0)
+                for _, record in records:
+                    digest = record["sha256"]
+                    if digest not in existing:
+                        position += 1
+                        db.execute(
+                            "INSERT INTO review_numbers VALUES (?, ?, ?, ?, ?, ?)",
+                            (user, day, a, b, position, digest),
+                        )
+                        existing[digest] = position
+                    record["review_number"] = existing[digest]
+                records.sort(key=lambda item: item[1]["review_number"])
+
+    def numbered_images(self, user: str, category: tuple[str, str], numbers: list[int]):
+        """Resolve against the most recent displayed group, including yesterday after midnight."""
+        a, b = category
+        with self._review_db() as db:
+            day = db.execute(
+                "SELECT MAX(day) FROM review_visible WHERE user=? AND a=? AND b=?", (user, a, b)
+            ).fetchone()[0]
+            if day is None:
+                raise ValueError("尚无该组预览，请先发送对应的图分组指令查看缩略图。")
+            mapping = dict(
+                db.execute(
+                    "SELECT position, digest FROM review_numbers "
+                    "WHERE user=? AND day=? AND a=? AND b=?",
+                    (user, day, a, b),
+                )
+            )
+        available = {}
+        for path, record in self.records():
+            available.setdefault(record["sha256"], (path, record))
+        return [(number, available.get(mapping.get(number))) for number in numbers]
 
     def save(
         self,
@@ -168,50 +227,6 @@ class ResultStore:
         if len(data) > max_bytes or hashlib.sha256(data).hexdigest() != record["sha256"]:
             raise ValueError("Cached image changed or exceeds limit")
         return data
-
-    def archive(self, token: str, destination: Path) -> Path:
-        if not re.fullmatch(r"[0-9a-f]{16}", token):
-            raise ValueError("图片编号应为预览中的16位编号")
-        matches = [(p, r) for p, r in self.records() if r["sha256"].startswith(token)]
-        if not matches:
-            raise ValueError("图片已过期或不存在")
-        if len({r["sha256"] for _, r in matches}) != 1:
-            raise ValueError("图片编号冲突")
-        path, record = matches[0]
-        # Snapshot bytes before cleanup can unlink the temporary record.
-        with self._lock:
-            data = self.image_bytes(path, record)
-            destination = destination.resolve()
-            if destination.is_relative_to(self.root):
-                raise ValueError("永久保存目录不能位于临时目录内")
-            destination.mkdir(parents=True, exist_ok=True)
-            target = destination / record["sha256"]
-            if target.exists():
-                existing = json.loads((target / "result.json").read_text(encoding="utf-8"))
-                self.image_bytes(target / "result.json", existing)
-                return target
-            staging = destination / f".pending-{uuid.uuid4().hex}"
-            staging.mkdir()
-            try:
-                extension = record["classification"]["image_format"]
-                if not re.fullmatch(r"[a-z0-9]+", extension):
-                    extension = "bin"
-                name = f"image.{extension}"
-                (staging / name).write_bytes(data)
-                permanent = record | {
-                    "image_reference": None,
-                    "image_file": name,
-                    "expires_at": None,
-                    "archived_at": datetime.now(UTC).isoformat(),
-                }
-                (staging / "result.json").write_text(
-                    json.dumps(permanent, ensure_ascii=False, indent=2), encoding="utf-8"
-                )
-                os.replace(staging, target)
-            except BaseException:
-                shutil.rmtree(staging)
-                raise
-            return target
 
     def cleanup(self, *, now: datetime | None = None) -> int:
         """Use the record's immutable UTC filename, even if result.json is corrupt."""

@@ -24,7 +24,6 @@ class Settings(BaseModel):
     max_pixels: int = Field(default=25_000_000, ge=1)
     animation_samples: int = Field(default=8, ge=1, le=32)
     local_roots: list[Path] = Field(default_factory=list)
-    saved_dirs: dict[str, Path] = Field(default_factory=lambda: {"default": ROOT / "saved"})
     preview_dimensions: set[str] = Field(default_factory=lambda: {"anime", "real", "unknown"})
     preview_safety: set[str] = Field(
         default_factory=lambda: {"normal", "suggestive", "nsfw", "unknown"}

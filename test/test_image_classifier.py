@@ -667,10 +667,8 @@ class ReviewIntegrationTest(unittest.IsolatedAsyncioTestCase):
             self.assertIn("A1 二次元 / B2 涩图", text)
             _, text = preview_page(store, Settings(preview_categories_b={"B1"}))
             self.assertIn("0张", text)
-            archive = store.archive(updated["sha256"][:16], root / "saved")
-            saved = json.loads((archive / "result.json").read_text(encoding="utf-8"))
-            self.assertEqual(saved["classification"]["category_b"], "B2")
             self.assertTrue(path.exists())
+            self.assertFalse(hasattr(store, "archive"))
 
     async def test_b2_directory_is_included_in_retention_cleanup(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -789,9 +787,7 @@ class ReviewIntegrationTest(unittest.IsolatedAsyncioTestCase):
             paths[0].unlink()
             self.assertEqual(paths[1].read_bytes(), png_bytes())
 
-    async def test_reference_archive_survives_temporary_cleanup_and_source_removal(self) -> None:
-        import hashlib
-
+    async def test_reference_cleanup_never_removes_source(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             source = root / "napcat.png"
@@ -807,16 +803,10 @@ class ReviewIntegrationTest(unittest.IsolatedAsyncioTestCase):
             )
             record = json.loads(path.read_text())
             self.assertFalse((path.parent / record["image_file"]).exists())
-            token = hashlib.sha256(png_bytes()).hexdigest()[:16]
-            archived = store.archive(token, root / "saved")
-            self.assertEqual(store.archive(token, root / "saved"), archived)
-            with self.assertRaises(ValueError):
-                store.archive(token, root / "cache" / "saved")
+            self.assertEqual(store.image_bytes(path, record), png_bytes())
             store.cleanup(now=datetime.now(UTC) + timedelta(days=3))
             self.assertTrue(source.exists())
-            source.unlink()
-            permanent = json.loads((archived / "result.json").read_text())
-            self.assertEqual(store.image_bytes(archived / "result.json", permanent), png_bytes())
+            self.assertFalse(path.exists())
 
     async def test_preview_filters_deduplicates_and_detects_changed_references(self) -> None:
         from kanamibot.plugins.image_classifier.review import preview_page
@@ -880,6 +870,133 @@ class ReviewIntegrationTest(unittest.IsolatedAsyncioTestCase):
             submit.reset_mock()
             await handlers.collect_group_images(Mock(self_id="123"), event)
             submit.assert_not_awaited()
+
+
+class ImageRequestTest(unittest.IsolatedAsyncioTestCase):
+    async def test_command_groups_and_mixed_commas(self):
+        from kanamibot.plugins.image_classifier.commands import group_command, parse_request
+
+        for a in range(1, 4):
+            for b in range(1, 4):
+                category = (f"A{a}", f"B{b}")
+                with self.subTest(category=category):
+                    command = "图" + "a" * a + "b" * b
+                    self.assertEqual(group_command(category), command)
+                    self.assertEqual(
+                        parse_request(command + " 3，5,12，25"), (category, [3, 5, 12, 25])
+                    )
+                    self.assertEqual(parse_request(f"图a{a}b{b} 3"), (category, [3]))
+        self.assertEqual(parse_request("图"), (None, []))
+        self.assertEqual(parse_request("图ab"), (("A1", "B1"), []))
+        self.assertEqual(parse_request("图aabb 3， 5,3"), (("A2", "B2"), [3, 5]))
+        for command in (
+            "#图ab 3",
+            "图片ab 3",
+            "图ab 0",
+            "图ab -1",
+            "图ab 3,,5",
+            "图aaaaab 3",
+            "图 3",
+            "图ab 3/path",
+            "图a4b1 3",
+        ):
+            with self.subTest(command=command), self.assertRaises(ValueError):
+                parse_request(command)
+
+    async def test_group_numbering_spans_pages_survives_restart_and_new_images(self):
+        import hashlib
+
+        from kanamibot.plugins.image_classifier.review import daily_preview_pages
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = ResultStore(root)
+            classifier = fake_classifier()
+            classifier.anime.predict.return_value = {
+                "anime_adult": 0.1,
+                "anime_contentious": 0.05,
+                "anime_non_adult": 0.05,
+                "non_anime": 0.8,
+            }
+            classifier.nsfw.predict.return_value = {"nsfw": 0.4, "normal": 0.6}
+            # All source timestamps are already in the past.
+            when = datetime.now(UTC) - timedelta(seconds=1)
+            for number in range(26):
+                buffer = io.BytesIO()
+                Image.new("RGB", (8, 6), (number, 10, 20)).save(buffer, format="PNG")
+                data = buffer.getvalue()
+                store.save(
+                    data,
+                    classifier.classify(data),
+                    source={},
+                    models={},
+                    thresholds={},
+                    now=when + timedelta(microseconds=number),
+                )
+            pages = list(daily_preview_pages(store, Settings(), user="123", exclude_today=False))
+            self.assertEqual(len(pages), 2)
+            self.assertIn("[21]", pages[1][1])
+            self.assertIn("[25]", pages[1][1])
+            self.assertIn("图aabb", pages[1][1])
+            ordered = [digest for _, _, digests in pages for digest in digests]
+            # An unseen/failed preview must not replace the last displayed snapshot.
+            with self.assertRaises(ValueError):
+                store.numbered_images("123", ("A2", "B2"), [3])
+            store.mark_reviewed("123", ordered, datetime.now(UTC))
+            store = ResultStore(root)
+            selected = store.numbered_images("123", ("A2", "B2"), [3, 5, 12, 25])
+            for number, (path, record) in selected:
+                self.assertEqual(record["sha256"], ordered[number - 1])
+                self.assertEqual(
+                    hashlib.sha256(store.image_bytes(path, record)).hexdigest(), ordered[number - 1]
+                )
+            store.save(
+                png_bytes(), classifier.classify(png_bytes()), source={}, models={}, thresholds={}
+            )
+            newer = list(daily_preview_pages(store, Settings(), user="123", exclude_today=False))
+            self.assertIn("[27]", newer[-1][1])
+            self.assertEqual(
+                store.numbered_images("123", ("A2", "B2"), [3])[0][1][1]["sha256"], ordered[2]
+            )
+            store.cleanup(now=datetime.now(UTC) + timedelta(days=3))
+            self.assertEqual(store.numbered_images("123", ("A2", "B2"), [3]), [(3, None)])
+
+    async def test_original_request_preserves_requested_order_and_handles_unavailable_images(self):
+        import base64
+        from types import SimpleNamespace
+
+        from nonebot.exception import FinishedException
+
+        from kanamibot.plugins.image_classifier import handlers
+
+        rows = [(n, (Path("unused"), {"sha256": str(n) * 64})) for n in (3, 5, 12, 25)]
+        event = SimpleNamespace(user_id=123, get_plaintext=lambda: "图aabb 3，5,12，25")
+        with (
+            patch.object(handlers.service.store, "numbered_images", return_value=rows) as lookup,
+            patch.object(
+                handlers.service.store,
+                "image_bytes",
+                side_effect=[b"original3", OSError(), b"original12", b"original25"],
+            ),
+            patch.object(handlers.service.store, "mark_reviewed") as mark,
+            patch.object(handlers.images, "send", new_callable=AsyncMock) as send,
+            patch.object(
+                handlers.images, "finish", new_callable=AsyncMock, side_effect=FinishedException
+            ) as finish,
+        ):
+            with self.assertRaises(FinishedException):
+                await handlers.request_images(event)
+        lookup.assert_called_once_with("123", ("A2", "B2"), [3, 5, 12, 25])
+        self.assertEqual(
+            [
+                base64.b64decode(call.args[0]["image"][0].data["file"][9:])
+                for call in send.await_args_list
+            ],
+            [b"original3", b"original12", b"original25"],
+        )
+        self.assertEqual(mark.call_count, 3)
+        self.assertIn("5", finish.call_args.args[0])
+        self.assertFalse(hasattr(handlers, "save"))
 
 
 if __name__ == "__main__":

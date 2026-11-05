@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
+from .commands import group_command
 from .config import ROOT, Settings
 from .storage import ResultStore
 
@@ -26,6 +27,7 @@ def _daily_plan(
     now: datetime,
     user: str | None = None,
     exclude_today: bool = False,
+    category: tuple[str, str] | None = None,
 ):
     today = now.astimezone(SHANGHAI).date()
     cutoff = datetime.combine(today, time.min, SHANGHAI)
@@ -39,6 +41,8 @@ def _daily_plan(
         if saved > now or saved.astimezone(SHANGHAI).date() != today:
             continue
         classification = record["classification"]
+        if category and (classification["category_a"], classification["category_b"]) != category:
+            continue
         if (
             classification["dimension"] not in settings.preview_dimensions
             or classification["safety"] not in settings.preview_safety
@@ -53,7 +57,12 @@ def _daily_plan(
             (path, record)
         )
     pages = []
+    if user is not None:
+        store.number_review(user, str(today), groups)
     for category, records in sorted(groups.items()):
+        if user is None:
+            for index, (_, record) in enumerate(records, 1):
+                record["review_number"] = index
         for start in range(0, len(records), settings.preview_page_size):
             pages.append((category, records[start : start + settings.preview_page_size]))
     return today, len(seen), pages
@@ -66,10 +75,19 @@ def preview_page(
     *,
     now: datetime | None = None,
     user: str | None = None,
+    category: tuple[str, str] | None = None,
+    exclude_today: bool = False,
 ) -> tuple[bytes, str]:
     if page < 1:
         raise ValueError("页码必须大于0")
-    today, total, pages = _daily_plan(store, settings, now or datetime.now(UTC), user)
+    today, total, pages = _daily_plan(
+        store,
+        settings,
+        now or datetime.now(UTC),
+        user,
+        exclude_today,
+        category,
+    )
     if page > max(1, len(pages)):
         raise ValueError(f"共{max(1, len(pages))}页")
     if not pages:
@@ -84,9 +102,18 @@ def daily_preview_pages(
     *,
     now: datetime | None = None,
     user: str | None = None,
+    category: tuple[str, str] | None = None,
+    exclude_today: bool = True,
 ) -> Iterator[tuple[bytes, str, list[str]]]:
     """Snapshot candidates once; render one bounded page at a time off the event loop."""
-    today, total, pages = _daily_plan(store, settings, now or datetime.now(UTC), user, True)
+    today, total, pages = _daily_plan(
+        store,
+        settings,
+        now or datetime.now(UTC),
+        user,
+        exclude_today,
+        category,
+    )
     if not pages:
         yield b"", f"{today} 今日图片筛选：0张。", []
     for page, (category, selected) in enumerate(pages, 1):
@@ -113,9 +140,10 @@ def _render_page(store, settings, today, total, category, selected, page, pages)
     draw.text((padding, 28), group_label, font=font, fill="black")
     ids = []
     digests = []
-    for index, (path, record) in enumerate(selected, 1):
-        x = padding + (index - 1) % columns * (cell_w + padding)
-        y = header + padding + (index - 1) // columns * (cell_h + padding)
+    for cell, (path, record) in enumerate(selected):
+        index = record["review_number"]
+        x = padding + cell % columns * (cell_w + padding)
+        y = header + padding + cell // columns * (cell_h + padding)
         token = record["sha256"][:16]
         available = True
         try:
@@ -143,8 +171,13 @@ def _render_page(store, settings, today, total, category, selected, page, pages)
     text = (
         f"{today} 今日图片筛选：{total}张，第{page}/{pages}页，本页 {group_label}。\n"
         "北京时间当日保存记录，按内容去重；仅发送缩略图拼图，动图仅显示首帧。\n"
-        "#图片预览 页码\n#图片保存 编号 [目录名]\n"
-        f"可选目录：{', '.join(settings.saved_dirs)}\n" + "\n".join(ids)
+        + (
+            f"发送原图：{group_command(category)} 序号，例如 {group_command(category)} 3，5\n"
+            if group_command(category)
+            else "本组未完整检测，暂不支持按分组发送原图。\n"
+        )
+        + "序号在本组跨页连续；发送“图”重看缩略图。\n"
+        + "\n".join(ids)
     )
     return output.getvalue(), text, digests
 
