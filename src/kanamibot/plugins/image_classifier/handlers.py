@@ -20,7 +20,7 @@ from nonebot.permission import SUPERUSER
 from .commands import REQUEST_PATTERN, parse_request
 from .config import Settings
 from .exclusions import exclude_event, is_command_message, replied_message_id
-from .review import collection_overview, daily_preview_pages
+from .review import collection_overview, daily_preview_pages, image_details
 from .service import ClassificationService, ImageJob
 
 require("nonebot_plugin_apscheduler")
@@ -62,6 +62,9 @@ async def collect_group_images(bot: Bot, event: MessageEvent) -> None:
                 "group_id": event.group_id if isinstance(event, GroupMessageEvent) else None,
                 "message_type": event.message_type,
                 "user_id": event.user_id,
+                "sender_name": event.sender.card or event.sender.nickname
+                if isinstance(event, GroupMessageEvent)
+                else event.sender.nickname,
                 "message_id": event.message_id,
                 "message_time": event.time,
                 "received_at": datetime.now(UTC).isoformat(),
@@ -137,7 +140,9 @@ async def request_images(event: PrivateMessageEvent) -> None:
             continue
         try:
             await images.send(
-                MessageSegment.text(f"{category[0]}{category[1]} 第{number}张\n")
+                MessageSegment.text(
+                    f"{category[0]}{category[1]} 第{number}张\n{image_details(record)}\n"
+                )
                 + MessageSegment.image(data)
             )
         except Exception:

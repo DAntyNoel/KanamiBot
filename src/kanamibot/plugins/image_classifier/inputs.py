@@ -45,7 +45,25 @@ async def message_images(
     visited = 0
     ids = bot_ids(bot)
 
-    async def visit(value: Any, depth: int = 0) -> AsyncIterator[tuple[bytes, dict]]:
+    def node_source(value: dict) -> dict:
+        sender = value.get("sender") or {}
+        if not isinstance(sender, dict):
+            sender = {}
+        return {
+            "user_id": sender.get("user_id")
+            or sender.get("uin")
+            or value.get("user_id")
+            or value.get("uin"),
+            "sender_name": sender.get("card")
+            or sender.get("nickname")
+            or value.get("nickname")
+            or value.get("name"),
+            "message_time": value.get("time"),
+        }
+
+    async def visit(
+        value: Any, depth: int = 0, origin: dict | None = None
+    ) -> AsyncIterator[tuple[bytes, dict]]:
         nonlocal image_index, visited
         if depth > 16:
             logger.warning("[image_classifier] skipped excessively nested forwarded message")
@@ -56,7 +74,7 @@ async def message_images(
             if is_command_message(value):
                 return
             for item in value:
-                async for image in visit(item, depth):
+                async for image in visit(item, depth, origin):
                     yield image
             return
         if isinstance(value, MessageSegment):
@@ -69,7 +87,8 @@ async def message_images(
             if kind is None:
                 for key in ("messages", "message", "content"):
                     if key in value:
-                        async for image in visit(value[key], depth + 1):
+                        context = node_source(value) if key != "messages" else origin
+                        async for image in visit(value[key], depth + 1, context):
                             yield image
                 return
         else:
@@ -97,6 +116,8 @@ async def message_images(
                     max_bytes,
                 )
                 details = {"image_index": image_index, "forwarded": depth > 0}
+                if depth > 0 and origin:
+                    details["forwarded_source"] = origin.copy()
                 if local:
                     content, path = local
                     yield content, details | {"local_path": str(path)}
@@ -119,7 +140,7 @@ async def message_images(
         elif kind == "node":
             if bot_authored(data, ids):
                 return
-            async for image in visit(data.get("content"), depth + 1):
+            async for image in visit(data.get("content"), depth + 1, node_source(data)):
                 yield image
         elif kind == "forward":
             content = data.get("content")

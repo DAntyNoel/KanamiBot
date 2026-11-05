@@ -374,6 +374,35 @@ class ResultStoreTest(unittest.TestCase):
 
 
 class ImageInputsTest(unittest.IsolatedAsyncioTestCase):
+    async def test_forwarded_sources_are_attached_per_node(self):
+        bot = Mock(self_id="100")
+        bot.get_forward_msg = AsyncMock(
+            return_value={
+                "messages": [
+                    {
+                        "sender": {"user_id": 321, "nickname": "原作者"},
+                        "time": 123,
+                        "content": [{"type": "image", "data": {"url": "https://example.test/a"}}],
+                    },
+                    {"content": [{"type": "image", "data": {"url": "https://example.test/b"}}]},
+                ]
+            }
+        )
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(lambda _: httpx.Response(200, content=png_bytes()))
+        ) as client:
+            items = [
+                item
+                async for item in message_images(
+                    bot, Message(MessageSegment("forward", {"id": "sources"})), client, 100_000
+                )
+            ]
+        self.assertEqual(
+            items[0][1]["forwarded_source"],
+            {"user_id": 321, "sender_name": "原作者", "message_time": 123},
+        )
+        self.assertIsNone(items[1][1]["forwarded_source"]["user_id"])
+
     async def test_stream_limit_without_content_length(self) -> None:
         transport = httpx.MockTransport(lambda _: httpx.Response(200, content=b"12345"))
         async with httpx.AsyncClient(transport=transport) as client:
@@ -867,12 +896,53 @@ class ReviewIntegrationTest(unittest.IsolatedAsyncioTestCase):
         ):
             await handlers.collect_group_images(Mock(self_id="100"), event)
             self.assertIsNone(submit.call_args.args[0].source["group_id"])
+            self.assertEqual(submit.call_args.args[0].source["user_id"], 123)
+            self.assertEqual(submit.call_args.args[0].source["message_time"], 1)
+            group_data = event.model_dump() | {
+                "message_type": "group",
+                "sub_type": "normal",
+                "group_id": 999,
+                "sender": {"user_id": 123, "nickname": "昵称", "card": "群名片"},
+            }
+            await handlers.collect_group_images(
+                Mock(self_id="100"), GroupMessageEvent.model_validate(group_data)
+            )
+            self.assertEqual(submit.call_args.args[0].source["sender_name"], "群名片")
+            self.assertEqual(submit.call_args.args[0].source["group_id"], 999)
             submit.reset_mock()
             await handlers.collect_group_images(Mock(self_id="123"), event)
             submit.assert_not_awaited()
 
 
 class ImageRequestTest(unittest.IsolatedAsyncioTestCase):
+    async def test_source_details_handle_private_forwarded_and_legacy_records(self):
+        from kanamibot.plugins.image_classifier.review import image_details
+
+        source = {"group_id": 999, "user_id": 123, "sender_name": "群名片", "message_time": 0}
+        details = image_details({"source": source})
+        self.assertIn("来源：群聊 999", details)
+        self.assertIn("发送者：群名片（QQ 123）", details)
+        self.assertIn("1970-01-01 08:00:00（北京时间）", details)
+        self.assertIn("来源：私聊", image_details({"source": source | {"group_id": None}}))
+        forwarded = image_details(
+            {
+                "source": source
+                | {
+                    "forwarded": True,
+                    "forwarded_source": {
+                        "user_id": 456,
+                        "sender_name": "原作者",
+                        "message_time": 1,
+                    },
+                }
+            }
+        )
+        self.assertIn("原始群聊未知", forwarded)
+        self.assertIn("转发节点发送者：原作者（QQ 456）", forwarded)
+        self.assertIn("转发节点时间：1970-01-01 08:00:01", forwarded)
+        self.assertIn("发送者：未知", image_details({}))
+        self.assertIn("消息时间：未知", image_details({"source": {"message_time": "invalid"}}))
+
     async def test_collection_overview_counts_unique_content_and_shanghai_days(self):
         from kanamibot.plugins.image_classifier.review import collection_overview
 
@@ -1050,7 +1120,24 @@ class ImageRequestTest(unittest.IsolatedAsyncioTestCase):
 
         from kanamibot.plugins.image_classifier import handlers
 
-        rows = [(n, (Path("unused"), {"sha256": str(n) * 64})) for n in (3, 5, 12, 25)]
+        rows = [
+            (
+                n,
+                (
+                    Path("unused"),
+                    {
+                        "sha256": str(n) * 64,
+                        "source": {
+                            "group_id": 999,
+                            "user_id": 123,
+                            "sender_name": "测试用户",
+                            "message_time": 0,
+                        },
+                    },
+                ),
+            )
+            for n in (3, 5, 12, 25)
+        ]
         event = SimpleNamespace(user_id=123, get_plaintext=lambda: "图aabb 3，5,12，25")
         with (
             patch.object(handlers.service.store, "numbered_images", return_value=rows) as lookup,
@@ -1076,6 +1163,9 @@ class ImageRequestTest(unittest.IsolatedAsyncioTestCase):
             [b"original3", b"original12", b"original25"],
         )
         mark.assert_not_called()
+        self.assertIn("来源：群聊 999", str(send.await_args_list[0].args[0]))
+        self.assertIn("发送者：测试用户（QQ 123）", str(send.await_args_list[0].args[0]))
+        self.assertIn("1970-01-01 08:00:00", str(send.await_args_list[0].args[0]))
         self.assertIn("5", finish.call_args.args[0])
         self.assertFalse(hasattr(handlers, "save"))
 
@@ -1121,6 +1211,8 @@ class ImageRequestTest(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(nightly[0][2], [digest])
             self.assertEqual(send.await_count, 2)
             self.assertIn("1张", str(send.await_args_list[0].args[0]))
+            self.assertNotIn("发送者：", str(send.await_args_list[0].args[0]))
+            self.assertNotIn("消息时间：", str(send.await_args_list[0].args[0]))
             store.mark_reviewed("123", [digest], datetime.now(UTC))
             self.assertEqual(list(daily_preview_pages(store, Settings(), user="123"))[0][2], [])
 

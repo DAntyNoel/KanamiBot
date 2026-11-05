@@ -21,6 +21,43 @@ THUMB_SIZE = (200, 200)
 FONT_PATH = ROOT.parents[1] / "files" / "fonts" / "MiSans-Regular.ttf"
 
 
+def image_details(record: dict) -> str:
+    """Source metadata is shown only when explicitly requesting an original."""
+    source = record.get("source") or {}
+
+    def sender(value):
+        name = value.get("sender_name")
+        user = value.get("user_id")
+        return f"{name}（QQ {user}）" if name and user else str(name or user or "未知")
+
+    def sent_at(value):
+        timestamp = value.get("message_time")
+        try:
+            return datetime.fromtimestamp(float(timestamp), SHANGHAI).strftime(
+                "%Y-%m-%d %H:%M:%S（北京时间）"
+            )
+        except (TypeError, ValueError, OverflowError, OSError):
+            return "未知"
+
+    group = source.get("group_id")
+    lines = [
+        f"来源：群聊 {group}" if group is not None else "来源：私聊" if source else "来源：未知",
+        f"发送者：{sender(source)}",
+        f"消息时间：{sent_at(source)}",
+    ]
+    if source.get("forwarded"):
+        original = source.get("forwarded_source") or {}
+        lines += [
+            "合并转发内图片（以上为转发消息来源，原始群聊未知）",
+            f"转发节点发送者：{sender(original)}",
+            f"转发节点时间：{sent_at(original)}",
+        ]
+    result = record.get("classification")
+    if result:
+        lines.append(f"分类：{classification_label(result)}")
+    return "\n".join(lines)
+
+
 def collection_overview(store: ResultStore, *, now: datetime | None = None) -> str:
     current = now or datetime.now(UTC)
     today = current.astimezone(SHANGHAI).date()
