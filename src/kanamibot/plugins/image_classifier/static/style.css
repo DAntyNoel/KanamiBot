@@ -187,6 +187,62 @@ h1 span {
   align-items: start;
   gap: 30px;
 }
+.sidebar {
+  position: sticky;
+  top: 16px;
+  max-height: calc(100dvh - 32px);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  z-index: 4;
+}
+.sidebar .upload-panel {
+  flex-shrink: 0;
+}
+.sidebar .model-panel {
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.sidebar > .label-note {
+  flex-shrink: 0;
+}
+.thumbnail-nav {
+  position: sticky;
+  top: var(--navigation-top, 16px);
+  z-index: 3;
+  display: flex;
+  gap: 8px;
+  padding: 10px;
+  margin-bottom: 16px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  background: var(--bg);
+  box-shadow: 0 4px 14px #282e350a;
+}
+.thumbnail-link {
+  flex: 0 0 52px;
+  height: 52px;
+  padding: 2px;
+  border: 2px solid transparent;
+  border-radius: 9px;
+  background: var(--line);
+  overflow: hidden;
+}
+.thumbnail-link img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 5px;
+}
+.thumbnail-link:hover,
+.thumbnail-link[aria-current] {
+  border-color: var(--accent);
+}
+.result-card {
+  scroll-margin-top: calc(var(--navigation-top, 16px) + 92px);
+}
 .panel {
   background: var(--paper);
   border: 1px solid var(--line);
@@ -771,7 +827,7 @@ h1 span {
   color: #b2b1a6;
   padding-top: 17px;
 }
-.page > footer {
+.workspace-footer {
   display: flex;
   justify-content: space-between;
   gap: 15px;
@@ -952,11 +1008,11 @@ h1 span {
   .toolbar-actions {
     gap: 15px;
   }
-  .page > footer {
+  .workspace-footer {
     font-size: 9px;
     margin-top: 30px;
   }
-  .page > footer span:last-child {
+  .workspace-footer span:last-child {
     text-align: right;
   }
   .card-header {
@@ -1108,5 +1164,90 @@ h1 span {
   }
   .label-note {
     display: block;
+  }
+}
+
+/* Keep the upload controls on screen while browsing long result lists. */
+.sidebar .dropzone {
+  min-height: 140px;
+  margin-top: 16px;
+}
+.sidebar .upload-icon {
+  width: 36px;
+  height: 36px;
+  margin-bottom: 10px;
+}
+.sidebar .dropzone small {
+  margin-top: 12px;
+}
+@media (max-width: 760px) {
+  :root {
+    --navigation-top: calc(var(--controls-height, 250px) + 20px);
+  }
+  .sidebar {
+    top: 8px;
+    gap: 8px;
+    padding: 8px;
+    max-height: min(52dvh, 350px);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: var(--bg);
+    box-shadow: 0 4px 14px #282e350a;
+  }
+  .sidebar .upload-panel,
+  .sidebar .model-panel {
+    padding: 10px 12px;
+  }
+  .sidebar .upload-panel > .section-label,
+  .sidebar .upload-caption,
+  .sidebar .upload-icon,
+  .sidebar .dropzone small,
+  .sidebar .model-selection-note,
+  .sidebar .model-footnote,
+  .sidebar .label-note,
+  .sidebar .model-item a,
+  .sidebar .model-item p,
+  .sidebar .model-number {
+    display: none;
+  }
+  .sidebar .dropzone {
+    min-height: 42px;
+    margin: 0;
+    flex-direction: row;
+    gap: 8px;
+  }
+  .sidebar .dropzone strong,
+  .sidebar .dropzone > span {
+    font-size: 12px;
+  }
+  .sidebar .model-panel {
+    margin-top: 0;
+  }
+  .sidebar .model-panel > .section-label {
+    margin-bottom: 10px;
+  }
+  .sidebar .model-item {
+    align-items: center;
+    margin-bottom: 8px;
+  }
+  .sidebar .model-item:last-of-type {
+    margin-bottom: 0;
+  }
+  .sidebar .model-item > div {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 4px;
+  }
+  .sidebar .model-item h3,
+  .sidebar .model-lifecycle {
+    margin: 0;
+  }
+  .sidebar .model-load-state {
+    display: none;
+  }
+  .thumbnail-link {
+    flex-basis: 42px;
+    height: 42px;
   }
 }

@@ -210,6 +210,12 @@
               </button>
             </div>
           </div>
+          <nav
+            id="thumbnail-nav"
+            class="thumbnail-nav panel"
+            aria-label="按图片快速跳转分析结果"
+            hidden
+          ></nav>
           <div
             class="queue-status"
             id="queue-status"
@@ -243,12 +249,12 @@
             aria-live="polite"
             aria-relevant="additions"
           ></div>
+          <footer class="workspace-footer">
+            <span>Kanami Image Lab</span
+            ><span>分数为模型预测概率，供分类参考。</span>
+          </footer>
         </section>
       </main>
-      <footer>
-        <span>Kanami Image Lab</span
-        ><span>分数为模型预测概率，供分类参考。</span>
-      </footer>
     </div>
 
     <template id="result-template">

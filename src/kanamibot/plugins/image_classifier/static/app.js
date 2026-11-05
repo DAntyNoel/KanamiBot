@@ -4,6 +4,33 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const input = $("#file-input");
 const dropzone = $("#dropzone");
 const records = [];
+const thumbnailNav = $("#thumbnail-nav");
+const visibleCards = new Set();
+function selectThumbnail(id) {
+  for (const thumbnail of thumbnailNav.children) {
+    if (thumbnail.dataset.id === String(id))
+      thumbnail.setAttribute("aria-current", "true");
+    else thumbnail.removeAttribute("aria-current");
+  }
+}
+const cardObserver = new IntersectionObserver((entries) => {
+  for (const entry of entries) {
+    if (entry.isIntersecting) visibleCards.add(entry.target);
+    else visibleCards.delete(entry.target);
+  }
+  const closest = [...visibleCards].sort(
+    (a, b) =>
+      Math.abs(a.getBoundingClientRect().top) -
+      Math.abs(b.getBoundingClientRect().top),
+  )[0];
+  if (closest) selectThumbnail(closest.dataset.id);
+});
+new ResizeObserver(([entry]) => {
+  document.documentElement.style.setProperty(
+    "--controls-height",
+    `${entry.target.getBoundingClientRect().height}px`,
+  );
+}).observe($(".sidebar"));
 let config = null;
 let processing = false;
 let counter = 0;
@@ -122,6 +149,7 @@ const fileSize = (bytes) =>
 function updateToolbar() {
   updateModelButtons();
   $("#result-count").textContent = records.length;
+  thumbnailNav.hidden = records.length === 0;
   $("#empty-state").hidden = records.length > 0;
   $("#clear-button").disabled = records.length === 0 || processing;
   $("#export-button").disabled = !records.some((record) => record.result);
@@ -358,6 +386,9 @@ async function addFiles(files) {
       url: null,
       modelKeys: modelKeys.slice(),
     };
+    card.id = `result-${record.id}`;
+    card.dataset.id = record.id;
+    card.tabIndex = -1;
     $(".file-number", card).textContent = String(record.id).padStart(2, "0");
     $(".file-name", card).textContent = file.name;
     $(".file-name", card).title = file.name;
@@ -380,7 +411,37 @@ async function addFiles(files) {
       $("img", card).hidden = true;
     }
     records.push(record);
-    $("#results").append(card);
+    $("#results").prepend(card);
+    const thumbnail = document.createElement("button");
+    thumbnail.type = "button";
+    thumbnail.className = "thumbnail-link";
+    thumbnail.dataset.id = record.id;
+    thumbnail.title = file.name;
+    thumbnail.setAttribute("aria-label", `查看第 ${record.id} 张：${file.name}`);
+    thumbnail.setAttribute("aria-controls", card.id);
+    if (record.url) {
+      const image = document.createElement("img");
+      image.src = record.url;
+      image.alt = "";
+      image.addEventListener(
+        "error",
+        () => { image.hidden = true; },
+        { once: true },
+      );
+      thumbnail.append(image);
+    }
+    thumbnail.addEventListener("click", () => {
+      card.scrollIntoView({
+        behavior: matchMedia("(prefers-reduced-motion: reduce)").matches
+          ? "instant"
+          : "smooth",
+        block: "start",
+      });
+      card.focus({ preventScroll: true });
+      selectThumbnail(record.id);
+    });
+    thumbnailNav.prepend(thumbnail);
+    cardObserver.observe(card);
     if (!isImage)
       setState(record, "failed", "这个文件不是图片，请选择图片文件。");
     else if (file.size > config.max_upload_bytes)
@@ -430,6 +491,9 @@ document.addEventListener("drop", (event) => {
 $("#clear-button").addEventListener("click", () => {
   if (processing) return;
   for (const record of records) if (record.url) URL.revokeObjectURL(record.url);
+  cardObserver.disconnect();
+  visibleCards.clear();
+  thumbnailNav.replaceChildren();
   records.length = 0;
   counter = 0;
   $("#results").replaceChildren();
