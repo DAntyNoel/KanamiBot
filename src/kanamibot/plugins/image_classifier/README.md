@@ -48,30 +48,37 @@ manifest 包含模型来源、revision 和 ONNX SHA-256；转换模型另记录�
 - `anime_non_adult`
 - `non_anime`
 
-二次元概率为三个 `anime_*` 概率之和，大于等于 `ANIME_THRESHOLD` 划为 `anime`，否则为 `real`。
-`real` 在此表示模型的“非二次元”，也会包含文字截图等非照片内容。
-对于二次元结果，再选三个 `anime_*` 中概率最高的作为细分类。
-原始四类最高分标签另存为 `original_label`，与聚合后的二分类可能不同。
+采用固定规则 `ab-v1`。记 `x` 为三个 `anime_*` 分数之和，`y` 为二次元分类模型的 `anime` 分数，
+`a` 为 `anime_adult`，`c` 为 `anime_contentious`，`n` 为 NSFW 模型的 `nsfw` 分数。
+分号两侧按“或”处理，按表中从上到下的顺序判断：
 
-前三个标签看起来描述成年、存疑和未成年倾向，但上游没有提供明确的年龄标准或标注规范。
-因此保留英文原标签，不把它们当作真实年龄结论，也不使用它们决定 NSFW。
+| 分类 | 条件 | 兼容字段 |
+| --- | --- | --- |
+| A1 二次元 | `x > 0.70` 或 `y > 0.70` | `dimension=anime` |
+| A2 三次元 | 未命中A1，且（`x <= 0.30` 或 `y <= 0.30`） | `dimension=real` |
+| A3 无法判断 | 均未命中 | `dimension=unknown` |
+| B1 NSFW | `a > 0.50` 或 `n > 0.70` | `safety=nsfw` |
+| B2 涩图 | 未命中B1，且（`a+c > 0.70` 或 `n > 0.20`） | `safety=suggestive` |
+| B3 SFW | 两个相关模型都已运行，且均未命中 | `safety=normal` |
 
-NSFW 模型启用时，每张图片都独立经过第二个模型，输出 `normal` / `nsfw` 两类 softmax 概率。
-`P(nsfw) >= NSFW_THRESHOLD` 时分类为 `nsfw`。两个阈值默认都是 0.5。
-所有原始分数都会保留，便于后续重新调整分类规则。
+A1和A2同时命中时优先A1；B1和B2同时命中时优先B1。“超过”使用严格大于，“不超过”使用小于等于。
+模型关闭时只使用实际存在的分数；缺少细分类或NSFW模型且未命中B1/B2时，B类为空、
+`safety=unknown`，显示“未完整检测”，不把缺测当作SFW。两个二次元模型都关闭时为A3。
+标签不等同于真实年龄判断，三次元标签也可能包含截图等非照片内容。
+所有原始分数保留；二次元仍保留最高分细类和原始四类最高分标签 `original_label`。
 
 `anime_real_cls` 独立输出 `anime` / `real` 两个概率，保存为 `anime_real_scores`。
 它与第一个模型分别展示，不融合分数。该 ONNX 已包含 softmax，直接使用其输出概率。
 预处理遵循上游 imgutils：透明背景合成白色，RGB、双线性缩放为 384×384，
 像素除以 255，再以 0.5 / 0.5 归一化。动图同样取抽样帧的平均分数。
 
-三个模型默认启用，可以独立关闭。两个二次元模型同时启用时，为保持现有归档规则，
-目录分类和页面上方汇总仍以 `real-or-anime-age` 为准；关闭它后改用 `anime_real_cls`。
-结果中的 `dimension_model` 明确记录汇总来源。
+三个模型默认启用，可以独立关闭。目录分类和页面标签遵循上述A/B规则。
+结果中的 `dimension_model` 记录判断来源，同时运行两个二次元模型时为 `anime+anime_real`。
+`anime_probability` 保留细分类三类之和；没有细分类模型时记录二分类模型分数，不混合概率。
 只启用 `anime_real_cls` 时，二次元没有年龄细分，保存到 `anime/unspecified/`。
-二次元模型都关闭时 `dimension=unknown`；NSFW 关闭时 `safety=unknown`，不推断为 normal。
+二次元模型都关闭时 `dimension=unknown`；NSFW关闭时仍可由细分类模型命中B1/B2。
 未运行模型的分数是空对象、概率是 null，结果中 `enabled_models` 记录实际运行的模型。
-这些新增归档目录同样遵守48小时清理规则（JSON schema version 3）。
+这些新增归档目录同样遵守48小时清理规则（JSON schema version 4）。
 
 前两个模型均按上游配置预处理：RGB、双线性缩放到 224×224、像素除以 255，
 再按均值/标准差 `[0.5, 0.5, 0.5]` 归一化，输入为 NCHW float32。
@@ -88,14 +95,14 @@ JSON 保存总帧数、抽样索引和每帧结果。未抽到的短暂内容可
 ```text
 tmp/
   anime/
-    anime_adult/{normal,nsfw,unknown}/<UTC时间_UUID>/
-    anime_contentious/{normal,nsfw,unknown}/<UTC时间_UUID>/
-    anime_non_adult/{normal,nsfw,unknown}/<UTC时间_UUID>/
-    unspecified/{normal,nsfw,unknown}/<UTC时间_UUID>/
+    anime_adult/{normal,suggestive,nsfw,unknown}/<UTC时间_UUID>/
+    anime_contentious/{normal,suggestive,nsfw,unknown}/<UTC时间_UUID>/
+    anime_non_adult/{normal,suggestive,nsfw,unknown}/<UTC时间_UUID>/
+    unspecified/{normal,suggestive,nsfw,unknown}/<UTC时间_UUID>/
   real/
-    non_anime/{normal,nsfw,unknown}/<UTC时间_UUID>/
+    non_anime/{normal,suggestive,nsfw,unknown}/<UTC时间_UUID>/
   unknown/
-    unspecified/{normal,nsfw,unknown}/<UTC时间_UUID>/
+    unspecified/{normal,suggestive,nsfw,unknown}/<UTC时间_UUID>/
 ```
 
 每条记录包含 `result.json`；HTTP 下载的图片另外保存 `image.<原始格式>`，
@@ -132,7 +139,8 @@ NoneBot 本身不保证已将图片缓存到磁盘，消息中的 `file` 也可�
 
 后台单队列串行推理，解码、推理和文件操作在线程中运行。
 按 SHA-256 缓存最近512种内容的推理结果，同样的图片仍逐条记录来源。
-启动仅恢复模型来源及阈值完全一致的未过期结果；超出缓存容量的图片可能再次推理。
+启动只恢复模型来源、抽帧及像素限制相符的未过期结果；超出缓存容量的图片可能再次推理。
+旧记录读取时使用已保存的分数重新计算A/B分类，不重复推理、不移动旧目录，也不延长保留时间。
 两个 ViT ONNX 输入固定为 batch=1，等待攒图不等于批量推理，不会自动提升吞吐。
 当前采用即时入队、后台逐张处理；若长期超载，应先降低抽帧数或按需求关闭模型，
 再考虑重新导出动态 batch 模型和有等待上限的微批处理，并实测吞吐和内存。
@@ -149,7 +157,6 @@ NoneBot 本身不保证已将图片缓存到磁盘，消息中的 `file` 也可�
 | `ANIME_ENABLED` / `ANIME_REAL_ENABLED` / `NSFW_ENABLED` | 均为 `true` |
 | `MODEL_DIR` | `data/image_classifier/models`（相对工程根的默认绝对路径） |
 | `CACHE_DIR` | `data/image_classifier/tmp`（相对工程根的默认绝对路径） |
-| `ANIME_THRESHOLD` / `NSFW_THRESHOLD` | `0.5` / `0.5` |
 | `CPU_THREADS` | `2` |
 | `QUEUE_SIZE` | `512` 条消息 |
 | `MAX_DOWNLOAD_MB` | `20` |
@@ -158,17 +165,21 @@ NoneBot 本身不保证已将图片缓存到磁盘，消息中的 `file` 也可�
 | `LOCAL_ROOTS` | `[]`，只读复用的可信本地缓存目录 |
 | `SAVED_DIRS` | `{"default":"data/image_classifier/saved"}`，永久目录别名映射 |
 | `PREVIEW_DIMENSIONS` | `["anime","real","unknown"]` |
-| `PREVIEW_SAFETY` | `["normal","nsfw","unknown"]` |
+| `PREVIEW_SAFETY` | `["normal","suggestive","nsfw","unknown"]` |
+| `PREVIEW_CATEGORIES_A` | `["A1","A2","A3"]` |
+| `PREVIEW_CATEGORIES_B` | `["B1","B2","B3","unknown"]`，unknown表示未完整检测 |
 | `PREVIEW_PAGE_SIZE` | `20`，每页最多40张 |
 | `INFERENCE_CACHE_SIZE` | `512`，缓存不同内容的分类结果数 |
 
 关闭收集不关闭过期清理。配置路径时不要把临时目录指向其他插件的图片目录。
+旧的 `ANIME_THRESHOLD` / `NSFW_THRESHOLD` 环境变量及同名CLI选项已移除，避免覆盖固定A/B规则。
 
 ## 超管预览与永久保存
 
 北京时间每天 **23:00**，向 NoneBot `SUPERUSERS` 中的 QQ 账号私聊发送第一张编号预览拼图。
-默认允许全部分类，管理员可在 `.env` 中设置 `PREVIEW_DIMENSIONS` / `PREVIEW_SAFETY` 后重启生效。
-例如只预览二次元且正常：`["anime"]` / `["normal"]`。筛选仅影响预览，不跳过接收与分类。
+默认允许全部分类，管理员可在 `.env` 中设置 `PREVIEW_CATEGORIES_A` / `PREVIEW_CATEGORIES_B` 后重启生效。
+例如只预览二次元涩图：`["A1"]` / `["B2"]`。旧的维度和安全性过滤配置也保留，条件取交集。
+筛选仅影响预览，不跳过接收与分类。
 每次预览覆盖最近48小时未过期结果，按内容去重；只主动发送一页，其他页面按需索取。
 动图拼图只显示首帧，分类仍按原有抽帧规则。图片以字节交给 OneBot，兼容 NapCat 位于另一台主机。
 QQ 风控、非好友或上传失败可能导致发送失败，日志记录错误；不启动新的QQ实例，也不保证自动补发。

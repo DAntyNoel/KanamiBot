@@ -6,7 +6,7 @@ import argparse
 import json
 from pathlib import Path
 
-from .classifier import ImageClassifier
+from .classifier import RULES, ImageClassifier
 from .config import Settings
 from .models import MODEL_KEYS
 from .storage import ResultStore
@@ -18,16 +18,12 @@ def main() -> None:
     parser.add_argument("images", nargs="*", type=Path)
     parser.add_argument("--model-dir", type=Path, default=defaults.model_dir)
     parser.add_argument("--cache-dir", type=Path, default=defaults.cache_dir)
-    parser.add_argument("--anime-threshold", type=float, default=0.5)
-    parser.add_argument("--nsfw-threshold", type=float, default=0.5)
     parser.add_argument("--disable-model", choices=MODEL_KEYS, action="append", default=[])
-    parser.add_argument("--cleanup", action="store_true", help="Remove records at least 72h old")
+    parser.add_argument("--cleanup", action="store_true", help="Remove records at least 48h old")
     args = parser.parse_args()
     settings = Settings(
         model_dir=args.model_dir,
         cache_dir=args.cache_dir,
-        anime_threshold=args.anime_threshold,
-        nsfw_threshold=args.nsfw_threshold,
         **{f"{key}_enabled": key not in args.disable_model for key in MODEL_KEYS},
     )
     store = ResultStore(settings.cache_dir)
@@ -46,7 +42,7 @@ def main() -> None:
             result,
             source={"local_file": str(image.resolve())},
             models=classifier.provenance(),
-            thresholds={"anime": settings.anime_threshold, "nsfw": settings.nsfw_threshold},
+            thresholds=RULES.copy(),
         )
         print(
             json.dumps(

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import gc
 import io
+import math
 import warnings
 from dataclasses import asdict, dataclass, field
 
@@ -10,6 +11,19 @@ from PIL import Image, ImageOps
 
 from .config import Settings
 from .models import SPECS, OnnxModel, preprocess
+
+RULES = {
+    "version": "ab-v1",
+    "a1_anime_gt": 0.7,
+    "a2_anime_lte": 0.3,
+    "b1_adult_gt": 0.5,
+    "b1_nsfw_gt": 0.7,
+    "b2_adult_contentious_gt": 0.7,
+    "b2_nsfw_gt": 0.2,
+    "a_priority": "A1>A2>A3",
+    "b_priority": "B1>B2>B3",
+    "condition_operator": "or",
+}
 
 
 @dataclass(frozen=True)
@@ -30,6 +44,8 @@ class Classification:
     anime_real_scores: dict[str, float] = field(default_factory=dict)
     enabled_models: tuple[str, ...] = ()
     dimension_model: str | None = None
+    category_a: str = "A3"
+    category_b: str | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -42,17 +58,33 @@ def summarize(
     anime_real_scores: dict[str, float] | None = None,
 ) -> dict:
     anime_probability = (
-        sum(value for key, value in anime_scores.items() if key != "non_anime")
+        math.fsum(
+            anime_scores[key] for key in ("anime_adult", "anime_contentious", "anime_non_adult")
+        )
         if anime_scores
         else (anime_real_scores or {}).get("anime")
     )
-    dimension = (
-        "unknown"
-        if anime_probability is None
-        else "anime"
-        if anime_probability >= settings.anime_threshold
-        else "real"
-    )
+    probabilities = [
+        p for p in (anime_probability, (anime_real_scores or {}).get("anime")) if p is not None
+    ]
+    if any(p > RULES["a1_anime_gt"] for p in probabilities):
+        dimension, category_a = "anime", "A1"
+    elif any(p <= RULES["a2_anime_lte"] for p in probabilities):
+        dimension, category_a = "real", "A2"
+    else:
+        dimension, category_a = "unknown", "A3"
+    adult = anime_scores.get("anime_adult", 0.0)
+    adult_contentious = adult + anime_scores.get("anime_contentious", 0.0)
+    nsfw = nsfw_scores.get("nsfw", 0.0)
+    if adult > RULES["b1_adult_gt"] or nsfw > RULES["b1_nsfw_gt"]:
+        safety, category_b = "nsfw", "B1"
+    elif adult_contentious > RULES["b2_adult_contentious_gt"] or nsfw > RULES["b2_nsfw_gt"]:
+        safety, category_b = "suggestive", "B2"
+    elif anime_scores and nsfw_scores:
+        safety, category_b = "normal", "B3"
+    else:
+        # Missing models cannot establish that neither B1 nor B2 would match.
+        safety, category_b = "unknown", None
     subtype = (
         max((key for key in anime_scores if key != "non_anime"), key=anime_scores.__getitem__)
         if dimension == "anime" and anime_scores
@@ -62,14 +94,19 @@ def summarize(
     )
     return {
         "dimension": dimension,
-        "subtype": subtype,
-        "safety": (
-            "unknown"
-            if not nsfw_scores
-            else "nsfw"
-            if nsfw_scores["nsfw"] >= settings.nsfw_threshold
-            else "normal"
+        "category_a": category_a,
+        "category_b": category_b,
+        "dimension_model": (
+            "anime+anime_real"
+            if anime_scores and anime_real_scores
+            else "anime"
+            if anime_scores
+            else "anime_real"
+            if anime_real_scores
+            else None
         ),
+        "subtype": subtype,
+        "safety": safety,
         "anime_probability": anime_probability,
         "nsfw_probability": nsfw_scores.get("nsfw"),
         "original_label": max(anime_scores, key=anime_scores.__getitem__) if anime_scores else None,
@@ -186,11 +223,6 @@ class ImageClassifier:
             nsfw_scores=nsfw_scores,
             anime_real_scores=anime_real_scores,
             enabled_models=selected,
-            dimension_model="anime"
-            if anime_scores
-            else "anime_real"
-            if anime_real_scores
-            else None,
             frames=frames,
             total_frames=total_frames,
             image_format=image_format,

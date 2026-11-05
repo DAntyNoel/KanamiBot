@@ -10,7 +10,8 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from .classifier import Classification
+from .classifier import RULES, Classification, summarize
+from .config import Settings
 
 RETENTION = timedelta(days=2)
 _RECORD_NAME = re.compile(r"\d{8}T\d{12}Z_[0-9a-f]{32}")
@@ -44,7 +45,7 @@ class ResultStore:
         if not re.fullmatch(r"[a-z0-9]+", extension):
             extension = "bin"
         metadata = {
-            "schema_version": 3,
+            "schema_version": 4,
             "saved_at": saved_at.isoformat(),
             "expires_at": (saved_at + RETENTION).isoformat(),
             "sha256": hashlib.sha256(data).hexdigest(),
@@ -93,6 +94,7 @@ class ResultStore:
     def records(self, *, now: datetime | None = None) -> list[tuple[Path, dict]]:
         """Ignore expired/corrupt records even between physical cleanup runs."""
         current = now or datetime.now(UTC)
+        settings = Settings()
         records = []
         with self._lock:
             for path in self.root.glob("*/*/*/*/result.json"):
@@ -105,6 +107,17 @@ class ResultStore:
                         path.parent.name.split("_")[0], "%Y%m%dT%H%M%S%fZ"
                     ).replace(tzinfo=UTC)
                     if saved + RETENTION > current:
+                        classification = record["classification"]
+                        classification.update(
+                            summarize(
+                                classification["anime_scores"],
+                                classification["nsfw_scores"],
+                            settings,
+                                classification.get("anime_real_scores"),
+                            )
+                        )
+                        record["thresholds"] = RULES.copy()
+                        record["schema_version"] = 4
                         records.append((path, record))
                 except (OSError, ValueError, KeyError, TypeError):
                     continue
@@ -181,7 +194,7 @@ class ResultStore:
                 ("unknown", ("unspecified",)),
             ):
                 for subtype in subtypes:
-                    for safety in ("normal", "nsfw", "unknown"):
+                    for safety in ("normal", "suggestive", "nsfw", "unknown"):
                         parent = self.root / dimension / subtype / safety
                         if any(
                             p.is_symlink() for p in (parent, parent.parent, parent.parent.parent)

@@ -236,15 +236,11 @@ function renderResult(record, payload) {
   const badges = $(".prediction-badges", card);
   for (const [text, className] of [
     [
-      result.dimension === "unknown"
-        ? "未分类"
-        : result.dimension === "anime"
-          ? "二次元"
-          : "非二次元",
+      { A1: "A1 二次元", A2: "A2 三次元", A3: "A3 无法判断" }[result.category_a],
       "",
     ],
     [
-      result.safety === "unknown" ? "NSFW 未检测" : result.safety.toUpperCase(),
+      { B1: "B1 NSFW", B2: "B2 涩图", B3: "B3 SFW" }[result.category_b] || "未完整检测",
       result.safety === "unknown"
         ? ""
         : result.safety === "normal"

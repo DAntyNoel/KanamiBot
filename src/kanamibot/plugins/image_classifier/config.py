@@ -18,8 +18,6 @@ class Settings(BaseModel):
     nsfw_enabled: bool = True
     model_dir: Path = ROOT / "models"
     cache_dir: Path = ROOT / "tmp"
-    anime_threshold: float = Field(default=0.5, gt=0, lt=1)
-    nsfw_threshold: float = Field(default=0.5, gt=0, lt=1)
     cpu_threads: int = Field(default=2, ge=1, le=64)
     queue_size: int = Field(default=512, ge=1)
     max_download_mb: int = Field(default=20, ge=1, le=100)
@@ -28,6 +26,10 @@ class Settings(BaseModel):
     local_roots: list[Path] = Field(default_factory=list)
     saved_dirs: dict[str, Path] = Field(default_factory=lambda: {"default": ROOT / "saved"})
     preview_dimensions: set[str] = Field(default_factory=lambda: {"anime", "real", "unknown"})
-    preview_safety: set[str] = Field(default_factory=lambda: {"normal", "nsfw", "unknown"})
+    preview_safety: set[str] = Field(
+        default_factory=lambda: {"normal", "suggestive", "nsfw", "unknown"}
+    )
+    preview_categories_a: set[str] = Field(default_factory=lambda: {"A1", "A2", "A3"})
+    preview_categories_b: set[str] = Field(default_factory=lambda: {"B1", "B2", "B3", "unknown"})
     preview_page_size: int = Field(default=20, ge=1, le=40)
     inference_cache_size: int = Field(default=512, ge=1)

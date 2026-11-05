@@ -11,7 +11,7 @@ import httpx
 from nonebot.adapters.onebot.v11 import Bot, Message
 from nonebot.log import logger
 
-from .classifier import Classification, ImageClassifier
+from .classifier import RULES, Classification, ImageClassifier
 from .config import Settings
 from .inputs import message_images
 from .storage import ResultStore
@@ -61,7 +61,7 @@ class ClassificationService:
     def _restore_cache(self) -> None:
         assert self.classifier is not None
         models = self.classifier.provenance()
-        thresholds = {"anime": self.settings.anime_threshold, "nsfw": self.settings.nsfw_threshold}
+        thresholds = RULES
         for _, record in self.store.rebuild_index():
             if len(self._results) >= self.settings.inference_cache_size:
                 break
@@ -77,8 +77,10 @@ class ClassificationService:
                 continue
 
     def _inference_settings(self) -> dict:
-        return {"animation_samples": self.settings.animation_samples,
-                "max_pixels": self.settings.max_pixels}
+        return {
+            "animation_samples": self.settings.animation_samples,
+            "max_pixels": self.settings.max_pixels,
+        }
 
     async def submit(self, job: ImageJob) -> None:
         if self.accepting:
@@ -129,10 +131,7 @@ class ClassificationService:
             result,
             source=source,
             models=self.classifier.provenance(),
-            thresholds={
-                "anime": self.settings.anime_threshold,
-                "nsfw": self.settings.nsfw_threshold,
-            },
+            thresholds=RULES.copy(),
             reference=reference,
             inference_settings=self._inference_settings(),
         )

@@ -21,6 +21,8 @@ def preview_page(store: ResultStore, settings: Settings, page: int = 1) -> tuple
         if (
             classification["dimension"] not in settings.preview_dimensions
             or classification["safety"] not in settings.preview_safety
+            or classification["category_a"] not in settings.preview_categories_a
+            or (classification["category_b"] or "unknown") not in settings.preview_categories_b
             or record["sha256"] in seen
         ):
             continue
@@ -46,7 +48,7 @@ def preview_page(store: ResultStore, settings: Settings, page: int = 1) -> tuple
                 thumbnail.thumbnail((232, 180))
                 canvas.paste(thumbnail, (x + 4, y + 2))
             draw.text((x + 4, y + 186), token, fill="black")
-            ids.append(token)
+            ids.append(f"{token} {classification_label(record['classification'])}")
         except (OSError, ValueError):
             draw.text((x + 4, y + 186), "source unavailable", fill="black")
     output = io.BytesIO()
@@ -58,3 +60,12 @@ def preview_page(store: ResultStore, settings: Settings, page: int = 1) -> tuple
         f"可选目录：{', '.join(settings.saved_dirs)}\n" + "\n".join(ids)
     )
     return output.getvalue(), text
+
+
+def classification_label(result: dict) -> str:
+    a = {"A1": "二次元", "A2": "三次元", "A3": "无法判断"}
+    b = {"B1": "NSFW", "B2": "涩图", "B3": "SFW", None: "未完整检测"}
+    return (
+        f"{result['category_a']} {a[result['category_a']]} / "
+        f"{result['category_b'] or '?'} {b[result['category_b']]}"
+    )

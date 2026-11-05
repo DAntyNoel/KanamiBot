@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, UnidentifiedImageError
 
-from .classifier import ImageClassifier
+from .classifier import RULES, ImageClassifier
 from .compression import prepare_upload
 from .config import Settings
 from .models import MODEL_KEYS
@@ -65,10 +65,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "max_source_bytes": settings.max_download_mb * 5 * 1024 * 1024,
             "max_pixels": settings.max_pixels,
             "animation_samples": settings.animation_samples,
-            "thresholds": {
-                "anime": settings.anime_threshold,
-                "nsfw": settings.nsfw_threshold,
-            },
+            "thresholds": RULES.copy(),
             "models": classifier.provenance() if classifier else {},
             "model_states": {
                 key: {
@@ -185,10 +182,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "classification": result.to_dict(),
             "preparation": preparation,
             "elapsed_ms": elapsed_ms,
-            "thresholds": {
-                "anime": settings.anime_threshold,
-                "nsfw": settings.nsfw_threshold,
-            },
+            "thresholds": RULES.copy(),
             "models": provenance,
         }
 
@@ -218,8 +212,6 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=12709)
     parser.add_argument("--model-dir", type=Path, default=defaults.model_dir)
     parser.add_argument("--cpu-threads", type=int, default=defaults.cpu_threads)
-    parser.add_argument("--anime-threshold", type=float, default=defaults.anime_threshold)
-    parser.add_argument("--nsfw-threshold", type=float, default=defaults.nsfw_threshold)
     parser.add_argument("--disable-model", choices=MODEL_KEYS, action="append", default=[])
     parser.add_argument(
         "--no-open", action="store_true", help="Do not open the browser automatically"
@@ -230,8 +222,6 @@ def main() -> None:
     settings = Settings(
         model_dir=args.model_dir,
         cpu_threads=args.cpu_threads,
-        anime_threshold=args.anime_threshold,
-        nsfw_threshold=args.nsfw_threshold,
         **{f"{key}_enabled": key not in args.disable_model for key in MODEL_KEYS},
     )
     browser_host = "127.0.0.1" if args.host == "0.0.0.0" else args.host

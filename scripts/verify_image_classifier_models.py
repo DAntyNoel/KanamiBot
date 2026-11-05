@@ -16,7 +16,7 @@ from PIL import Image, ImageOps
 from transformers import AutoModelForImageClassification, ViTImageProcessor
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from kanamibot.plugins.image_classifier.classifier import ImageClassifier  # noqa: E402
+from kanamibot.plugins.image_classifier.classifier import RULES, ImageClassifier  # noqa: E402
 from kanamibot.plugins.image_classifier.config import ROOT, Settings  # noqa: E402
 from kanamibot.plugins.image_classifier.models import SPECS, file_sha256, preprocess  # noqa: E402
 from kanamibot.plugins.image_classifier.storage import ResultStore  # noqa: E402
@@ -47,7 +47,7 @@ def main() -> None:
             result,
             source={"local_file": str(path.resolve())},
             models=classifier.provenance(),
-            thresholds={"anime": 0.5, "nsfw": 0.5},
+            thresholds=RULES.copy(),
         )
         records.append(
             {

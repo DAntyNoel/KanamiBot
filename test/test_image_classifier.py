@@ -116,7 +116,8 @@ class ClassificationTest(unittest.TestCase):
         self.assertIsNone(result.anime_probability)
         self.assertEqual(result.anime_scores, {})
         classifier.anime.predict.assert_not_called()
-        self.assertEqual(result.safety, "normal")
+        self.assertEqual(result.safety, "unknown")
+        self.assertIsNone(result.category_b)
 
     def test_both_style_models_keep_independent_results_without_averaging(self) -> None:
         classifier = fake_classifier()
@@ -125,7 +126,8 @@ class ClassificationTest(unittest.TestCase):
         result = classifier.classify(png_bytes())
         self.assertAlmostEqual(result.anime_probability, 0.6)
         self.assertEqual(result.anime_real_scores, {"anime": 0.01, "real": 0.99})
-        self.assertEqual(result.dimension_model, "anime")
+        self.assertEqual(result.dimension_model, "anime+anime_real")
+        self.assertEqual(result.category_a, "A2")
         self.assertEqual(set(result.enabled_models), {"anime", "anime_real", "nsfw"})
 
     def test_disabled_model_is_not_loaded(self) -> None:
@@ -163,28 +165,70 @@ class ClassificationTest(unittest.TestCase):
         self.assertAlmostEqual(result["anime"], 0.98)
         self.assertAlmostEqual(result["real"], 0.02)
 
-    def test_anime_is_sum_of_three_classes_and_nsfw_is_independent(self) -> None:
+    def test_medium_anime_probability_is_undetermined(self) -> None:
         result = summarize(ANIME, NORMAL, Settings())
-        self.assertEqual(result["dimension"], "anime")
+        self.assertEqual(result["dimension"], "unknown")
+        self.assertEqual(result["category_a"], "A3")
         self.assertEqual(result["original_label"], "non_anime")
         self.assertAlmostEqual(result["anime_probability"], 0.6)
-        self.assertEqual(result["subtype"], "anime_adult")
+        self.assertEqual(result["subtype"], "unspecified")
         self.assertEqual(result["safety"], "normal")
-        # "adult" in the first model never overrides the second model's score.
         scores = {"normal": 0.2, "nsfw": 0.8}
         self.assertEqual(summarize(ANIME, scores, Settings())["safety"], "nsfw")
 
-    def test_thresholds_are_configurable(self) -> None:
-        result = summarize(
-            ANIME,
-            {"normal": 0.3, "nsfw": 0.7},
-            Settings(
-                anime_threshold=0.7,
-                nsfw_threshold=0.8,
-            ),
-        )
-        self.assertEqual((result["dimension"], result["subtype"]), ("real", "non_anime"))
-        self.assertEqual(result["safety"], "normal")
+    def test_a_boundaries_either_model_and_a1_priority(self) -> None:
+        for fine, binary, expected in [
+            (0.7, 0.7, "A3"),
+            (0.3, 0.5, "A2"),
+            (0.5, 0.3, "A2"),
+            (0.70001, 0.2, "A1"),
+            (0.2, 0.70001, "A1"),
+            (0.30001, 0.69999, "A3"),
+            (None, None, "A3"),
+            (None, 0.8, "A1"),
+            (0.2, None, "A2"),
+        ]:
+            with self.subTest(fine=fine, binary=binary):
+                scores = (
+                    {}
+                    if fine is None
+                    else {
+                        "anime_adult": 0,
+                        "anime_contentious": 0,
+                        "anime_non_adult": fine,
+                        "non_anime": 1 - fine,
+                    }
+                )
+                result = summarize(
+                    scores, NORMAL, Settings(), {} if binary is None else {"anime": binary}
+                )
+                self.assertEqual(result["category_a"], expected)
+
+    def test_b_boundaries_or_conditions_and_priority(self) -> None:
+        for adult, contentious, nsfw, expected in [
+            (0.5, 0.2, 0.2, "B3"),
+            (0.50001, 0, 0.0, "B1"),
+            (0, 0, 0.70001, "B1"),
+            (0, 0, 0.7, "B2"),
+            (0, 0, 0.20001, "B2"),
+            (0.4, 0.30001, 0, "B2"),
+            (0.6, 0.2, 0.3, "B1"),
+            (0.1, 0.1, 0.1, "B3"),
+        ]:
+            with self.subTest(adult=adult, contentious=contentious, nsfw=nsfw):
+                result = summarize(
+                    {
+                        "anime_adult": adult,
+                        "anime_contentious": contentious,
+                        "anime_non_adult": 0,
+                        "non_anime": 1 - adult - contentious,
+                    },
+                    {"nsfw": nsfw, "normal": 1 - nsfw},
+                    Settings(),
+                )
+                self.assertEqual(result["category_b"], expected)
+        self.assertEqual(summarize({}, {"nsfw": 0.8}, Settings())["category_b"], "B1")
+        self.assertIsNone(summarize({}, {"nsfw": 0.1}, Settings())["category_b"])
 
     def test_vit_preprocessing_layout_and_normalization(self) -> None:
         pixels = preprocess(Image.new("RGBA", (10, 20), (255, 0, 0, 255)))
@@ -269,7 +313,7 @@ class ResultStoreTest(unittest.TestCase):
         self.assertEqual(record["source"], {"group_id": 123})
         self.assertEqual(record["classification"]["anime_scores"], ANIME)
         self.assertEqual(path.parent.parent.name, "normal")
-        self.assertEqual(path.parent.parent.parent.name, "anime_adult")
+        self.assertEqual(path.parent.parent.parent.name, "unspecified")
         self.assertEqual(datetime.fromisoformat(record["expires_at"]), self.now + timedelta(days=2))
 
     def test_cleanup_48h_boundary_and_corrupt_metadata(self) -> None:
@@ -482,6 +526,64 @@ class ServiceTest(unittest.IsolatedAsyncioTestCase):
 
 
 class ReviewIntegrationTest(unittest.IsolatedAsyncioTestCase):
+    async def test_legacy_scores_reclassified_and_ab_preview_filters(self) -> None:
+        from dataclasses import replace
+
+        from kanamibot.plugins.image_classifier.review import preview_page
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = ResultStore(root / "cache")
+            original = fake_classifier().classify(png_bytes())
+            legacy = replace(
+                original,
+                dimension="real",
+                subtype="non_anime",
+                safety="normal",
+                anime_real_scores={"anime": 0.8, "real": 0.2},
+                nsfw_scores={"nsfw": 0.4, "normal": 0.6},
+            )
+            path = store.save(png_bytes(), legacy, source={}, models={}, thresholds={})
+            old_metadata = json.loads(path.read_text())
+            old_metadata["classification"].pop("category_a")
+            old_metadata["classification"].pop("category_b")
+            old_metadata["schema_version"] = 3
+            path.write_text(json.dumps(old_metadata))
+            _, updated = store.records()[0]
+            self.assertEqual(updated["classification"]["category_a"], "A1")
+            self.assertEqual(updated["classification"]["category_b"], "B2")
+            self.assertEqual(updated["expires_at"], old_metadata["expires_at"])
+            _, text = preview_page(
+                store, Settings(preview_categories_a={"A1"}, preview_categories_b={"B2"})
+            )
+            self.assertIn("1张", text)
+            self.assertIn("A1 二次元 / B2 涩图", text)
+            _, text = preview_page(store, Settings(preview_categories_b={"B1"}))
+            self.assertIn("0张", text)
+            archive = store.archive(updated["sha256"][:16], root / "saved")
+            saved = json.loads((archive / "result.json").read_text(encoding="utf-8"))
+            self.assertEqual(saved["classification"]["category_b"], "B2")
+            self.assertTrue(path.exists())
+
+    async def test_b2_directory_is_included_in_retention_cleanup(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            classifier = fake_classifier()
+            classifier.nsfw.predict.return_value = {"nsfw": 0.3, "normal": 0.7}
+            result = classifier.classify(png_bytes())
+            self.assertEqual(result.category_b, "B2")
+            store = ResultStore(Path(tmp))
+            path = store.save(
+                png_bytes(),
+                result,
+                source={},
+                models={},
+                thresholds={},
+                now=datetime.now(UTC) - timedelta(days=3),
+            )
+            self.assertEqual(path.parent.parent.name, "suggestive")
+            self.assertEqual(store.cleanup(), 1)
+            self.assertFalse(path.exists())
+
     async def test_restart_restores_only_matching_model_results(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             settings = Settings(cache_dir=Path(tmp))
@@ -511,6 +613,7 @@ class ReviewIntegrationTest(unittest.IsolatedAsyncioTestCase):
         from nonebot.adapters.onebot.v11 import Bot
 
         from kanamibot.plugins.image_classifier import handlers
+
         bot = Mock(spec=Bot)
         bot.send_private_msg = AsyncMock(side_effect=[RuntimeError("QQ failure"), {}])
         with (
@@ -521,8 +624,9 @@ class ReviewIntegrationTest(unittest.IsolatedAsyncioTestCase):
         ):
             await handlers.nightly_review()
         self.assertEqual(bot.send_private_msg.await_count, 2)
-        self.assertEqual({call.kwargs["user_id"] for call in bot.send_private_msg.await_args_list},
-                         {123, 456})
+        self.assertEqual(
+            {call.kwargs["user_id"] for call in bot.send_private_msg.await_args_list}, {123, 456}
+        )
 
     async def test_local_path_reused_without_http(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

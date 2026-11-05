@@ -10,7 +10,7 @@ import httpx
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from kanamibot.plugins.image_classifier.classifier import Classification
+from kanamibot.plugins.image_classifier.classifier import RULES, Classification
 from kanamibot.plugins.image_classifier.config import Settings
 from kanamibot.plugins.image_classifier.web import BrowserServer, create_app
 
@@ -18,6 +18,8 @@ from kanamibot.plugins.image_classifier.web import BrowserServer, create_app
 def sample_result() -> Classification:
     return Classification(
         dimension="anime",
+        category_a="A1",
+        category_b="B3",
         subtype="anime_non_adult",
         safety="normal",
         anime_probability=0.9,
@@ -72,7 +74,9 @@ class ClassifierWebTest(unittest.TestCase):
         self.assertEqual(payload["classification"]["anime_scores"], sample_result().anime_scores)
         self.assertEqual(payload["classification"]["nsfw_scores"], {"normal": 0.9, "nsfw": 0.1})
         self.assertEqual(payload["models"]["anime"]["revision"], "pinned")
-        self.assertEqual(payload["thresholds"], {"anime": 0.5, "nsfw": 0.5})
+        self.assertEqual(payload["thresholds"], RULES)
+        self.assertEqual(payload["classification"]["category_a"], "A1")
+        self.assertEqual(payload["classification"]["category_b"], "B3")
         self.model.classify.assert_called_once_with(b"image-data")
         self.assertEqual(response.headers["cache-control"], "no-store")
 
