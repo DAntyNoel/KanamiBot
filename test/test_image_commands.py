@@ -8,12 +8,90 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import nonebot
 from nonebot.adapters.onebot.v11 import MessageSegment
-from nonebot.exception import FinishedException
+from nonebot.exception import FinishedException, ParserExit
 
 nonebot.init()
 
 
 class ImageCommandTest(unittest.IsolatedAsyncioTestCase):
+    async def test_save_rejects_removed_sudo_options(self) -> None:
+        from kanamibot.plugins.image import save_parser
+
+        for option in ("-s", "--sudo"):
+            with self.subTest(option=option), self.assertRaises(ParserExit):
+                save_parser.parse_args(["图片", option])
+
+    async def test_batch_duplicates_are_separate_forward_nodes(self) -> None:
+        from kanamibot.plugins.image import save_image_handler
+
+        existing = {"id": "1", "filename": "1.png", "tags": ["原标签"]}
+        for new_folder, all_duplicate, storage_duplicate in (
+            (False, False, False),
+            (True, False, False),
+            (False, True, False),
+            (False, False, True),
+        ):
+            with self.subTest(
+                new_folder=new_folder,
+                all_duplicate=all_duplicate,
+                storage_duplicate=storage_duplicate,
+            ):
+                bot, matcher = AsyncMock(), AsyncMock()
+                bot.self_id = "99999"
+                matcher.finish.side_effect = FinishedException
+                registry = [existing] if all_duplicate else []
+
+                def lookup(*args, registry=registry, storage_duplicate=storage_duplicate):
+                    return registry.copy() if not storage_duplicate else []
+
+                def save(*args, registry=registry, storage_duplicate=storage_duplicate, **kwargs):
+                    registry.append(existing)
+                    return {**existing, "status": "exists" if storage_duplicate else "created"}
+
+                with (
+                    patch(
+                        "kanamibot.plugins.image.get_first_superuser", AsyncMock(return_value=12345)
+                    ),
+                    patch(
+                        "kanamibot.plugins.image.get_folder_name",
+                        side_effect=[None if new_folder else "图片", "图片"],
+                    ),
+                    patch(
+                        "kanamibot.plugins.image.download_all_images_from_event",
+                        AsyncMock(return_value=[b"same-image"] * 3),
+                    ),
+                    patch("kanamibot.plugins.image.guess_extension", return_value="png"),
+                    patch("kanamibot.plugins.image.similar_images", side_effect=lookup),
+                    patch("kanamibot.plugins.image.save_image", side_effect=save) as upload,
+                    patch(
+                        "kanamibot.plugins.image._image_path", return_value=Path("D:/test/1.png")
+                    ),
+                ):
+                    with self.assertRaises(FinishedException):
+                        await save_image_handler(
+                            bot,
+                            SimpleNamespace(user_id=12345, group_id=67890, message_id=42),
+                            matcher,
+                            Namespace(folder="图片", tags=[]),
+                        )
+
+                saved = 0 if all_duplicate or storage_duplicate else 1
+                self.assertEqual(upload.call_count, 3 if storage_duplicate else saved)
+                calls = bot.call_api.await_args_list
+                self.assertEqual(len(calls), 1 + bool(saved))
+                self.assertEqual(calls[-1].args, ("send_group_forward_msg",))
+                self.assertEqual(calls[-1].kwargs["group_id"], 67890)
+                nodes = calls[-1].kwargs["messages"]
+                self.assertEqual(len(nodes), 1 + 3 - saved)
+                self.assertIn(f"保存了 {saved} 张", str(nodes[0].data["content"]))
+                for index, node in enumerate(nodes[1:], start=1 + saved):
+                    content = node.data["content"]
+                    self.assertIn(f"第 {index} 张", str(content))
+                    self.assertIn("已跳过", str(content))
+                    self.assertNotIn("-s", str(content))
+                    self.assertEqual(len(content["image"]), 2)
+                matcher.finish.assert_awaited_once_with()
+
     async def test_save_image_ignores_attached_image_segment_in_tags(self) -> None:
         from kanamibot.plugins.image import save_image_handler
 
@@ -24,7 +102,6 @@ class ImageCommandTest(unittest.IsolatedAsyncioTestCase):
         args = Namespace(
             folder="图片",
             tags=["可爱", image_segment, "[CQ:image,file=literal]"],
-            sudo=True,
         )
 
         with (
@@ -38,7 +115,10 @@ class ImageCommandTest(unittest.IsolatedAsyncioTestCase):
                 new=AsyncMock(return_value=[b"image-bytes"]),
             ),
             patch("kanamibot.plugins.image.guess_extension", return_value="png"),
-            patch("kanamibot.plugins.image.save_image") as save_image,
+            patch("kanamibot.plugins.image.similar_images", return_value=[]),
+            patch(
+                "kanamibot.plugins.image.save_image", return_value={"status": "created"}
+            ) as save_image,
         ):
             await save_image_handler(bot, event, matcher, args)
 
@@ -84,13 +164,16 @@ class ImageCommandTest(unittest.IsolatedAsyncioTestCase):
                     AsyncMock(return_value=[b"first", b"second"]),
                 ),
                 patch("kanamibot.plugins.image.guess_extension", return_value="png"),
+                patch("kanamibot.plugins.image.similar_images", return_value=[]),
                 patch(
                     "kanamibot.plugins.image.save_image",
-                    side_effect=lambda *a, order=order, **k: order.append("save"),
+                    side_effect=lambda *a, order=order, **k: (
+                        order.append("save") or {"status": "created"}
+                    ),
                 ),
             ):
                 await save_image_handler(
-                    bot, event, matcher, Namespace(folder="图片", tags=[], sudo=True)
+                    bot, event, matcher, Namespace(folder="图片", tags=[])
                 )
 
             self.assertEqual(order, ["save", "save", "reaction"])
@@ -125,7 +208,7 @@ class ImageCommandTest(unittest.IsolatedAsyncioTestCase):
                         bot,
                         SimpleNamespace(user_id=12345, group_id=67890, message_id=42),
                         matcher,
-                        Namespace(folder="图片", tags=[], sudo=False),
+                        Namespace(folder="图片", tags=[]),
                     )
             save.assert_not_called()
             bot.call_api.assert_not_awaited()

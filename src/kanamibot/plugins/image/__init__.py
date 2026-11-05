@@ -47,7 +47,7 @@ __plugin_meta__ = PluginMetadata(
     name="Image",
     description="图库、表情包保存、检索和维护命令。",
     usage=(
-        "保存 <图库> [标签...] [-s]\n"
+        "保存 <图库> [标签...]\n"
         "随机 <图库> / 所有 <图库> / 发送 <图库> <序号|标签>\n"
         "回复机器人发出的图片：信息、删除、标签 <tag...>、清空标签"
     ),
@@ -134,7 +134,6 @@ def _format_image_info(image: dict[str, Any]) -> str:
 save_parser = ArgumentParser()
 save_parser.add_argument("folder", type=str, help="文件夹名称/别名")
 save_parser.add_argument("tags", nargs="*", default=[], help="图片标签")
-save_parser.add_argument("-s", "--sudo", action="store_true", help="跳过去重提示")
 
 save_image_matcher = on_shell_command(
     "save_image",
@@ -156,7 +155,6 @@ async def save_image_handler(
 ) -> None:
     alias = args.folder
     tags = _plain_tags(args.tags)
-    is_sudo = bool(args.sudo)
 
     first_superuser = await get_first_superuser()
     can_create_folder = first_superuser is not None and event.user_id == first_superuser
@@ -179,47 +177,61 @@ async def save_image_handler(
     saved_count = 0
     similar_messages: list[Message] = []
 
-    for imagebytes in images_bytes:
+    for index, imagebytes in enumerate(images_bytes, start=1):
         imagetype = guess_extension(imagebytes)
-        if not is_sudo and not new_folder_flag:
-            similar_imagedatas = similar_images(imagebytes, folder)
-            if similar_imagedatas:
-                ret_msg = Message()
-                ret_msg += MessageSegment.at(event.user_id)
-                ret_msg += MessageSegment.text(
-                    f" 检测到相同图片。如确需保存，请使用 -s。\n例如：保存 {alias}"
-                    f" {' '.join(tags)} -s\n"
-                )
-                ret_msg += MessageSegment.text("当前输入：\n")
-                ret_msg += MessageSegment.image(imagebytes)
-                ret_msg += MessageSegment.text(
-                    f"tag: {','.join(tags) or '无'}\n=====================\n已保存图片：\n"
-                )
-                for sim_img in similar_imagedatas[:IMAGE_PREVIEW_LIMIT]:
-                    path = _image_path(folder, sim_img["id"], sim_img.get("filename"))
-                    ret_msg += MessageSegment.image(path)
-                    ret_msg += MessageSegment.text(
-                        f"{sim_img['filename']} tag: {','.join(sim_img['tags']) or '无'}\n"
-                    )
-                similar_messages.append(ret_msg)
+        similar_imagedatas = similar_images(imagebytes, folder)
+        if not similar_imagedatas:
+            result = save_image(
+                imagebytes,
+                imagetype,
+                folder,
+                tags=tags,
+                qq=event.user_id,
+                group=event.group_id,
+            )
+            if result["status"] != "exists":
+                saved_count += 1
                 continue
+            similar_imagedatas = [result]
 
-        save_image(
-            imagebytes,
-            imagetype,
-            folder,
-            tags=tags,
-            qq=event.user_id,
-            group=event.group_id,
+        ret_msg = Message(f"第 {index} 张：检测到相同图片，已跳过，不允许重复保存。\n")
+        ret_msg += MessageSegment.text("当前输入：\n")
+        ret_msg += MessageSegment.image(imagebytes)
+        ret_msg += MessageSegment.text(
+            f"tag: {','.join(tags) or '无'}\n=====================\n已保存图片：\n"
         )
-        saved_count += 1
+        for sim_img in similar_imagedatas[:IMAGE_PREVIEW_LIMIT]:
+            path = _image_path(folder, sim_img["id"], sim_img.get("filename"))
+            ret_msg += MessageSegment.image(path)
+            ret_msg += MessageSegment.text(
+                f"{sim_img['filename']} tag: {','.join(sim_img['tags']) or '无'}\n"
+            )
+        similar_messages.append(ret_msg)
 
     if saved_count > 0:
         await react_ok(bot, event)
     if similar_messages:
+        if len(images_bytes) > 1:
+            summary = Message(
+                f"图库：{alias}\n保存了 {saved_count} 张图片，"
+                f"跳过 {len(similar_messages)} 张重复图片。\n"
+                "以下为重复图片（序号对应本次输入顺序）："
+            )
+            await bot.call_api(
+                "send_group_forward_msg",
+                group_id=event.group_id,
+                messages=[
+                    MessageSegment.node_custom(
+                        user_id=int(bot.self_id), nickname="存图结果", content=content
+                    )
+                    for content in [summary, *similar_messages]
+                ],
+            )
+            await matcher.finish()
+        similar_messages[0].insert(0, MessageSegment.at(event.user_id))
         await matcher.finish(similar_messages[0])
     if saved_count == 0:
-        await matcher.finish("保存失败，请检查指令或使用 -s 跳过去重提示。")
+        await matcher.finish("保存失败，请检查指令。")
 
 
 pick_parser = ArgumentParser()
