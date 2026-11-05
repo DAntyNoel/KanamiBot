@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import time
+from collections import OrderedDict
 from dataclasses import dataclass
+from pathlib import Path
 
 import httpx
 from nonebot.adapters.onebot.v11 import Bot, Message
 from nonebot.log import logger
 
-from .classifier import ImageClassifier
+from .classifier import Classification, ImageClassifier
 from .config import Settings
 from .inputs import message_images
 from .storage import ResultStore
@@ -29,6 +33,7 @@ class ClassificationService:
         self.worker: asyncio.Task | None = None
         self.client: httpx.AsyncClient | None = None
         self.accepting = False
+        self._results: OrderedDict[str, Classification] = OrderedDict()
 
     async def start(self) -> None:
         # Even a missing/broken model bundle must not stop retention cleanup.
@@ -48,9 +53,32 @@ class ClassificationService:
             )
             return
         self.client = httpx.AsyncClient(follow_redirects=True, timeout=30)
+        await asyncio.to_thread(self._restore_cache)
         self.accepting = True
         self.worker = asyncio.create_task(self._run(), name="group-image-classifier")
-        logger.info("[image_classifier] CPU ONNX models ready; listening to all groups")
+        logger.info("[image_classifier] CPU ONNX models ready; listening to group/private images")
+
+    def _restore_cache(self) -> None:
+        assert self.classifier is not None
+        models = self.classifier.provenance()
+        thresholds = {"anime": self.settings.anime_threshold, "nsfw": self.settings.nsfw_threshold}
+        for _, record in self.store.rebuild_index():
+            if len(self._results) >= self.settings.inference_cache_size:
+                break
+            if record.get("models") != models or record.get("thresholds") != thresholds:
+                continue
+            if record.get("inference_settings") != self._inference_settings():
+                continue
+            try:
+                self._results.setdefault(
+                    record["sha256"], Classification(**record["classification"])
+                )
+            except (TypeError, KeyError):
+                continue
+
+    def _inference_settings(self) -> dict:
+        return {"animation_samples": self.settings.animation_samples,
+                "max_pixels": self.settings.max_pixels}
 
     async def submit(self, job: ImageJob) -> None:
         if self.accepting:
@@ -67,6 +95,7 @@ class ClassificationService:
                     job.message,
                     self.client,
                     self.settings.max_download_mb * 1024 * 1024,
+                    self.settings.local_roots,
                 ):
                     try:
                         await asyncio.to_thread(self._classify_and_save, data, job.source | details)
@@ -84,7 +113,17 @@ class ClassificationService:
 
     def _classify_and_save(self, data: bytes, source: dict) -> None:
         assert self.classifier is not None
-        result = self.classifier.classify(data)
+        started = time.perf_counter()
+        digest = hashlib.sha256(data).hexdigest()
+        result = self._results.get(digest)
+        hit = result is not None
+        if result is None:
+            result = self.classifier.classify(data)
+            self._results[digest] = result
+        self._results.move_to_end(digest)
+        while len(self._results) > self.settings.inference_cache_size:
+            self._results.popitem(last=False)
+        reference = Path(source["local_path"]) if source.get("local_path") else None
         self.store.save(
             data,
             result,
@@ -94,6 +133,15 @@ class ClassificationService:
                 "anime": self.settings.anime_threshold,
                 "nsfw": self.settings.nsfw_threshold,
             },
+            reference=reference,
+            inference_settings=self._inference_settings(),
+        )
+        logger.debug(
+            "[image_classifier] inference+save {:.1f} ms; cache_hit={} local_reference={} queue={}",
+            (time.perf_counter() - started) * 1000,
+            hit,
+            reference is not None,
+            self.queue.qsize(),
         )
 
     async def stop(self) -> None:

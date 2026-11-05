@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
+from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
+from urllib.request import url2pathname
 
 import httpx
 from nonebot.adapters.onebot.v11 import Bot, Message, MessageSegment
@@ -28,7 +31,11 @@ async def download_image(client: httpx.AsyncClient, url: str, max_bytes: int) ->
 
 
 async def message_images(
-    bot: Bot, message: Message, client: httpx.AsyncClient, max_bytes: int
+    bot: Bot,
+    message: Message,
+    client: httpx.AsyncClient,
+    max_bytes: int,
+    local_roots: list[Path] | None = None,
 ) -> AsyncIterator[tuple[bytes, dict]]:
     """Visit images and merged forwards. Quoted old messages are not new images."""
     seen_forwards: set[str] = set()
@@ -70,12 +77,31 @@ async def message_images(
         if kind == "image":
             image_index += 1
             try:
-                url = str(data.get("url") or data.get("file") or "")
-                if not url.startswith(("http://", "https://")) and data.get("file"):
-                    info = await bot.get_image(file=str(data["file"]))
-                    url = str(info.get("url") or "")
+                info = {}
+                if data.get("file") and not str(data["file"]).startswith(("http://", "https://")):
+                    try:
+                        info = await bot.get_image(file=str(data["file"]))
+                    except Exception:
+                        pass  # A valid segment URL can still work.
+                local = await asyncio.to_thread(
+                    read_local_image,
+                    [info.get("file"), info.get("path"), data.get("file")],
+                    local_roots or [],
+                    max_bytes,
+                )
+                details = {"image_index": image_index, "forwarded": depth > 0}
+                if local:
+                    content, path = local
+                    yield content, details | {"local_path": str(path)}
+                    return
+                direct = str(data.get("file") or "")
+                url = str(
+                    data.get("url")
+                    or (direct if direct.startswith(("http://", "https://")) else info.get("url"))
+                    or ""
+                )
                 content = await download_image(client, url, max_bytes)
-                yield content, {"image_index": image_index, "forwarded": depth > 0}
+                yield content, details
             except Exception as exc:
                 # Do not log signed QQ URLs or response bodies.
                 logger.warning(
@@ -106,3 +132,27 @@ async def message_images(
 
     async for item in visit(message):
         yield item
+
+
+def read_local_image(candidates: list, roots: list[Path], max_bytes: int):
+    """Only configured, resolved local roots are trusted, including symlink targets."""
+    allowed = [root.resolve() for root in roots]
+    for candidate in candidates:
+        if not isinstance(candidate, str) or not candidate:
+            continue
+        if candidate.startswith("file:///"):
+            candidate = url2pathname(unquote(urlsplit(candidate).path))
+        path = Path(candidate)
+        if not path.is_absolute():
+            continue
+        try:
+            path = path.resolve(strict=True)
+            if not any(path.is_relative_to(root) for root in allowed) or not path.is_file():
+                continue
+            with path.open("rb") as file:
+                content = file.read(max_bytes + 1)
+            if 0 < len(content) <= max_bytes:
+                return content, path
+        except OSError:
+            continue
+    return None

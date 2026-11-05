@@ -5,8 +5,8 @@ from nonebot.plugin import PluginMetadata
 
 __plugin_meta__ = PluginMetadata(
     name="Image Classifier",
-    description="自动使用 CPU ONNX 模型分类所有群图片，临时保留三天。",
-    usage="静默处理群图片；模型准备和配置见本插件 README。",
+    description="自动分类群聊及私聊图片，临时保留48小时，23点私聊超管预览。",
+    usage="超管私聊：#图片预览 [页码]；#图片保存 编号 [目录名]。配置见插件 README。",
 )
 
 try:

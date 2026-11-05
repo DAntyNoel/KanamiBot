@@ -270,11 +270,11 @@ class ResultStoreTest(unittest.TestCase):
         self.assertEqual(record["classification"]["anime_scores"], ANIME)
         self.assertEqual(path.parent.parent.name, "normal")
         self.assertEqual(path.parent.parent.parent.name, "anime_adult")
-        self.assertEqual(datetime.fromisoformat(record["expires_at"]), self.now + timedelta(days=3))
+        self.assertEqual(datetime.fromisoformat(record["expires_at"]), self.now + timedelta(days=2))
 
-    def test_cleanup_72h_boundary_and_corrupt_metadata(self) -> None:
-        expired = self.save(self.now - timedelta(days=3))
-        fresh = self.save(self.now - timedelta(days=3) + timedelta(microseconds=1))
+    def test_cleanup_48h_boundary_and_corrupt_metadata(self) -> None:
+        expired = self.save(self.now - timedelta(days=2))
+        fresh = self.save(self.now - timedelta(days=2) + timedelta(microseconds=1))
         older = self.save(self.now - timedelta(days=4))
         older.write_text("corrupt JSON")
         foreign = older.parent.parent / "unrelated"
@@ -319,7 +319,12 @@ class ResultStoreTest(unittest.TestCase):
         import shutil
 
         shutil.rmtree(path.parent)
-        path.parent.symlink_to(outside, target_is_directory=True)
+        try:
+            path.parent.symlink_to(outside, target_is_directory=True)
+        except OSError as exc:
+            if getattr(exc, "winerror", None) == 1314:
+                self.skipTest("Windows account lacks symlink privilege")
+            raise
         self.assertEqual(self.store.cleanup(now=self.now), 0)
         self.assertTrue(marker.exists())
 
@@ -435,7 +440,7 @@ class ServiceTest(unittest.IsolatedAsyncioTestCase):
         cleanup.assert_called_once()
         self.assertFalse(service.accepting)
 
-    async def test_hook_captures_all_groups_and_cron_uses_shanghai_noon(self) -> None:
+    async def test_hook_captures_all_groups_and_cleanup_runs_each_minute(self) -> None:
         from kanamibot.plugins.image_classifier import handlers
 
         bot = Mock(self_id="100")
@@ -468,7 +473,197 @@ class ServiceTest(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(submit.call_args.args[0].source["group_id"], group)
         job = handlers.scheduler.get_job("image_classifier_cleanup")
         fire = job.trigger.get_next_fire_time(None, datetime(2026, 11, 4, tzinfo=UTC))
-        self.assertEqual(fire.astimezone(UTC), datetime(2026, 11, 4, 4, tzinfo=UTC))
+        self.assertEqual(fire.astimezone(UTC), datetime(2026, 11, 4, tzinfo=UTC))
+        next_fire = job.trigger.get_next_fire_time(fire, fire)
+        self.assertEqual(next_fire - fire, timedelta(minutes=1))
+        job = handlers.scheduler.get_job("image_classifier_review")
+        fire = job.trigger.get_next_fire_time(None, datetime(2026, 11, 4, tzinfo=UTC))
+        self.assertEqual(fire.astimezone(UTC), datetime(2026, 11, 4, 15, tzinfo=UTC))
+
+
+class ReviewIntegrationTest(unittest.IsolatedAsyncioTestCase):
+    async def test_restart_restores_only_matching_model_results(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            settings = Settings(cache_dir=Path(tmp))
+            first = ClassificationService(settings)
+            first.classifier = fake_classifier()
+            first.classifier.provenance = Mock(return_value={"version": "same"})
+            first._classify_and_save(png_bytes(), {})
+            second = ClassificationService(settings)
+            second.classifier = fake_classifier()
+            second.classifier.provenance = Mock(return_value={"version": "same"})
+            second.classifier.classify = Mock(wraps=second.classifier.classify)
+            second._restore_cache()
+            second._classify_and_save(png_bytes(), {})
+            second.classifier.classify.assert_not_called()
+            paths = list(Path(tmp).rglob("image.png"))
+            self.assertEqual(paths[0].stat().st_ino, paths[1].stat().st_ino)
+            second._results.clear()
+            second.classifier.provenance.return_value = {"version": "changed"}
+            second._restore_cache()
+            self.assertEqual(len(second._results), 0)
+            second.classifier.provenance.return_value = {"version": "same"}
+            second.settings.animation_samples = 1
+            second._restore_cache()
+            self.assertEqual(len(second._results), 0)
+
+    async def test_nightly_delivery_is_private_and_continues_after_failed_recipient(self) -> None:
+        from nonebot.adapters.onebot.v11 import Bot
+
+        from kanamibot.plugins.image_classifier import handlers
+        bot = Mock(spec=Bot)
+        bot.send_private_msg = AsyncMock(side_effect=[RuntimeError("QQ failure"), {}])
+        with (
+            patch.object(handlers.settings, "enabled", True),
+            patch.object(handlers.driver.config, "superusers", {"123", "456"}),
+            patch.object(handlers, "get_bots", return_value={"100": bot}),
+            patch.object(handlers, "preview_page", return_value=(png_bytes(), "preview")),
+        ):
+            await handlers.nightly_review()
+        self.assertEqual(bot.send_private_msg.await_count, 2)
+        self.assertEqual({call.kwargs["user_id"] for call in bot.send_private_msg.await_args_list},
+                         {123, 456})
+
+    async def test_local_path_reused_without_http(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "napcat.png"
+            path.write_bytes(png_bytes())
+            bot = Mock()
+            bot.get_image = AsyncMock(return_value={"file": str(path)})
+            async with httpx.AsyncClient(
+                transport=httpx.MockTransport(lambda _: self.fail("Must reuse local file"))
+            ) as client:
+                items = [
+                    item
+                    async for item in message_images(
+                        bot,
+                        Message(MessageSegment.image("opaque-qq-id")),
+                        client,
+                        10000,
+                        [Path(tmp)],
+                    )
+                ]
+            self.assertEqual(len(items), 1)
+            self.assertEqual(items[0][0], png_bytes())
+            self.assertEqual(items[0][1]["local_path"], str(path.resolve()))
+
+    async def test_untrusted_local_path_uses_http(self) -> None:
+        from kanamibot.plugins.image_classifier.inputs import read_local_image
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "private.png"
+            path.write_bytes(png_bytes())
+            self.assertIsNone(read_local_image([str(path)], [], 10000))
+            self.assertIsNone(read_local_image([str(path)], [Path(tmp)], 1))
+            self.assertEqual(read_local_image([path.as_uri()], [Path(tmp)], 10000)[0], png_bytes())
+
+    async def test_dedup_inference_hardlinks_and_independent_retention(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service = ClassificationService(Settings(cache_dir=Path(tmp)))
+            classifier = fake_classifier()
+            classifier.provenance = Mock(return_value={})
+            classifier.classify = Mock(wraps=classifier.classify)
+            service.classifier = classifier
+            service._classify_and_save(png_bytes(), {})
+            service._classify_and_save(png_bytes(), {})
+            self.assertEqual(classifier.classify.call_count, 1)
+            paths = list(Path(tmp).rglob("image.png"))
+            self.assertEqual(len(paths), 2)
+            self.assertEqual(paths[0].stat().st_ino, paths[1].stat().st_ino)
+            paths[0].unlink()
+            self.assertEqual(paths[1].read_bytes(), png_bytes())
+
+    async def test_reference_archive_survives_temporary_cleanup_and_source_removal(self) -> None:
+        import hashlib
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "napcat.png"
+            source.write_bytes(png_bytes())
+            store = ResultStore(root / "cache")
+            path = store.save(
+                png_bytes(),
+                fake_classifier().classify(png_bytes()),
+                source={},
+                models={},
+                thresholds={},
+                reference=source,
+            )
+            record = json.loads(path.read_text())
+            self.assertFalse((path.parent / record["image_file"]).exists())
+            token = hashlib.sha256(png_bytes()).hexdigest()[:16]
+            archived = store.archive(token, root / "saved")
+            self.assertEqual(store.archive(token, root / "saved"), archived)
+            with self.assertRaises(ValueError):
+                store.archive(token, root / "cache" / "saved")
+            store.cleanup(now=datetime.now(UTC) + timedelta(days=3))
+            self.assertTrue(source.exists())
+            source.unlink()
+            permanent = json.loads((archived / "result.json").read_text())
+            self.assertEqual(store.image_bytes(archived / "result.json", permanent), png_bytes())
+
+    async def test_preview_filters_deduplicates_and_detects_changed_references(self) -> None:
+        from kanamibot.plugins.image_classifier.review import preview_page
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = ResultStore(root / "cache")
+            for _ in range(2):
+                store.save(
+                    png_bytes(),
+                    fake_classifier().classify(png_bytes()),
+                    source={},
+                    models={},
+                    thresholds={},
+                )
+            data, text = preview_page(store, Settings())
+            self.assertTrue(data.startswith(b"\xff\xd8"))
+            self.assertIn("1张", text)
+            _, text = preview_page(store, Settings(preview_dimensions={"real"}))
+            self.assertIn("0张", text)
+            source = root / "source.png"
+            source.write_bytes(png_bytes())
+            path = store.save(
+                png_bytes(),
+                fake_classifier().classify(png_bytes()),
+                source={},
+                models={},
+                thresholds={},
+                reference=source,
+            )
+            source.write_bytes(b"changed")
+            with self.assertRaises(ValueError):
+                store.image_bytes(path, json.loads(path.read_text()))
+
+    async def test_private_message_collected_and_self_message_skipped(self) -> None:
+        from nonebot.adapters.onebot.v11 import PrivateMessageEvent
+
+        from kanamibot.plugins.image_classifier import handlers
+
+        event = PrivateMessageEvent.model_validate(
+            {
+                "time": 1,
+                "self_id": 100,
+                "post_type": "message",
+                "message_type": "private",
+                "sub_type": "friend",
+                "message_id": 1,
+                "user_id": 123,
+                "message": [{"type": "image", "data": {"file": "qq-id"}}],
+                "raw_message": "",
+                "font": 0,
+                "sender": {"user_id": 123},
+            }
+        )
+        with (
+            patch.object(handlers.service, "accepting", True),
+            patch.object(handlers.service, "submit", new_callable=AsyncMock) as submit,
+        ):
+            await handlers.collect_group_images(Mock(self_id="100"), event)
+            self.assertIsNone(submit.call_args.args[0].source["group_id"])
+            submit.reset_mock()
+            await handlers.collect_group_images(Mock(self_id="123"), event)
+            submit.assert_not_awaited()
 
 
 if __name__ == "__main__":
