@@ -150,6 +150,42 @@ def test_auto_queries_prefer_characters(query) -> None:
     service.search_player_card.assert_not_awaited()
 
 
+@pytest.mark.parametrize("head", ["#BS", "#BS角色", "#BS 查询角色装备"])
+@pytest.mark.parametrize(
+    ("suffix", "tier"),
+    [
+        ("", "diamond_plus"),
+        ("金魄", "gold"),
+        ("灭钻", "diamond_plus"),
+        ("in1000", "in1000"),
+        ("IN1000", "in1000"),
+        ("排位 金魄", "gold"),
+        ("排位 灭钻", "diamond_plus"),
+        ("排位 in1000", "in1000"),
+    ],
+)
+def test_character_tiers_default_to_ranked(head: str, suffix: str, tier: str) -> None:
+    service = SimpleNamespace(
+        client=SimpleNamespace(
+            metadata=AsyncMock(
+                return_value={"characters": [{"id": 62, "name": "席琳", "key": "Celine"}]},
+            ),
+        ),
+        character_analysis_card=AsyncMock(return_value="character"),
+        search_player_card=AsyncMock(),
+    )
+
+    result = asyncio.run(
+        _card_for(service, SimpleNamespace(user_id=10001), parse_command(f"{head} 席琳 {suffix}"))
+    )
+
+    assert result == "character"
+    service.character_analysis_card.assert_awaited_once_with(
+        "席琳", mode="RANK", tier=tier, equipment_only=head.endswith("查询角色装备"),
+    )
+    service.search_player_card.assert_not_awaited()
+
+
 def test_auto_queries_use_player_when_no_character_matches() -> None:
     service = SimpleNamespace(
         client=SimpleNamespace(
