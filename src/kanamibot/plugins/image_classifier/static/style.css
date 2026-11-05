@@ -243,6 +243,11 @@ h1 span {
 .result-card {
   scroll-margin-top: calc(var(--navigation-top, 16px) + 92px);
 }
+.compression-note {
+  margin: 8px 0 0;
+  color: var(--green);
+  line-height: 1.7;
+}
 .panel {
   background: var(--paper);
   border: 1px solid var(--line);

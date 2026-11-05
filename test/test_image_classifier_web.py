@@ -98,6 +98,8 @@ class ClassifierWebTest(unittest.TestCase):
         self.assertTrue(payload["ready"])
         self.assertEqual(payload["provider"], "CPUExecutionProvider")
         self.assertEqual(payload["max_upload_bytes"], 1024 * 1024)
+        self.assertEqual(payload["max_source_bytes"], 5 * 1024 * 1024)
+        self.assertEqual(payload["max_pixels"], 100)
         for _ in range(2):
             self.assertEqual(self.client.post("/api/classify", content=b"x").status_code, 200)
 
@@ -156,19 +158,34 @@ class ClassifierWebTest(unittest.TestCase):
     def test_empty_and_oversized_uploads_do_not_reach_model(self) -> None:
         self.assertEqual(self.client.post("/api/classify", content=b"").status_code, 400)
         self.assertEqual(
-            self.client.post("/api/classify", content=b"x" * (1024 * 1024 + 1)).status_code,
+            self.client.post("/api/classify", content=b"x" * (5 * 1024 * 1024 + 1)).status_code,
             413,
         )
         self.model.classify.assert_not_called()
 
     def test_streaming_request_without_content_length_obeys_size_limit(self) -> None:
         def body():
-            yield b"x" * (600 * 1024)
-            yield b"x" * (600 * 1024)
+            yield b"x" * (3 * 1024 * 1024)
+            yield b"x" * (3 * 1024 * 1024)
 
         response = self.client.post("/api/classify", content=body())
         self.assertEqual(response.status_code, 413)
         self.model.classify.assert_not_called()
+
+    def test_large_image_is_compressed_before_inference_and_reports_original(self) -> None:
+        buffer = io.BytesIO()
+        Image.new("RGB", (700, 600), "red").save(buffer, format="BMP")
+        original = buffer.getvalue()
+        response = self.client.post("/api/classify?models=anime", content=original)
+        self.assertEqual(response.status_code, 200)
+        prepared, selected = self.model.classify.call_args.args
+        self.assertEqual(selected, ("anime",))
+        self.assertLess(len(prepared), 1024 * 1024)
+        with Image.open(io.BytesIO(prepared)) as image:
+            self.assertLessEqual(image.width * image.height, self.settings.max_pixels)
+        metadata = response.json()["preparation"]
+        self.assertEqual(metadata["original_bytes"], len(original))
+        self.assertEqual(metadata["original_width"], 700)
 
     def test_decode_and_pixel_failures_are_readable_and_next_image_can_succeed(self) -> None:
         buffer = io.BytesIO()

@@ -17,6 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from PIL import Image, UnidentifiedImageError
 
 from .classifier import ImageClassifier
+from .compression import prepare_upload
 from .config import Settings
 from .models import MODEL_KEYS
 
@@ -61,6 +62,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "error": request.app.state.model_error,
             "provider": "CPUExecutionProvider",
             "max_upload_bytes": settings.max_download_mb * 1024 * 1024,
+            "max_source_bytes": settings.max_download_mb * 5 * 1024 * 1024,
+            "max_pixels": settings.max_pixels,
             "animation_samples": settings.animation_samples,
             "thresholds": {
                 "anime": settings.anime_threshold,
@@ -123,7 +126,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 raise HTTPException(400, "请至少启用一个模型。")
             if set(selected) - set(MODEL_KEYS):
                 raise HTTPException(400, "包含未知模型。")
-        max_bytes = settings.max_download_mb * 1024 * 1024
+        max_bytes = settings.max_download_mb * 5 * 1024 * 1024
+        size_error = f"原文件不能超过 {settings.max_download_mb * 5} MiB。"
         raw_length = request.headers.get("content-length")
         if raw_length is not None:
             try:
@@ -133,7 +137,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if length < 0:
                 raise HTTPException(400, "无效的上传长度。")
             if length > max_bytes:
-                raise HTTPException(413, f"单张图片不能超过 {settings.max_download_mb} MiB。")
+                raise HTTPException(413, size_error)
         # Serialize reading and inference to bound memory and CPU use across browser tabs.
         async with request.app.state.inference_lock:
             available = classifier.available_models()
@@ -144,16 +148,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             content = bytearray()
             async for chunk in request.stream():
                 if len(content) + len(chunk) > max_bytes:
-                    raise HTTPException(413, f"单张图片不能超过 {settings.max_download_mb} MiB。")
+                    raise HTTPException(413, size_error)
                 content.extend(chunk)
             if not content:
                 raise HTTPException(400, "请上传一张图片。")
             started = time.perf_counter()
             try:
+                prepared, preparation = await asyncio.to_thread(
+                    prepare_upload, bytes(content), settings
+                )
                 if selected is None:
-                    result = await asyncio.to_thread(classifier.classify, bytes(content))
+                    result = await asyncio.to_thread(classifier.classify, prepared)
                 else:
-                    result = await asyncio.to_thread(classifier.classify, bytes(content), selected)
+                    result = await asyncio.to_thread(classifier.classify, prepared, selected)
             except (Image.DecompressionBombError, Image.DecompressionBombWarning) as exc:
                 raise HTTPException(422, "图片像素过大，请缩小后重试。") from exc
             except ValueError as exc:
@@ -176,6 +183,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # The web preview keeps no uploaded files or result archive on the server.
         return {
             "classification": result.to_dict(),
+            "preparation": preparation,
             "elapsed_ms": elapsed_ms,
             "thresholds": {
                 "anime": settings.anime_threshold,

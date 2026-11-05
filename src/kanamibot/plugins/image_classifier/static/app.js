@@ -243,7 +243,7 @@ function renderResult(record, payload) {
   scoreRows($(".anime-real-rows", card), result.anime_real_scores || {});
   scoreRows($(".nsfw-rows", card), result.nsfw_scores);
   $(".image-meta", card).textContent =
-    `${result.width} × ${result.height} · ${fileSize(record.file.size)} · ${result.image_format.toUpperCase()}`;
+    `${result.width} × ${result.height} · ${fileSize(payload.preparation?.prepared_bytes ?? record.file.size)} · ${result.image_format.toUpperCase()}`;
   const badges = $(".prediction-badges", card);
   for (const [text, className] of [
     [
@@ -274,6 +274,17 @@ function renderResult(record, payload) {
       : "";
   $(".result-detail", card).textContent =
     `分析耗时 ${(payload.elapsed_ms / 1000).toFixed(2)} s${result.nsfw_probability !== null ? ` · NSFW 阈值 ${percent(payload.thresholds.nsfw)}` : ""}${frames}`;
+  if (payload.preparation) {
+    const prepared = payload.preparation;
+    const note = document.createElement("p");
+    note.className = "compression-note";
+    note.textContent =
+      `已自动压缩：${prepared.original_width} × ${prepared.original_height} / ${fileSize(prepared.original_bytes)} → ${prepared.width} × ${prepared.height} / ${fileSize(prepared.prepared_bytes)}` +
+      (prepared.original_frames > 1
+        ? `；原动图 ${prepared.original_frames} 帧，保留覆盖全程的 ${prepared.prepared_frames} 帧用于分析。`
+        : "。原文件与预览保持不变。");
+    $(".result-detail", card).append(note);
+  }
   setState(record, "done");
 }
 
@@ -287,7 +298,7 @@ async function processQueue() {
       setState(
         record,
         "running",
-        `正在运行 ${record.modelKeys.length} 个模型…`,
+        `正在准备图片并运行 ${record.modelKeys.length} 个模型…`,
       );
       const controller = new AbortController();
       const timeout = window.setTimeout(() => controller.abort(), 180000);
@@ -337,7 +348,7 @@ function applyStatus(payload) {
   $("#status-dot").className =
     `runtime-dot ${config.ready ? "ready" : "error"}`;
   $("#upload-hint").textContent =
-    `支持批量上传 · 每张最多 ${fileSize(config.max_upload_bytes)}`;
+    `超限自动压缩 · 原文件最多 ${fileSize(config.max_source_bytes ?? config.max_upload_bytes)}`;
   $("#upload-error").hidden = config.ready;
   if (!config.ready)
     $("#upload-error").textContent =
@@ -396,7 +407,8 @@ async function addFiles(files) {
     const isImage =
       file.type.startsWith("image/") ||
       /\.(png|jpe?g|gif|webp|bmp|tiff?|avif|hei[cf])$/i.test(file.name);
-    if (isImage && file.size <= config.max_upload_bytes && file.size > 0) {
+    const maxSourceBytes = config.max_source_bytes ?? config.max_upload_bytes;
+    if (isImage && file.size <= maxSourceBytes && file.size > 0) {
       record.url = URL.createObjectURL(file);
       $("img", card).src = record.url;
       $("img", card).addEventListener(
@@ -444,11 +456,11 @@ async function addFiles(files) {
     cardObserver.observe(card);
     if (!isImage)
       setState(record, "failed", "这个文件不是图片，请选择图片文件。");
-    else if (file.size > config.max_upload_bytes)
+    else if (file.size > maxSourceBytes)
       setState(
         record,
         "failed",
-        `图片过大，每张最多 ${fileSize(config.max_upload_bytes)}。`,
+        `原文件超过 ${fileSize(maxSourceBytes)}，请先裁剪或缩小后再上传。`,
       );
     else if (!file.size)
       setState(record, "failed", "图片文件为空，请重新选择。");
