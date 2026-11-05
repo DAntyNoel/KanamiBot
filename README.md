@@ -59,6 +59,15 @@ uv sync
 
 需要调整端口、令牌等本地配置时，修改 `.env`。
 
+## 群图片自动分类
+
+新增 [image_classifier 插件](src/kanamibot/plugins/image_classifier/README.md)：在所有群静默处理图片，
+使用可独立启停的 CPU ONNX 模型保留二次元细分类、二次元/三次元对照和独立 NSFW 结果，保存原图及 JSON，
+北京时间每天 12:00 清理保存满三天的记录。部署前需按插件说明准备模型文件。
+
+本地拖放图片测试：运行 `uv run kanami-image-web`，后台就绪后会自动打开网页，
+逐张展示所有分类分数，无需连接 QQ。
+
 ## 布局
 
 - `bot.py`：NoneBot 入口。

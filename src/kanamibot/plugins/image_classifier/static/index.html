@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f6f5f1" />
+    <title>Image Lab · 图片分类工作台</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='12' fill='%23ec6845'/%3E%3Cpath d='M10 25l7-10 5 7 4-5 5 8' fill='none' stroke='white' stroke-width='3'/%3E%3C/svg%3E"
+    />
+    <link rel="stylesheet" href="/static/style.css" />
+    <script src="/static/app.js" defer></script>
+  </head>
+  <body>
+    <div class="page">
+      <header class="topbar">
+        <a class="brand" href="/" aria-label="Image Lab 首页">
+          <span class="brand-icon" aria-hidden="true"
+            ><svg viewBox="0 0 24 24">
+              <path d="m4 17 6-9 5 7 3-4 3 6M18 5h.01" /></svg
+          ></span>
+          <span
+            >kanami<span class="brand-separator">/</span
+            ><strong>Image Lab</strong></span
+          >
+        </a>
+        <div class="runtime">
+          <span class="runtime-dot" id="status-dot"></span
+          ><span id="model-status" role="status">正在连接模型</span
+          ><span class="cpu-tag">CPU · ONNX</span>
+        </div>
+      </header>
+
+      <section class="intro">
+        <div>
+          <p class="eyebrow">IMAGE CLASSIFICATION WORKSPACE</p>
+          <h1>一张图片，<span>多模型对照。</span></h1>
+          <p class="intro-copy">
+            选择模型，查看二次元 / 三次元分类与独立 NSFW 分数。
+          </p>
+        </div>
+        <div class="intro-mark" aria-hidden="true">
+          <span>MODEL LAB</span
+          ><svg viewBox="0 0 60 60"><path d="M15 45 45 15M15 15h30v30" /></svg>
+        </div>
+      </section>
+
+      <main class="workspace">
+        <aside class="sidebar">
+          <section class="upload-panel panel">
+            <div class="section-label">
+              <span class="step">01</span>
+              <h2>添加图片</h2>
+            </div>
+            <label
+              class="dropzone"
+              id="dropzone"
+              tabindex="0"
+              role="button"
+              aria-label="选择图片或拖放图片到这里"
+            >
+              <input
+                type="file"
+                id="file-input"
+                accept="image/*,.avif,.heic,.heif"
+                multiple
+                hidden
+              />
+              <span class="upload-icon" aria-hidden="true"
+                ><svg viewBox="0 0 32 32">
+                  <path d="M16 22V7m-6 6 6-6 6 6M7 22v5h18v-5" /></svg
+              ></span>
+              <strong>把图片拖到这里</strong
+              ><span>或 <em>选择本地图片</em></span>
+              <small id="upload-hint">支持批量上传 · 每张最多 20 MiB</small>
+            </label>
+            <p class="upload-caption">
+              <span aria-hidden="true">↳</span>
+              拖入后自动分析，支持一次添加多张。
+            </p>
+            <p id="upload-error" class="inline-error" role="alert" hidden></p>
+          </section>
+
+          <section class="model-panel panel">
+            <div class="section-label">
+              <span class="step">i</span>
+              <h2>选择模型</h2>
+            </div>
+            <p class="model-selection-note">
+              开关影响之后添加的图片，选择会自动记住。
+            </p>
+            <div class="model-item">
+              <span class="model-number">A</span>
+              <div>
+                <h3>二次元细分类</h3>
+                <a
+                  href="https://huggingface.co/antonioglass/real-or-anime-age"
+                  target="_blank"
+                  rel="noreferrer"
+                  >real-or-anime-age <span>↗</span></a
+                >
+                <p>四个原始标签 · 分数合计 100%</p>
+                <div class="model-lifecycle">
+                  <span class="model-load-state">正在连接</span>
+                  <button type="button" data-model-action="anime" disabled>
+                    卸载
+                  </button>
+                </div>
+              </div>
+              <label class="model-toggle"
+                ><input
+                  type="checkbox"
+                  data-model="anime"
+                  checked
+                  aria-label="启用 real-or-anime-age" /><span
+                  class="toggle-track"
+                ></span
+              ></label>
+            </div>
+            <div class="model-item">
+              <span class="model-number">B</span>
+              <div>
+                <h3>二次元 / 三次元</h3>
+                <a
+                  href="https://huggingface.co/deepghs/anime_real_cls"
+                  target="_blank"
+                  rel="noreferrer"
+                  >anime_real_cls <span>↗</span></a
+                >
+                <p>anime / real · MobileNetV3 v1.4</p>
+                <div class="model-lifecycle">
+                  <span class="model-load-state">正在连接</span>
+                  <button type="button" data-model-action="anime_real" disabled>
+                    卸载
+                  </button>
+                </div>
+              </div>
+              <label class="model-toggle"
+                ><input
+                  type="checkbox"
+                  data-model="anime_real"
+                  checked
+                  aria-label="启用 anime_real_cls" /><span
+                  class="toggle-track"
+                ></span
+              ></label>
+            </div>
+            <div class="model-item">
+              <span class="model-number">C</span>
+              <div>
+                <h3>NSFW 判断</h3>
+                <a
+                  href="https://huggingface.co/Falconsai/nsfw_image_detection"
+                  target="_blank"
+                  rel="noreferrer"
+                  >nsfw_image_detection <span>↗</span></a
+                >
+                <p>normal / nsfw · 独立运行</p>
+                <div class="model-lifecycle">
+                  <span class="model-load-state">正在连接</span>
+                  <button type="button" data-model-action="nsfw" disabled>
+                    卸载
+                  </button>
+                </div>
+              </div>
+              <label class="model-toggle"
+                ><input
+                  type="checkbox"
+                  data-model="nsfw"
+                  checked
+                  aria-label="启用 nsfw_image_detection" /><span
+                  class="toggle-track"
+                ></span
+              ></label>
+            </div>
+            <p class="model-selection-note lifecycle-note">
+              卸载释放后台内存，影响连接此后台的所有页面；模型文件保留，可随时加载。
+            </p>
+            <p
+              id="model-feedback"
+              class="model-feedback"
+              role="status"
+              hidden
+            ></p>
+            <div class="model-footnote">
+              <span class="local-icon" aria-hidden="true">◈</span>
+              <p>
+                在当前后台本地分析。网页上传的图片不在后台保存；关闭页面即清空列表。
+              </p>
+            </div>
+          </section>
+          <p class="label-note">
+            标签中的 adult / non_adult 是模型原始命名，不能作为可靠的年龄结论。
+          </p>
+        </aside>
+
+        <section class="results-section" aria-labelledby="results-title">
+          <div class="results-toolbar">
+            <div class="section-label">
+              <span class="step">02</span>
+              <h2 id="results-title">分析结果</h2>
+              <span class="count" id="result-count">0</span>
+            </div>
+            <div class="toolbar-actions">
+              <button id="export-button" class="text-button" disabled>
+                导出 JSON <span aria-hidden="true">↗</span></button
+              ><button id="clear-button" class="text-button muted" disabled>
+                清空
+              </button>
+            </div>
+          </div>
+          <div
+            class="queue-status"
+            id="queue-status"
+            role="status"
+            hidden
+          ></div>
+          <div class="empty-state" id="empty-state">
+            <div class="empty-graphic" aria-hidden="true">
+              <div class="graphic-card back-card">
+                <span></span><span></span><span></span>
+              </div>
+              <div class="graphic-card front-card">
+                <svg viewBox="0 0 60 52">
+                  <circle cx="40" cy="15" r="5" />
+                  <path d="m8 43 15-23 13 18 7-10 10 15" />
+                </svg>
+                <div><i></i><i></i><i></i></div>
+              </div>
+              <span class="graphic-spark">✧</span>
+            </div>
+            <h3>等待第一张图片</h3>
+            <p>添加后，每张图片都会有一份独立的分类结果。</p>
+            <div class="empty-tags">
+              <span>4 个细分类分数</span><span>2 个二 / 三次元分数</span
+              ><span>2 个 NSFW 分数</span>
+            </div>
+          </div>
+          <div
+            id="results"
+            class="results-list"
+            aria-live="polite"
+            aria-relevant="additions"
+          ></div>
+        </section>
+      </main>
+      <footer>
+        <span>Kanami Image Lab</span
+        ><span>分数为模型预测概率，供分类参考。</span>
+      </footer>
+    </div>
+
+    <template id="result-template">
+      <article class="result-card panel">
+        <header class="card-header">
+          <span class="file-number"></span>
+          <h3 class="file-name"></h3>
+          <span class="card-state">等待分析</span>
+        </header>
+        <div class="card-body">
+          <div class="image-column">
+            <div class="image-preview"><img alt="上传图片预览" /></div>
+            <div class="image-meta"></div>
+            <div class="prediction-badges"></div>
+          </div>
+          <div class="scores-column">
+            <div class="card-placeholder">
+              <span class="spinner"></span>
+              <p>图片已加入队列</p>
+            </div>
+            <div class="score-content" hidden>
+              <p class="dimension-source"></p>
+              <div class="dimension-summary">
+                <div>
+                  <span>二次元</span><strong class="anime-probability"></strong>
+                </div>
+                <div>
+                  <span>非二次元</span
+                  ><strong class="real-probability"></strong>
+                </div>
+              </div>
+              <div class="dimension-bar"><span></span></div>
+              <section class="score-group anime-group">
+                <div class="score-heading">
+                  <h4>二次元细分类</h4>
+                  <span>real-or-anime-age</span>
+                </div>
+                <div class="anime-rows"></div>
+              </section>
+              <section class="score-group anime-real-group">
+                <div class="score-heading">
+                  <h4>二次元 / 三次元</h4>
+                  <span>deepghs/anime_real_cls</span>
+                </div>
+                <div class="anime-real-rows"></div>
+              </section>
+              <section class="score-group nsfw-group">
+                <div class="score-heading">
+                  <h4>NSFW 判断</h4>
+                  <span>独立模型</span>
+                </div>
+                <div class="nsfw-rows"></div>
+              </section>
+              <div class="result-detail"></div>
+            </div>
+          </div>
+        </div>
+      </article>
+    </template>
+  </body>
+</html>
