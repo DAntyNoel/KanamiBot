@@ -49,6 +49,15 @@ class ResultStore:
                 [(user, digest) for digest in digests],
             )
 
+    def mark_previewed(self, user: str, digests: list[str]) -> None:
+        """Remember shown numbers without changing nightly delivery statistics."""
+        with self._review_db() as db:
+            db.executemany(
+                "INSERT OR IGNORE INTO review_visible SELECT user, day, a, b, position "
+                "FROM review_numbers WHERE user=? AND digest=?",
+                [(user, digest) for digest in digests],
+            )
+
     @contextmanager
     def _review_db(self):
         # Metadata only; keep delivery history outside per-image retention directories.

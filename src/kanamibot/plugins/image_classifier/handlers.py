@@ -17,7 +17,7 @@ from nonebot.log import logger
 from nonebot.message import event_preprocessor
 from nonebot.permission import SUPERUSER
 
-from .commands import parse_request
+from .commands import REQUEST_PATTERN, parse_request
 from .config import Settings
 from .review import daily_preview_pages
 from .service import ClassificationService, ImageJob
@@ -73,7 +73,11 @@ async def cleanup_expired_results() -> None:
         logger.exception("[image_classifier] retention cleanup failed")
 
 
-images = on_regex(r"^图(?=$|[aAbB\s])", permission=SUPERUSER, priority=5, block=True)
+async def _superuser_private(bot: Bot, event: MessageEvent) -> bool:
+    return isinstance(event, PrivateMessageEvent) and await SUPERUSER(bot, event)
+
+
+images = on_regex(REQUEST_PATTERN, permission=_superuser_private, priority=5, block=True)
 
 
 @images.handle()
@@ -93,9 +97,7 @@ async def request_images(event: PrivateMessageEvent) -> None:
         while (page := await asyncio.to_thread(next, pages, None)) is not None:
             data, text, digests = page
             await images.send(_review_message(data, text))
-            await asyncio.to_thread(
-                service.store.mark_reviewed, str(event.user_id), digests, datetime.now(UTC)
-            )
+            await asyncio.to_thread(service.store.mark_previewed, str(event.user_id), digests)
         await images.finish()
     try:
         selections = await asyncio.to_thread(
@@ -126,9 +128,6 @@ async def request_images(event: PrivateMessageEvent) -> None:
             logger.warning("[image_classifier] requested original delivery failed")
             failed.append(str(number))
             continue
-        await asyncio.to_thread(
-            service.store.mark_reviewed, str(event.user_id), [record["sha256"]], datetime.now(UTC)
-        )
     if failed:
         await images.finish(
             f"这些序号不存在、已过期、源图失效或发送失败：{','.join(failed)}。"

@@ -886,8 +886,11 @@ class ImageRequestTest(unittest.IsolatedAsyncioTestCase):
                         parse_request(command + " 3，5,12，25"), (category, [3, 5, 12, 25])
                     )
                     self.assertEqual(parse_request(f"图a{a}b{b} 3"), (category, [3]))
+                    self.assertEqual(parse_request(command[1:] + " 3，5"), (category, [3, 5]))
+                    self.assertEqual(parse_request(f"a{a}b{b} 3"), (category, [3]))
         self.assertEqual(parse_request("图"), (None, []))
         self.assertEqual(parse_request("图ab"), (("A1", "B1"), []))
+        self.assertEqual(parse_request("aabb"), (("A2", "B2"), []))
         self.assertEqual(parse_request("图aabb 3， 5,3"), (("A2", "B2"), [3, 5]))
         for command in (
             "#图ab 3",
@@ -994,9 +997,96 @@ class ImageRequestTest(unittest.IsolatedAsyncioTestCase):
             ],
             [b"original3", b"original12", b"original25"],
         )
-        self.assertEqual(mark.call_count, 3)
+        mark.assert_not_called()
         self.assertIn("5", finish.call_args.args[0])
         self.assertFalse(hasattr(handlers, "save"))
+
+    async def test_manual_preview_and_original_leave_nightly_statistics_unchanged(self):
+        import hashlib
+        from types import SimpleNamespace
+
+        from nonebot.exception import FinishedException
+
+        from kanamibot.plugins.image_classifier import handlers
+        from kanamibot.plugins.image_classifier.review import daily_preview_pages
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ResultStore(Path(tmp))
+            classifier = fake_classifier()
+            classifier.anime.predict.return_value = {
+                "anime_adult": 0.1,
+                "anime_contentious": 0.05,
+                "anime_non_adult": 0.05,
+                "non_anime": 0.8,
+            }
+            classifier.nsfw.predict.return_value = {"nsfw": 0.4, "normal": 0.6}
+            store.save(
+                png_bytes(), classifier.classify(png_bytes()), source={}, models={}, thresholds={}
+            )
+            digest = hashlib.sha256(png_bytes()).hexdigest()
+            with (
+                patch.object(handlers.service, "store", store),
+                patch.object(handlers.images, "send", new_callable=AsyncMock) as send,
+                patch.object(
+                    handlers.images, "finish", new_callable=AsyncMock, side_effect=FinishedException
+                ),
+            ):
+                for command in ("图aabb", "aabb 1"):
+                    with self.assertRaises(FinishedException):
+                        await handlers.request_images(
+                            SimpleNamespace(
+                                user_id=123, get_plaintext=lambda command=command: command
+                            )
+                        )
+                    self.assertEqual(store.reviewed_before("123", datetime.now(UTC)), set())
+                    nightly = list(daily_preview_pages(store, Settings(), user="123"))
+                    self.assertEqual(nightly[0][2], [digest])
+            self.assertEqual(send.await_count, 2)
+            self.assertIn("1张", str(send.await_args_list[0].args[0]))
+            store.mark_reviewed("123", [digest], datetime.now(UTC))
+            self.assertEqual(list(daily_preview_pages(store, Settings(), user="123"))[0][2], [])
+
+    async def test_commands_match_with_optional_prefix_and_allow_only_private_superuser(self):
+        import re
+
+        from nonebot.adapters.onebot.v11 import Bot, PrivateMessageEvent
+
+        from kanamibot.plugins.image_classifier import handlers
+        from kanamibot.plugins.image_classifier.commands import REQUEST_PATTERN
+
+        for command in ("图aabb", "图aabb 3，5", "aabb 3", "a2b2 3", "图"):
+            self.assertIsNotNone(re.search(REQUEST_PATTERN, command))
+        for command in ("#图ab 3", "图片ab 3", "hello aabb 3", "abc 3"):
+            self.assertIsNone(re.search(REQUEST_PATTERN, command))
+        adapter = Mock()
+        adapter.get_name.return_value = "OneBot V11"
+        adapter.config = handlers.driver.config
+        bot = Bot(adapter, "100")
+        with patch.object(handlers.driver.config, "superusers", {"123"}):
+            for user in (123, 456):
+                private = PrivateMessageEvent.model_validate(
+                    {
+                        "time": 1,
+                        "self_id": 100,
+                        "post_type": "message",
+                        "message_type": "private",
+                        "sub_type": "friend",
+                        "message_id": 1,
+                        "user_id": user,
+                        "message": "aabb 3",
+                        "raw_message": "aabb 3",
+                        "font": 0,
+                        "sender": {"user_id": user},
+                    }
+                )
+                self.assertEqual(await handlers.images.permission(bot, private), user == 123)
+                group_data = private.model_dump() | {
+                    "message_type": "group",
+                    "sub_type": "normal",
+                    "group_id": 999,
+                }
+                group = GroupMessageEvent.model_validate(group_data)
+                self.assertFalse(await handlers.images.permission(bot, group))
 
 
 if __name__ == "__main__":

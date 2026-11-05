@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import re
 
-HELP = "图ab 查看A1B1缩略图；图ab 3 发送第3张；图aabb 3,5,12,25 批量发送。"
+HELP = "图ab 查看A1B1缩略图；图ab 3 发送第3张；图aabb 3,5,12,25 批量发送。分组命令可省略图。"
+REQUEST_PATTERN = r"^(?:图(?=$|[aAbB\s])|(?:[aA]{1,3}[bB]{1,3}|[aA][123][bB][123])(?=\s|$))"
 
 
 def group_command(category: tuple[str, str]) -> str | None:
@@ -15,6 +16,11 @@ def group_command(category: tuple[str, str]) -> str | None:
 
 
 def parse_request(text: str) -> tuple[tuple[str, str] | None, list[int]]:
+    text = text.strip()
+    if not text:
+        raise ValueError(HELP)
+    if not text.startswith("图"):
+        text = "图" + text
     match = re.fullmatch(r"图(?:(a{1,3}b{1,3}|a[123]b[123]))?(?:\s+(.*))?", text.strip(), re.I)
     if match is None:
         raise ValueError(HELP)
