@@ -69,8 +69,8 @@ function initializeSelection() {
     const item = toggle.closest(".model-item");
     item.classList.toggle("unavailable", !state.enabled);
     item.classList.toggle("unloaded", state.enabled && !state.loaded);
-    $(".model-load-state", item).textContent = !state.enabled
-      ? "后台已禁用"
+    toggle.title = !state.enabled
+      ? "已禁用"
       : state.loaded
         ? "已加载"
         : "已卸载";
@@ -112,10 +112,8 @@ for (const button of modelButtons)
     modelBusy = { key, action };
     initializeSelection();
     const feedback = $("#model-feedback");
-    feedback.hidden = false;
+    feedback.hidden = true;
     feedback.classList.remove("error");
-    feedback.textContent =
-      action === "unload" ? "正在释放模型会话…" : "正在加载本地模型…";
     try {
       const response = await fetch(`/api/models/${key}/${action}`, {
         method: "POST",
@@ -124,15 +122,12 @@ for (const button of modelButtons)
       if (!response.ok)
         throw new Error(payload.detail || "模型操作失败，请重试。");
       applyStatus(payload);
-      feedback.textContent =
-        action === "unload"
-          ? "模型已卸载，文件保留；需要时可重新加载。"
-          : "模型已加载，已恢复之前的开关选择。";
     } catch (error) {
+      feedback.hidden = false;
       feedback.classList.add("error");
       feedback.textContent =
         error.message === "Failed to fetch"
-          ? "无法连接后台，请确认服务仍在运行。"
+          ? "连接失败"
           : error.message;
       await refreshStatus();
     } finally {
@@ -157,11 +152,9 @@ function updateToolbar() {
     ["queued", "running"].includes(record.status),
   ).length;
   const completed = records.filter((record) => record.status === "done").length;
-  $("#queue-status").hidden = records.length === 0;
+  $("#queue-status").hidden = remaining === 0;
   $("#queue-status").textContent =
-    remaining > 0
-      ? `正在依次分析 · 已完成 ${completed} 张 · 剩余 ${remaining} 张`
-      : `本次分析完成 · ${completed} 张成功${records.length > completed ? ` · ${records.length - completed} 张失败` : ""}`;
+    `${completed}/${records.length} · 待处理 ${remaining}`;
 }
 
 function setState(record, status, message) {
@@ -170,12 +163,12 @@ function setState(record, status, message) {
   const state = $(".card-state", record.card);
   state.className = `card-state ${status}`;
   state.textContent = {
-    queued: "等待分析",
+    queued: "排队中",
     running: "分析中",
     done: "已完成",
-    failed: "未完成",
+    failed: "失败",
   }[status];
-  $(".card-placeholder p", record.card).textContent = message || "";
+  $(".card-placeholder p", record.card).textContent = status === "failed" ? message : "";
   if (status === "failed")
     $(".card-placeholder", record.card).classList.add("failed");
   updateToolbar();
@@ -185,10 +178,6 @@ function scoreRows(target, scores) {
   const best = Math.max(...Object.values(scores));
   target.replaceChildren();
   if (!Object.keys(scores).length) {
-    const note = document.createElement("p");
-    note.className = "disabled-score-note";
-    note.textContent = "本图未启用此模型";
-    target.append(note);
     return;
   }
   for (const [label, probability] of Object.entries(scores)) {
@@ -227,9 +216,6 @@ function renderResult(record, payload) {
   const hasDimension = result.anime_probability !== null;
   $(".dimension-summary", card).hidden = !hasDimension;
   $(".dimension-bar", card).hidden = !hasDimension;
-  $(".dimension-source", card).textContent = hasDimension
-    ? `汇总来源：${result.dimension_model === "anime_real" ? "anime_real_cls" : "real-or-anime-age"}`
-    : "本图未启用二次元 / 三次元分类模型";
   $(".anime-probability", card).textContent = hasDimension
     ? percent(result.anime_probability)
     : "";
@@ -242,6 +228,9 @@ function renderResult(record, payload) {
   scoreRows($(".anime-rows", card), result.anime_scores);
   scoreRows($(".anime-real-rows", card), result.anime_real_scores || {});
   scoreRows($(".nsfw-rows", card), result.nsfw_scores);
+  $(".anime-group", card).hidden = !Object.keys(result.anime_scores).length;
+  $(".anime-real-group", card).hidden = !Object.keys(result.anime_real_scores || {}).length;
+  $(".nsfw-group", card).hidden = !Object.keys(result.nsfw_scores).length;
   $(".image-meta", card).textContent =
     `${result.width} × ${result.height} · ${fileSize(payload.preparation?.prepared_bytes ?? record.file.size)} · ${result.image_format.toUpperCase()}`;
   const badges = $(".prediction-badges", card);
@@ -270,19 +259,19 @@ function renderResult(record, payload) {
   }
   const frames =
     result.total_frames > 1
-      ? ` · 动图 ${result.total_frames} 帧，抽样 ${result.frames.length} 帧${result.nsfw_probability !== null ? "；NSFW 取最高风险帧" : ""}`
+      ? ` · ${result.frames.length}/${result.total_frames} 帧`
       : "";
   $(".result-detail", card).textContent =
-    `分析耗时 ${(payload.elapsed_ms / 1000).toFixed(2)} s${result.nsfw_probability !== null ? ` · NSFW 阈值 ${percent(payload.thresholds.nsfw)}` : ""}${frames}`;
+    `${(payload.elapsed_ms / 1000).toFixed(2)} s${frames}`;
   if (payload.preparation) {
     const prepared = payload.preparation;
     const note = document.createElement("p");
     note.className = "compression-note";
     note.textContent =
-      `已自动压缩：${prepared.original_width} × ${prepared.original_height} / ${fileSize(prepared.original_bytes)} → ${prepared.width} × ${prepared.height} / ${fileSize(prepared.prepared_bytes)}` +
+      `已压缩 · ${fileSize(prepared.original_bytes)} → ${fileSize(prepared.prepared_bytes)}` +
       (prepared.original_frames > 1
-        ? `；原动图 ${prepared.original_frames} 帧，保留覆盖全程的 ${prepared.prepared_frames} 帧用于分析。`
-        : "。原文件与预览保持不变。");
+        ? ` · ${prepared.prepared_frames}/${prepared.original_frames} 帧`
+        : "");
     $(".result-detail", card).append(note);
   }
   setState(record, "done");
@@ -298,7 +287,7 @@ async function processQueue() {
       setState(
         record,
         "running",
-        `正在准备图片并运行 ${record.modelKeys.length} 个模型…`,
+        "分析中",
       );
       const controller = new AbortController();
       const timeout = window.setTimeout(() => controller.abort(), 180000);
@@ -341,18 +330,17 @@ function applyStatus(payload) {
   initializeSelection();
   const loadedCount = Object.keys(config.models).length;
   $("#model-status").textContent = config.ready
-    ? `${loadedCount} 个模型已就绪`
+    ? `就绪 · ${loadedCount}`
     : config.error
-      ? "模型未就绪"
-      : "全部模型已卸载";
+      ? "未就绪"
+      : "未加载";
   $("#status-dot").className =
     `runtime-dot ${config.ready ? "ready" : "error"}`;
-  $("#upload-hint").textContent =
-    `超限自动压缩 · 原文件最多 ${fileSize(config.max_source_bytes ?? config.max_upload_bytes)}`;
+  dropzone.title = `≤ ${fileSize(config.max_source_bytes ?? config.max_upload_bytes)}`;
   $("#upload-error").hidden = config.ready;
   if (!config.ready)
     $("#upload-error").textContent =
-      config.error || "请先在下方加载至少一个模型，再添加图片。";
+      config.error || "请先加载模型";
 }
 
 async function refreshStatus() {
@@ -362,9 +350,9 @@ async function refreshStatus() {
     applyStatus(await response.json());
     return config.ready;
   } catch (_error) {
-    $("#model-status").textContent = "后台连接失败";
+    $("#model-status").textContent = "连接失败";
     $("#status-dot").className = "runtime-dot error";
-    $("#upload-error").textContent = "无法连接后台，请确认服务已启动后重试。";
+    $("#upload-error").textContent = "连接失败，请重试";
     $("#upload-error").hidden = false;
     return false;
   }
@@ -373,7 +361,7 @@ async function refreshStatus() {
 async function addFiles(files) {
   if (!files.length) return;
   if (modelBusy) {
-    $("#upload-error").textContent = "模型操作进行中，请完成后再添加图片。";
+    $("#upload-error").textContent = "请稍候";
     $("#upload-error").hidden = false;
     return;
   }
@@ -381,7 +369,7 @@ async function addFiles(files) {
   if (!config?.ready && !(await refreshStatus())) return;
   const modelKeys = selectedModels();
   if (!modelKeys.length) {
-    $("#upload-error").textContent = "请至少启用一个模型，再添加图片。";
+    $("#upload-error").textContent = "请选择模型";
     $("#upload-error").hidden = false;
     return;
   }
@@ -455,16 +443,16 @@ async function addFiles(files) {
     thumbnailNav.prepend(thumbnail);
     cardObserver.observe(card);
     if (!isImage)
-      setState(record, "failed", "这个文件不是图片，请选择图片文件。");
+      setState(record, "failed", "图片格式无效");
     else if (file.size > maxSourceBytes)
       setState(
         record,
         "failed",
-        `原文件超过 ${fileSize(maxSourceBytes)}，请先裁剪或缩小后再上传。`,
+        `超过 ${fileSize(maxSourceBytes)}`,
       );
     else if (!file.size)
-      setState(record, "failed", "图片文件为空，请重新选择。");
-    else setState(record, "queued", "图片已加入队列");
+      setState(record, "failed", "空文件");
+    else setState(record, "queued");
   }
   processQueue();
 }

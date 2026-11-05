@@ -186,6 +186,8 @@ h1 span {
   grid-template-columns: 322px minmax(0, 1fr);
   align-items: start;
   gap: 30px;
+  margin-top: 28px;
+  padding-bottom: 32px;
 }
 .sidebar {
   position: sticky;
@@ -355,13 +357,16 @@ h1 span {
   padding: 23px;
 }
 .model-panel > .section-label {
-  margin-bottom: 25px;
+  margin-bottom: 20px;
 }
 .model-item {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 12px;
-  margin: 0 0 24px;
+  margin: 0 0 16px;
+}
+.model-item:last-of-type {
+  margin-bottom: 0;
 }
 .model-number {
   display: grid;
@@ -377,7 +382,7 @@ h1 span {
 .model-item h3 {
   font-size: 12px;
   font-weight: 600;
-  margin: 0 0 6px;
+  margin: 0;
 }
 .model-item a {
   font-size: 11px;
@@ -1043,6 +1048,10 @@ h1 span {
 .model-item > div {
   flex: 1;
   min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 .model-toggle {
   position: relative;
@@ -1104,7 +1113,7 @@ h1 span {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-top: 9px;
+  margin-top: 0;
   font-size: 10px;
   color: #96998e;
 }
@@ -1174,8 +1183,11 @@ h1 span {
 
 /* Keep the upload controls on screen while browsing long result lists. */
 .sidebar .dropzone {
-  min-height: 140px;
-  margin-top: 16px;
+  min-height: 110px;
+  margin-top: 0;
+}
+.sidebar .dropzone strong {
+  margin-bottom: 0;
 }
 .sidebar .upload-icon {
   width: 36px;
