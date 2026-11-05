@@ -5,7 +5,10 @@ from __future__ import annotations
 import re
 
 HELP = "图ab 查看A1B1缩略图；图ab 3 发送第3张；图aabb 3,5,12,25 批量发送。分组命令可省略图。"
-REQUEST_PATTERN = r"^(?:图(?=$|[aAbB\s])|(?:[aA]{1,3}[bB]{1,3}|[aA][123][bB][123])(?=\s|$))"
+REQUEST_PATTERN = (
+    r"^(?:(?i:images)\s*$|所有图\s*$|图(?=$|[aAbB\s])|"
+    r"(?:[aA]{1,3}[bB]{1,3}|[aA][123][bB][123])(?=\s|$))"
+)
 
 
 def group_command(category: tuple[str, str]) -> str | None:

@@ -20,7 +20,7 @@ from nonebot.permission import SUPERUSER
 from .commands import REQUEST_PATTERN, parse_request
 from .config import Settings
 from .exclusions import exclude_event, is_command_message, replied_message_id
-from .review import daily_preview_pages
+from .review import collection_overview, daily_preview_pages
 from .service import ClassificationService, ImageJob
 
 require("nonebot_plugin_apscheduler")
@@ -95,8 +95,11 @@ images = on_regex(REQUEST_PATTERN, permission=_superuser_private, priority=5, bl
 
 @images.handle()
 async def request_images(event: PrivateMessageEvent) -> None:
+    text = event.get_plaintext().strip()
+    if text.lower() in {"images", "所有图"}:
+        await images.finish(await asyncio.to_thread(collection_overview, service.store))
     try:
-        category, numbers = parse_request(event.get_plaintext())
+        category, numbers = parse_request(text)
     except ValueError as exc:
         await images.finish(str(exc))
     if not numbers:

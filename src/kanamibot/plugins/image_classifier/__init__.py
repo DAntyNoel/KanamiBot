@@ -6,7 +6,7 @@ from nonebot.plugin import PluginMetadata
 __plugin_meta__ = PluginMetadata(
     name="Image Classifier",
     description="自动分类群聊及私聊图片，临时保留48小时，23点私聊超管预览。",
-    usage="超管私聊：图ab 查看A1B1缩略图；图ab 3 或 图aabb 3，5 发送原图。",
+    usage="超管私聊：images/所有图 查看数量；图ab 看缩略图；图ab 3 或 aabb 3，5 发原图。",
 )
 
 try:

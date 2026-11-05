@@ -873,6 +873,84 @@ class ReviewIntegrationTest(unittest.IsolatedAsyncioTestCase):
 
 
 class ImageRequestTest(unittest.IsolatedAsyncioTestCase):
+    async def test_collection_overview_counts_unique_content_and_shanghai_days(self):
+        from kanamibot.plugins.image_classifier.review import collection_overview
+
+        now = datetime(2026, 11, 5, 16, 30, tzinfo=UTC)  # Shanghai Nov 6, 00:30
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ResultStore(Path(tmp))
+            classifier = fake_classifier()
+            for color, age, adult, contentious, non_adult in (
+                ("red", 2, 0.8, 0.1, 0.05),
+                ("red", 0, 0.8, 0.1, 0.05),
+                ("blue", 0, 0.1, 0.05, 0.05),
+                ("gold", 2, 0.2, 0.2, 0.2),
+                ("green", 49, 0.2, 0.2, 0.2),
+            ):
+                buffer = io.BytesIO()
+                Image.new("RGB", (8, 6), color).save(buffer, format="PNG")
+                data = buffer.getvalue()
+                classifier.anime.predict.return_value = dict(
+                    zip(
+                        SPECS[0].labels,
+                        (adult, contentious, non_adult, 1 - adult - contentious - non_adult),
+                        strict=True,
+                    )
+                )
+                classifier.nsfw.predict.return_value = (
+                    {"nsfw": 0.4, "normal": 0.6} if color == "blue" else NORMAL
+                )
+                store.save(
+                    data,
+                    classifier.classify(data),
+                    source={},
+                    models={},
+                    thresholds={},
+                    now=now - timedelta(hours=age),
+                )
+            # Already delivered pictures still belong in the collection overview.
+            store.mark_reviewed(
+                "123", [record["sha256"] for _, record in store.records(now=now)], now
+            )
+            with (
+                patch.object(store, "mark_reviewed") as delivered,
+                patch.object(store, "mark_previewed") as previewed,
+                patch.object(store, "numbered_images") as numbered,
+            ):
+                text = collection_overview(store, now=now)
+            self.assertIn("北京时间 2026-11-06", text)
+            self.assertIn("今日：2张；48小时缓存：3张；来源记录：4条", text)
+            self.assertIn("A1B1：今日 1 / 缓存 1", text)
+            self.assertIn("A2B2：今日 1 / 缓存 1", text)
+            self.assertIn("A3B3：今日 0 / 缓存 1", text)
+            self.assertEqual(len([line for line in text.splitlines() if line.startswith("A")]), 9)
+            delivered.assert_not_called()
+            previewed.assert_not_called()
+            numbered.assert_not_called()
+
+    async def test_overview_aliases_only_send_text(self):
+        from types import SimpleNamespace
+
+        from nonebot.exception import FinishedException
+
+        from kanamibot.plugins.image_classifier import handlers
+
+        with (
+            patch.object(handlers, "collection_overview", return_value="数量总览") as overview,
+            patch.object(handlers.images, "send", new_callable=AsyncMock) as send,
+            patch.object(
+                handlers.images, "finish", new_callable=AsyncMock, side_effect=FinishedException
+            ) as finish,
+        ):
+            for command in ("images", "所有图", "IMAGES"):
+                with self.assertRaises(FinishedException):
+                    await handlers.request_images(
+                        SimpleNamespace(get_plaintext=lambda command=command: command)
+                    )
+                self.assertEqual(finish.call_args.args, ("数量总览",))
+            self.assertEqual(overview.call_count, 3)
+            send.assert_not_awaited()
+
     async def test_command_groups_and_mixed_commas(self):
         from kanamibot.plugins.image_classifier.commands import group_command, parse_request
 
@@ -1054,9 +1132,18 @@ class ImageRequestTest(unittest.IsolatedAsyncioTestCase):
         from kanamibot.plugins.image_classifier import handlers
         from kanamibot.plugins.image_classifier.commands import REQUEST_PATTERN
 
-        for command in ("图aabb", "图aabb 3，5", "aabb 3", "a2b2 3", "图"):
+        for command in (
+            "图aabb",
+            "图aabb 3，5",
+            "aabb 3",
+            "a2b2 3",
+            "图",
+            "images",
+            "IMAGES",
+            "所有图",
+        ):
             self.assertIsNotNone(re.search(REQUEST_PATTERN, command))
-        for command in ("#图ab 3", "图片ab 3", "hello aabb 3", "abc 3"):
+        for command in ("#图ab 3", "图片ab 3", "hello aabb 3", "abc 3", "images extra", "所有图片"):
             self.assertIsNone(re.search(REQUEST_PATTERN, command))
         adapter = Mock()
         adapter.get_name.return_value = "OneBot V11"

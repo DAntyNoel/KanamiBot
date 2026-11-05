@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import io
 import math
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Iterator
 from datetime import UTC, datetime, time, timedelta
 from zoneinfo import ZoneInfo
@@ -19,6 +19,38 @@ SHANGHAI = ZoneInfo("Asia/Shanghai")
 THUMB_SIZE = (200, 200)
 # Match the gallery font without importing core's gallery registries and caches.
 FONT_PATH = ROOT.parents[1] / "files" / "fonts" / "MiSans-Regular.ttf"
+
+
+def collection_overview(store: ResultStore, *, now: datetime | None = None) -> str:
+    current = now or datetime.now(UTC)
+    today = current.astimezone(SHANGHAI).date()
+    unique = {}
+    sources = 0
+    for _, record in store.records(now=current):
+        if datetime.fromisoformat(record["saved_at"]) <= current:
+            sources += 1
+            unique.setdefault(record["sha256"], record)
+    cached = Counter()
+    daily = Counter()
+    for record in unique.values():
+        result = record["classification"]
+        category = result["category_a"] + (result["category_b"] or "B?")
+        cached[category] += 1
+        if datetime.fromisoformat(record["saved_at"]).astimezone(SHANGHAI).date() == today:
+            daily[category] += 1
+    lines = [
+        f"图片收集总览（北京时间 {today}，按内容去重）",
+        f"今日：{sum(daily.values())}张；48小时缓存：{len(unique)}张；来源记录：{sources}条。",
+    ]
+    for a in range(1, 4):
+        for b in range(1, 4):
+            key = f"A{a}B{b}"
+            lines.append(f"{key}：今日 {daily[key]} / 缓存 {cached[key]}")
+        unknown = f"A{a}B?"
+        if cached[unknown]:
+            lines.append(f"{unknown}（未完整检测）：今日 {daily[unknown]} / 缓存 {cached[unknown]}")
+    lines.append("统计全部已收集分类，不受预览筛选影响；查看不影响23点自动审查。")
+    return "\n".join(lines)
 
 
 def _daily_plan(
