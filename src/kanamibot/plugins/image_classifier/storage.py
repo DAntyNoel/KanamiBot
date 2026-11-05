@@ -75,9 +75,67 @@ class ResultStore:
                 db.execute("""CREATE TABLE IF NOT EXISTS review_visible (
                     user TEXT NOT NULL, day TEXT NOT NULL, a TEXT NOT NULL, b TEXT NOT NULL,
                     position INTEGER NOT NULL, PRIMARY KEY (user, day, a, b, position))""")
+                db.execute("""CREATE TABLE IF NOT EXISTS excluded_sources (
+                    source TEXT PRIMARY KEY, expires_at TEXT NOT NULL)""")
                 yield db
         finally:
             db.close()
+
+    @staticmethod
+    def _source_key(source: dict) -> str | None:
+        if "bot_id" not in source or "message_id" not in source:
+            return None
+        conversation = (
+            f"group:{source['group_id']}"
+            if source.get("group_id") is not None
+            else f"private:{source.get('user_id')}"
+        )
+        return json.dumps([str(source["bot_id"]), conversation, str(source["message_id"])])
+
+    def source_excluded(self, source: dict) -> bool:
+        key = self._source_key(source)
+        if key is None:
+            return False
+        with self._review_db() as db:
+            return (
+                db.execute(
+                    "SELECT 1 FROM excluded_sources WHERE source=? AND expires_at>?",
+                    (key, datetime.now(UTC).isoformat()),
+                ).fetchone()
+                is not None
+            )
+
+    def exclude_source(self, source: dict) -> int:
+        key = self._source_key(source)
+        if key is None:
+            return 0
+        deleted = 0
+        with self._lock:
+            with self._review_db() as db:
+                db.execute(
+                    "INSERT OR REPLACE INTO excluded_sources VALUES (?, ?)",
+                    (key, (datetime.now(UTC) + RETENTION).isoformat()),
+                )
+                db.execute(
+                    "DELETE FROM excluded_sources WHERE expires_at<=?",
+                    (datetime.now(UTC).isoformat(),),
+                )
+            for path in self.root.glob("*/*/*/*/result.json"):
+                if not path.parent.resolve().is_relative_to(self.root):
+                    continue
+                if not _RECORD_NAME.fullmatch(path.parent.name) or any(
+                    p.is_symlink() for p in (path, *path.parents) if p != self.root
+                ):
+                    continue
+                try:
+                    record = json.loads(path.read_text(encoding="utf-8"))
+                    if self._source_key(record.get("source", {})) == key:
+                        shutil.rmtree(path.parent)
+                        deleted += 1
+                except (OSError, ValueError, TypeError):
+                    continue
+            self._images = {digest: path for digest, path in self._images.items() if path.exists()}
+        return deleted
 
     def number_review(self, user: str, day: str, groups: dict) -> None:
         """Append numbers; never shift a previously displayed position when new images arrive."""
@@ -137,7 +195,7 @@ class ResultStore:
         now: datetime | None = None,
         reference: Path | None = None,
         inference_settings: dict | None = None,
-    ) -> Path:
+    ) -> Path | None:
         saved_at = (now or datetime.now(UTC)).astimezone(UTC)
         record_id = f"{saved_at:%Y%m%dT%H%M%S%fZ}_{uuid.uuid4().hex}"
         parent = self.root / result.dimension / result.subtype / result.safety
@@ -159,6 +217,8 @@ class ResultStore:
             "classification": result.to_dict(),
         }
         with self._lock:
+            if self.source_excluded(source):
+                return None
             parent.mkdir(parents=True, exist_ok=True)
             staging = parent / f".pending-{record_id}"
             staging.mkdir()

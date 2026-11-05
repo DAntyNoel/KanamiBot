@@ -11,6 +11,8 @@ import httpx
 from nonebot.adapters.onebot.v11 import Bot, Message, MessageSegment
 from nonebot.log import logger
 
+from .exclusions import bot_authored, bot_ids, is_command_message
+
 
 async def download_image(client: httpx.AsyncClient, url: str, max_bytes: int) -> bytes:
     if urlsplit(url).scheme not in {"http", "https"}:
@@ -41,6 +43,7 @@ async def message_images(
     seen_forwards: set[str] = set()
     image_index = 0
     visited = 0
+    ids = bot_ids(bot)
 
     async def visit(value: Any, depth: int = 0) -> AsyncIterator[tuple[bytes, dict]]:
         nonlocal image_index, visited
@@ -50,6 +53,8 @@ async def message_images(
         if isinstance(value, str):
             value = Message(value)
         if isinstance(value, list | tuple | Message):
+            if is_command_message(value):
+                return
             for item in value:
                 async for image in visit(item, depth):
                     yield image
@@ -57,6 +62,8 @@ async def message_images(
         if isinstance(value, MessageSegment):
             kind, data = value.type, value.data
         elif isinstance(value, dict):
+            if bot_authored(value, ids):
+                return
             kind = value.get("type")
             data = value.get("data", {})
             if kind is None:
@@ -110,6 +117,8 @@ async def message_images(
                     type(exc).__name__,
                 )
         elif kind == "node":
+            if bot_authored(data, ids):
+                return
             async for image in visit(data.get("content"), depth + 1):
                 yield image
         elif kind == "forward":

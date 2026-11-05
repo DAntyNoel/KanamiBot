@@ -115,6 +115,8 @@ class ClassificationService:
 
     def _classify_and_save(self, data: bytes, source: dict) -> None:
         assert self.classifier is not None
+        if self.store.source_excluded(source):
+            return
         started = time.perf_counter()
         digest = hashlib.sha256(data).hexdigest()
         result = self._results.get(digest)

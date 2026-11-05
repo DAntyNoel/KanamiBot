@@ -19,6 +19,7 @@ from nonebot.permission import SUPERUSER
 
 from .commands import REQUEST_PATTERN, parse_request
 from .config import Settings
+from .exclusions import exclude_event, is_command_message, replied_message_id
 from .review import daily_preview_pages
 from .service import ClassificationService, ImageJob
 
@@ -34,9 +35,21 @@ driver.on_shutdown(service.stop)
 
 @event_preprocessor
 async def collect_group_images(bot: Bot, event: MessageEvent) -> None:
-    if not service.accepting or str(event.user_id) == str(bot.self_id):
+    if not service.accepting:
         return
-    # Preprocessors see every group, even when a command matcher later blocks the event.
+    if exclude_event(bot, event):
+        if is_command_message(event.original_message) and (reply_id := replied_message_id(event)):
+            await asyncio.to_thread(
+                service.store.exclude_source,
+                {
+                    "bot_id": str(bot.self_id),
+                    "group_id": event.group_id if isinstance(event, GroupMessageEvent) else None,
+                    "user_id": event.user_id,
+                    "message_id": reply_id,
+                },
+            )
+        return
+    # Exclude command traffic before queueing: no download, inference or temporary record.
     message = event.original_message
     if not any(segment.type in {"image", "forward", "node"} for segment in message):
         return

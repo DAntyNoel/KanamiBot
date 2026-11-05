@@ -1089,5 +1089,219 @@ class ImageRequestTest(unittest.IsolatedAsyncioTestCase):
                 self.assertFalse(await handlers.images.permission(bot, group))
 
 
+class CommandImageExclusionTest(unittest.IsolatedAsyncioTestCase):
+    async def test_registered_regex_command_detection_does_not_execute_custom_rules(self):
+        from nonebot import on_regex
+        from nonebot.rule import Rule
+
+        from kanamibot.plugins.image_classifier.exclusions import is_command_message
+
+        async def custom_rule():
+            self.fail("Collector must not execute other plugins' custom rules")
+
+        matcher = on_regex(r"^测试正则命令(?:\s|$)", rule=Rule(custom_rule))
+        try:
+            self.assertTrue(
+                is_command_message(Message("测试正则命令 参数") + MessageSegment.image("qq-image"))
+            )
+            self.assertFalse(
+                is_command_message(Message("普通聊天图片") + MessageSegment.image("qq-image"))
+            )
+        finally:
+            matcher.destroy()
+
+    @staticmethod
+    def event(message, *, user=123, reply=None):
+        from nonebot.adapters.onebot.v11 import PrivateMessageEvent
+
+        return PrivateMessageEvent.model_validate(
+            {
+                "time": 1,
+                "self_id": 100,
+                "post_type": "message",
+                "message_type": "private",
+                "sub_type": "friend",
+                "message_id": 10,
+                "user_id": user,
+                "message": message,
+                "raw_message": "",
+                "font": 0,
+                "sender": {"user_id": user},
+                "reply": reply,
+            }
+        )
+
+    async def test_actual_image_commands_and_registered_regex_are_excluded_before_queue(self):
+        from kanamibot.plugins import image  # noqa: F401
+        from kanamibot.plugins.image_classifier import handlers
+
+        picture = MessageSegment.image("qq-id")
+        with (
+            patch.object(handlers.service, "accepting", True),
+            patch.object(handlers.service, "submit", new_callable=AsyncMock) as submit,
+        ):
+            for text in (
+                "保存 测试",
+                "/save_image 测试",
+                "存图 测试",
+                "收图 测试",
+                "发送 测试 3",
+                "发 测试 3",
+                "选择 测试 3",
+                "随机 测试",
+                "所有 测试",
+                "标签 cat",
+                "删除",
+                "信息",
+                "清空标签",
+                "#搜图",
+                "@100 #搜图",
+                "混淆",
+                "解混淆",
+                "图aabb 3",
+                "aabb 3",
+            ):
+                with self.subTest(text=text):
+                    await handlers.collect_group_images(
+                        Mock(self_id="100"),
+                        self.event(Message(picture) + MessageSegment.text(text)),
+                    )
+            submit.assert_not_awaited()
+            await handlers.collect_group_images(
+                Mock(self_id="100"),
+                self.event(Message(picture) + MessageSegment.text("今天看到的小猫真可爱")),
+            )
+            submit.assert_awaited_once()
+
+    async def test_at_bot_reply_to_bot_and_pending_followup_excluded(self):
+        import time
+        from types import SimpleNamespace
+
+        from kanamibot.plugins.image_classifier import handlers
+
+        picture = MessageSegment.image("qq-id")
+        reply = {
+            "time": 1,
+            "message_type": "private",
+            "message_id": 9,
+            "real_id": 9,
+            "sender": {"user_id": 100},
+            "message": [picture],
+        }
+        pending = SimpleNamespace(
+            _pending={"100:123": SimpleNamespace(expires_at=time.monotonic() + 60)}
+        )
+        with (
+            patch.object(handlers.service, "accepting", True),
+            patch.object(handlers.service, "submit", new_callable=AsyncMock) as submit,
+        ):
+            await handlers.collect_group_images(
+                Mock(self_id="100"), self.event(Message(MessageSegment.at(100)) + picture)
+            )
+            await handlers.collect_group_images(
+                Mock(self_id="100"), self.event([picture], reply=reply)
+            )
+            with patch.dict("sys.modules", {"kanamibot.plugins.image_obfuscator": pending}):
+                await handlers.collect_group_images(Mock(self_id="100"), self.event([picture]))
+            submit.assert_not_awaited()
+            reply["sender"] = {"user_id": 456}
+            await handlers.collect_group_images(
+                Mock(self_id="100"), self.event([picture], reply=reply)
+            )
+            submit.assert_awaited_once()
+
+    async def test_forwarded_bot_outputs_and_command_inputs_are_not_downloaded(self):
+        from kanamibot.plugins import image  # noqa: F401
+
+        bot = Mock(self_id="100")
+
+        def img(suffix):
+            return {"type": "image", "data": {"url": "https://example.test/" + suffix}}
+
+        bot.get_forward_msg = AsyncMock(
+            return_value={
+                "messages": [
+                    {"sender": {"user_id": 100}, "content": [img("bot")]},
+                    {"sender": {"user_id": 200}, "content": [img("normal")]},
+                    {
+                        "sender": {"user_id": 201},
+                        "content": [
+                            {"type": "text", "data": {"text": "保存 测试"}},
+                            img("command"),
+                        ],
+                    },
+                    {"type": "node", "data": {"uin": "100", "content": [img("bot-node")]}},
+                ]
+            }
+        )
+        requests = []
+
+        def respond(request):
+            requests.append(request.url.path)
+            return httpx.Response(200, content=png_bytes())
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+            items = [
+                item
+                async for item in message_images(
+                    bot, Message(MessageSegment("forward", {"id": "forward"})), client, 10000
+                )
+            ]
+        self.assertEqual(len(items), 1)
+        self.assertEqual(requests, ["/normal"])
+
+    async def test_replied_command_removes_records_and_blocks_queued_write_without_touching_source(
+        self,
+    ):
+        from kanamibot.plugins import image  # noqa: F401
+        from kanamibot.plugins.image_classifier import handlers
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = ResultStore(root / "cache")
+            source = {"bot_id": "100", "group_id": None, "user_id": 123, "message_id": 9}
+            external = root / "external.png"
+            external.write_bytes(png_bytes())
+            result = fake_classifier().classify(png_bytes())
+            path = store.save(
+                png_bytes(), result, source=source, models={}, thresholds={}, reference=external
+            )
+            other = source | {"user_id": 456}
+            other_path = store.save(png_bytes(), result, source=other, models={}, thresholds={})
+            reply = MessageSegment.reply(9)
+            event = self.event(Message(reply) + MessageSegment.text("保存 测试"))
+            with (
+                patch.object(handlers.service, "accepting", True),
+                patch.object(handlers.service, "store", store),
+                patch.object(handlers.service, "submit", new_callable=AsyncMock) as submit,
+            ):
+                await handlers.collect_group_images(Mock(self_id="100"), event)
+            submit.assert_not_awaited()
+            self.assertFalse(path.exists())
+            self.assertTrue(other_path.exists())
+            self.assertTrue(external.exists())
+            # Persisted exclusion also prevents a delayed save after process restart.
+            store = ResultStore(root / "cache")
+            self.assertIsNone(
+                store.save(png_bytes(), result, source=source, models={}, thresholds={})
+            )
+            service = ClassificationService(Settings(cache_dir=root / "cache"))
+            service.classifier = fake_classifier()
+            service.classifier.classify = Mock()
+            service._classify_and_save(png_bytes(), source)
+            service.classifier.classify.assert_not_called()
+            racing_source = source | {"message_id": 11}
+
+            def exclude_during_inference(data):
+                store.exclude_source(racing_source)
+                return result
+
+            service.classifier.classify.side_effect = exclude_during_inference
+            service.classifier.provenance = Mock(return_value={})
+            service._classify_and_save(png_bytes(), racing_source)
+            self.assertEqual(len(store.records()), 1)
+            self.assertEqual(store.records()[0][1]["source"], other)
+
+
 if __name__ == "__main__":
     unittest.main()
