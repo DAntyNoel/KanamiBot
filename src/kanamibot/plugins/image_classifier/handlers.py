@@ -20,7 +20,7 @@ from nonebot.permission import SUPERUSER
 from .commands import REQUEST_PATTERN, parse_request
 from .config import Settings
 from .exclusions import exclude_event, is_command_message, replied_message_id
-from .review import collection_overview, daily_preview_pages, image_details
+from .review import collection_overview, daily_preview_pages, image_details, nightly_preview_batches
 from .service import ClassificationService, ImageJob
 
 require("nonebot_plugin_apscheduler")
@@ -184,13 +184,22 @@ async def nightly_review() -> None:
     if not users:
         return
     for user in users:
-        pages = daily_preview_pages(service.store, settings, user=str(user))
-        while (page := await asyncio.to_thread(next, pages, None)) is not None:
-            data, text, digests = page
-            # A failed page/recipient must not prevent the remaining review sheets.
+        batches = nightly_preview_batches(service.store, settings, user=str(user))
+        while (batch := await asyncio.to_thread(next, batches, None)) is not None:
+            category, pages = batch
+            digests = [digest for _, _, items in pages for digest in items]
+            # Only mark the sheets in a successfully delivered forward message.
             for bot in bots:
+                nodes = [
+                    MessageSegment.node_custom(
+                        user_id=bot.self_id,
+                        nickname=f"图片审查 {category[0]}{category[1]}",
+                        content=_review_message(data, text),
+                    )
+                    for data, text, _ in pages
+                ]
                 try:
-                    await bot.send_private_msg(user_id=user, message=_review_message(data, text))
+                    await bot.call_api("send_private_forward_msg", user_id=user, messages=nodes)
                 except Exception:
                     logger.warning("[image_classifier] nightly preview delivery failed")
                     continue

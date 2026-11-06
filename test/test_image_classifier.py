@@ -632,7 +632,33 @@ class ReviewIntegrationTest(unittest.IsolatedAsyncioTestCase):
             store.cleanup(now=now + timedelta(days=3))
             self.assertIn(digest, store.reviewed_before("123", now))
 
-    async def test_nightly_sends_each_sheet_and_marks_only_successful_pages(self):
+    async def test_nightly_batches_keep_categories_separate_and_bound_node_count(self):
+        from kanamibot.plugins.image_classifier import review
+
+        pages = [(("A1", "B1"), [index]) for index in range(22)] + [(("A2", "B2"), [22])]
+        with (
+            patch.object(review, "_daily_plan", return_value=("2026-11-06", 23, pages)),
+            patch.object(
+                review,
+                "_render_page",
+                side_effect=lambda *args: (b"thumb", str(args[-2]), [str(args[-3][0])]),
+            ),
+        ):
+            batches = list(review.nightly_preview_batches(Mock(), Settings(), user="123"))
+        self.assertEqual(
+            [category for category, _ in batches], [("A1", "B1"), ("A1", "B1"), ("A2", "B2")]
+        )
+        self.assertEqual([len(items) for _, items in batches], [20, 2, 1])
+        self.assertEqual(
+            [digest for _, items in batches for _, _, digests in items for digest in digests],
+            [str(index) for index in range(23)],
+        )
+        with patch.object(review, "_daily_plan", return_value=("2026-11-06", 0, [])):
+            self.assertEqual(
+                list(review.nightly_preview_batches(Mock(), Settings(), user="123")), []
+            )
+
+    async def test_nightly_sends_classified_forwards_and_marks_only_successful_batches(self):
         import base64
 
         from nonebot.adapters.onebot.v11 import Bot
@@ -640,27 +666,38 @@ class ReviewIntegrationTest(unittest.IsolatedAsyncioTestCase):
         from kanamibot.plugins.image_classifier import handlers
 
         bot = Mock(spec=Bot)
-        bot.send_private_msg = AsyncMock(side_effect=[RuntimeError("fail"), {}, {}])
-        pages = [
-            (b"thumbnail-one", "page1", ["a" * 64]),
-            (b"thumbnail-two", "page2", ["b" * 64]),
-            (b"", "empty", []),
+        bot.self_id = "100"
+        bot.call_api = AsyncMock(side_effect=[RuntimeError("fail"), {}])
+        batches = [
+            (("A1", "B1"), [(b"thumbnail-one", "page1", ["a" * 64])]),
+            (
+                ("A2", "B2"),
+                [
+                    (b"thumbnail-two", "page2", ["b" * 64]),
+                    (b"thumbnail-three", "page3", ["c" * 64]),
+                ],
+            ),
         ]
         with (
             patch.object(handlers.settings, "enabled", True),
             patch.object(handlers.driver.config, "superusers", {"123"}),
             patch.object(handlers, "get_bots", return_value={"100": bot}),
-            patch.object(handlers, "daily_preview_pages", return_value=iter(pages)),
+            patch.object(handlers, "nightly_preview_batches", return_value=iter(batches)),
             patch.object(handlers.service.store, "mark_reviewed") as mark,
         ):
             await handlers.nightly_review()
-        self.assertEqual(bot.send_private_msg.await_count, 3)
-        self.assertEqual(mark.call_count, 2)
-        self.assertEqual(mark.call_args_list[0].args[1], ["b" * 64])
-        payload = bot.send_private_msg.await_args_list[1].kwargs["message"]
+        self.assertEqual(bot.call_api.await_count, 2)
+        self.assertEqual(mark.call_count, 1)
+        self.assertEqual(mark.call_args.args[1], ["b" * 64, "c" * 64])
+        call = bot.call_api.await_args_list[1]
+        self.assertEqual(call.args, ("send_private_forward_msg",))
+        self.assertEqual(call.kwargs["user_id"], 123)
+        nodes = call.kwargs["messages"]
+        self.assertEqual(len(nodes), 2)
+        self.assertEqual(nodes[0].data["nickname"], "图片审查 A2B2")
+        payload = nodes[0].data["content"]
         self.assertEqual(len(payload["image"]), 1)
         self.assertEqual(base64.b64decode(payload["image"][0].data["file"][9:]), b"thumbnail-two")
-        self.assertFalse(bot.send_private_msg.await_args_list[2].kwargs["message"]["image"])
 
     async def test_legacy_scores_reclassified_and_ab_preview_filters(self) -> None:
         from dataclasses import replace
@@ -749,22 +786,23 @@ class ReviewIntegrationTest(unittest.IsolatedAsyncioTestCase):
         from kanamibot.plugins.image_classifier import handlers
 
         bot = Mock(spec=Bot)
-        bot.send_private_msg = AsyncMock(side_effect=[RuntimeError("QQ failure"), {}])
+        bot.self_id = "100"
+        bot.call_api = AsyncMock(side_effect=[RuntimeError("QQ failure"), {}])
         with (
             patch.object(handlers.settings, "enabled", True),
             patch.object(handlers.driver.config, "superusers", {"123", "456"}),
             patch.object(handlers, "get_bots", return_value={"100": bot}),
             patch.object(
                 handlers,
-                "daily_preview_pages",
-                side_effect=lambda *a, **kw: iter([(png_bytes(), "preview", [])]),
+                "nightly_preview_batches",
+                side_effect=lambda *a, **kw: iter([(("A1", "B1"), [(png_bytes(), "preview", [])])]),
             ),
             patch.object(handlers.service.store, "mark_reviewed"),
         ):
             await handlers.nightly_review()
-        self.assertEqual(bot.send_private_msg.await_count, 2)
+        self.assertEqual(bot.call_api.await_count, 2)
         self.assertEqual(
-            {call.kwargs["user_id"] for call in bot.send_private_msg.await_args_list}, {123, 456}
+            {call.kwargs["user_id"] for call in bot.call_api.await_args_list}, {123, 456}
         )
 
     async def test_local_path_reused_without_http(self) -> None:

@@ -189,6 +189,27 @@ def daily_preview_pages(
         yield _render_page(store, settings, today, total, category, selected, page, len(pages))
 
 
+def nightly_preview_batches(
+    store: ResultStore, settings: Settings, *, user: str, now: datetime | None = None
+) -> Iterator[tuple[tuple[str, str], list[tuple[bytes, str, list[str]]]]]:
+    """Group sheets by classification, with at most 20 nodes per forward message."""
+    today, total, pages = _daily_plan(store, settings, now or datetime.now(UTC), user, True)
+    for category in dict.fromkeys(category for category, _ in pages):
+        selected_pages = [
+            (index, selected) for index, (key, selected) in enumerate(pages, 1) if key == category
+        ]
+        for start in range(0, len(selected_pages), 20):
+            yield (
+                category,
+                [
+                    _render_page(
+                        store, settings, today, total, category, selected, index, len(pages)
+                    )
+                    for index, selected in selected_pages[start : start + 20]
+                ],
+            )
+
+
 def _render_page(store, settings, today, total, category, selected, page, pages):
     # Follow image.create_image_gallery's centered thumbnail grid and numbered captions.
     columns = min(5, math.ceil(math.sqrt(len(selected))))
