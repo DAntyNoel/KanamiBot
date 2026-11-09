@@ -14,6 +14,7 @@ from kanamibot.lens_session import (
     header_cookies,
     is_lens_result,
     normalize_cookies,
+    seed_login_cookies,
 )
 
 
@@ -92,6 +93,22 @@ def test_cookie_header_seeds_only_missing_file(tmp_path):
     asyncio.run(scenario())
 
 
+def test_reopening_login_preserves_unsaved_google_session(tmp_path):
+    async def scenario():
+        path = tmp_path / "cookies.json"
+        path.write_text(json.dumps([cookie("old-export")]), encoding="utf-8")
+        context = AsyncMock()
+        context.cookies.return_value = [cookie("new-login")]
+        await seed_login_cookies(context, CookieFile(path))
+        context.clear_cookies.assert_not_awaited()
+        context.add_cookies.assert_not_awaited()
+        context.cookies.return_value = [cookie(domain="other.example")]
+        await seed_login_cookies(context, CookieFile(path))
+        assert context.add_cookies.call_args.args[0][0]["value"] == "old-export"
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize(
     "url,snapshot,expected",
     [
@@ -109,7 +126,8 @@ def test_success_requires_lens_results_not_just_cookies(url, snapshot, expected)
 
 
 @pytest.mark.parametrize("solve", [False, True])
-def test_manual_verification_browser_flow_and_automatic_save(tmp_path, solve):
+@pytest.mark.parametrize("login", [False, True])
+def test_manual_verification_browser_flow_and_automatic_save(tmp_path, solve, login):
     from playwright.async_api import async_playwright
 
     async def scenario():
@@ -123,9 +141,13 @@ def test_manual_verification_browser_flow_and_automatic_save(tmp_path, solve):
             assert await store.save(context, source="old-session")
             uploads = []
             submitted = asyncio.Event()
+            login_page_opened = asyncio.Event()
 
             async def serve(route):
-                if "/v3/upload" in route.request.url:
+                if "accounts.google.com" in route.request.url:
+                    login_page_opened.set()
+                    await route.fulfill(content_type="text/html", body="<body>Sign in</body>")
+                elif "/v3/upload" in route.request.url:
                     uploads.append(route.request.post_data_buffer)
                     submitted.set()
                     await route.fulfill(
@@ -148,6 +170,12 @@ def test_manual_verification_browser_flow_and_automatic_save(tmp_path, solve):
 
             await context.route("**/*", serve)
 
+            async def manual_login():
+                await login_page_opened.wait()
+                await asyncio.sleep(0.1)
+                assert not uploads
+                await context.pages[0].goto("https://lens.google.com/")
+
             async def manual_solve():
                 await submitted.wait()
                 page = context.pages[0]
@@ -159,8 +187,9 @@ def test_manual_verification_browser_flow_and_automatic_save(tmp_path, solve):
                 }""")
 
             task = asyncio.create_task(manual_solve()) if solve else None
+            login_task = asyncio.create_task(manual_login()) if login else None
             try:
-                result = await authorize(context, store, timeout=5, poll_interval=0.05)
+                result = await authorize(context, store, timeout=5, poll_interval=0.05, login=login)
                 assert result is solve
                 saved = json.loads(store.path.read_text())
                 assert saved["source"] == ("manual-verification" if solve else "old-session")
@@ -169,6 +198,8 @@ def test_manual_verification_browser_flow_and_automatic_save(tmp_path, solve):
             finally:
                 if task:
                     await task
+                if login_task:
+                    await login_task
                 await context.close()
                 await browser.close()
 

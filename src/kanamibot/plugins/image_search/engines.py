@@ -9,6 +9,7 @@ from playwright.async_api import BrowserContext, Playwright, async_playwright
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from kanamibot.core.paths import DATA_DIR
+from kanamibot.lens_browser import browser_options, profile_directory
 from kanamibot.lens_session import PROBE_SCRIPT, USER_AGENT, CookieFile
 
 from .config import Config
@@ -75,19 +76,20 @@ class Browser:
             self.playwright = await async_playwright().start()
             options = {
                 "headless": True,
-                "user_agent": UA,
                 "accept_downloads": False,
                 "service_workers": "block",
             }
             if self.config.image_search_proxy:
                 options["proxy"] = {"server": self.config.image_search_proxy}
-            if self.config.image_search_browser_executable:
-                options["executable_path"] = self.config.image_search_browser_executable
-            elif self.config.image_search_browser_channel:
-                options["channel"] = self.config.image_search_browser_channel
             try:
+                selection = browser_options(
+                    self.config.image_search_browser_executable,
+                    self.config.image_search_browser_channel,
+                )
+                options.update(selection)
                 self.context = await self.playwright.chromium.launch_persistent_context(
-                    str(DATA_DIR / "image_search" / "browser"), **options
+                    str(profile_directory(DATA_DIR / "image_search" / "browser", selection)),
+                    **options,
                 )
                 await self.context.route("**/*", self.guard)
             except BaseException:

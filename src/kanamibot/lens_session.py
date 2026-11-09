@@ -21,6 +21,8 @@ from PIL import Image, ImageDraw
 from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import async_playwright
 
+from kanamibot.lens_browser import browser_options, import_chromium, profile_directory
+
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_COOKIE_FILE = PROJECT_ROOT / "data/image_search/google_cookies.json"
 USER_AGENT = (
@@ -239,9 +241,14 @@ async def authorize(
     timeout: float = 600,
     image: bytes | None = None,
     poll_interval: float = 1,
+    login: bool = False,
 ) -> bool:
     page = context.pages[0] if context.pages else await context.new_page()
-    await page.goto("https://lens.google.com/", wait_until="domcontentloaded", timeout=45000)
+    start_url = "https://lens.google.com/"
+    if login:
+        start_url = "https://accounts.google.com/ServiceLogin?continue=https%3A%2F%2Flens.google.com%2F"
+        print("请在浏览器中登录 Google；返回 Lens 后会自动测试并保存 Cookie。", flush=True)
+    await page.goto(start_url, wait_until="domcontentloaded", timeout=45000)
     deadline = time.monotonic() + timeout
     submitted, stable, notified = False, 0, False
     while time.monotonic() < deadline and not page.is_closed():
@@ -278,6 +285,13 @@ async def authorize(
     return False
 
 
+async def seed_login_cookies(context, cookies: CookieFile, seed_header: str = "") -> None:
+    # A partial manual login may be newer than the last fully verified export.
+    # Preserve it when reopening the login profile instead of restoring an old file.
+    if not normalize_cookies(await context.cookies()):
+        await cookies.reload(context, seed_header)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="打开 Lens 浏览器，人工验证后自动保存 Cookie")
     parser.add_argument("--env-file", type=Path, default=PROJECT_ROOT / ".env")
@@ -285,6 +299,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--proxy", help="覆盖 IMAGE_SEARCH_PROXY；传空字符串可直连")
     parser.add_argument("--timeout", type=float, default=600)
     parser.add_argument("--image", type=Path, help="可选测试图片；默认使用程序生成的几何图形")
+    parser.add_argument("--login", action="store_true", help="先打开 Google 登录页面，再验证 Lens")
+    parser.add_argument(
+        "--import-chromium", type=Path, metavar="EXE", help="复制现有 Chromium 程序到本项目托管目录"
+    )
+    parser.add_argument(
+        "--browser-status", action="store_true", help="查看选用的浏览器，不打开窗口"
+    )
     args = parser.parse_args(argv)
     if args.timeout <= 0:
         parser.error("--timeout 必须大于 0")
@@ -293,23 +314,33 @@ def main(argv: list[str] | None = None) -> int:
     cookies = CookieFile(path)
 
     async def run() -> bool:
-        options = {"headless": False, "user_agent": USER_AGENT, "service_workers": "block"}
+        if args.import_chromium:
+            installed = await asyncio.to_thread(import_chromium, args.import_chromium)
+            print(f"Chromium 已纳入本项目管理：{installed}", flush=True)
+        selection = browser_options(
+            settings.get("IMAGE_SEARCH_BROWSER_EXECUTABLE", ""),
+            settings.get("IMAGE_SEARCH_BROWSER_CHANNEL", ""),
+        )
+        print(
+            "搜图浏览器："
+            + selection.get("executable_path", selection.get("channel", "Playwright Chromium")),
+            flush=True,
+        )
+        if args.browser_status:
+            return True
+        options = {"headless": False, "service_workers": "block", **selection}
         proxy = args.proxy if args.proxy is not None else settings.get("IMAGE_SEARCH_PROXY", "")
         if proxy:
             options["proxy"] = {"server": proxy}
-        executable = settings.get("IMAGE_SEARCH_BROWSER_EXECUTABLE")
-        channel = settings.get("IMAGE_SEARCH_BROWSER_CHANNEL")
-        if executable:
-            options["executable_path"] = executable
-        elif channel:
-            options["channel"] = channel
         async with async_playwright() as playwright:
             context = await playwright.chromium.launch_persistent_context(
-                str(PROJECT_ROOT / "data/image_search/browser-login"),
+                str(profile_directory(PROJECT_ROOT / "data/image_search/browser-login", selection)),
                 **options,
             )
             try:
-                await cookies.reload(context, settings.get("IMAGE_SEARCH_GOOGLE_COOKIE", ""))
+                await seed_login_cookies(
+                    context, cookies, settings.get("IMAGE_SEARCH_GOOGLE_COOKIE", "")
+                )
                 print(
                     "认证窗口已打开；保持此终端运行，完成验证后将自动保存并关闭浏览器。", flush=True
                 )
@@ -318,6 +349,7 @@ def main(argv: list[str] | None = None) -> int:
                     cookies,
                     timeout=args.timeout,
                     image=args.image.read_bytes() if args.image else None,
+                    login=args.login,
                 )
             finally:
                 await context.close()

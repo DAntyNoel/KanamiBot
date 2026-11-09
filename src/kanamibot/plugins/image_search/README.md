@@ -52,8 +52,10 @@ HTTP 引擎并发，浏览器引擎串行；单个引擎失败仍返回其他引
 
 - `IMAGE_SEARCH_ENGINES`：JSON 数组，默认 `["lens","saucenao","tracemoe"]`。
 - `IMAGE_SEARCH_TIMEOUT`：每个引擎超时秒数，默认 45；账号网页补查总计最多 35 秒。
-- `IMAGE_SEARCH_BROWSER_CHANNEL`：空为 Playwright Chromium；可设 `msedge` 或 `chrome`。
+- `IMAGE_SEARCH_BROWSER_CHANNEL`：可设 `msedge` 或 `chrome`。
   也可通过 `IMAGE_SEARCH_BROWSER_EXECUTABLE` 指定浏览器路径，优先于 channel。
+  executable 支持相对仓库根目录的路径；两者都为空时优先使用本项目托管 Chromium，
+  未导入时使用 Playwright 默认 Chromium。
 - `IMAGE_SEARCH_PROXY`：可选浏览器代理，例如 `http://127.0.0.1:7890`。
   不启动代理、不更改系统配置；HTTP 引擎仍按 httpx 默认环境代理设置访问。
 - `IMAGE_SEARCH_STRICT_CONSENSUS`：默认 true；false 保留名字不一致的候选账号。
@@ -79,6 +81,33 @@ URL 仅接受公开 HTTP(S) 标准端口，拒绝本机/内网地址，逐跳检
 使用仓库通常的 Chromium 安装步骤即可；无需运行原插件安装脚本。
 
 ## Lens 人工认证与 Cookie
+
+### Chromium 托管与登录
+
+可复用其他项目已经安装的 Chromium，无需下载或读取个人 Chrome 资料：
+
+```powershell
+# 一次性导入现有 Chromium 的完整程序目录，并查看选用结果。
+.\lens-login.cmd --import-chromium "C:\path\to\chromium\chrome.exe" --browser-status
+# 先登录 Google，再自动触发 Lens 测试；账号和验证码由管理员在窗口中填写。
+.\lens-login.cmd --login --timeout 1800
+# 查看当前浏览器选择，不打开窗口。
+.\lens-login.cmd --browser-status
+```
+
+程序复制到 `data/image_search/chromium/`，用 `browser.json` 记录当前选用版本；
+导入失败保留原选用版本，同一程序重复导入复用已有副本。不会修改来源安装或导入其浏览记录。
+新版本 Chromium 也可用相同命令导入，旧版本保留在本项目目录中。
+浏览器程序、登录资料和 Cookie 都在忽略的 `data/` 下，不提交公共仓库。
+
+认证工具和搜图引擎共用浏览器选择：显式 executable → channel → 托管 Chromium → Playwright。
+认证资料使用 `data/image_search/browser-login/`，查询使用 `data/image_search/browser/`，
+两者通过 Google Cookie 文件交换会话，因此认证期间可以继续运行 Bot。
+指定浏览器或使用托管版本时，分别在以上目录下创建按浏览器区分的子目录，防止不同版本
+升级或降级同一份资料；原有 Playwright 默认浏览器资料保持原路径。
+重新打开认证窗口会保留该资料目录里已有的 Google 登录，不会被较旧的导出 Cookie 覆盖。
+登录 Google 不代表 Lens 验证通过，只有确认实际 Lens 结果页后才覆盖导出的 Cookie。
+运行中的 Bot 在下次正常启动后采用新的浏览器选择；Cookie 更新仍可直接热加载。
 
 双击仓库根目录的 `lens-login.cmd`，或在终端运行：
 
@@ -114,8 +143,8 @@ URL 仅接受公开 HTTP(S) 标准端口，拒绝本机/内网地址，逐跳检
 ## 验证
 
 ```powershell
-.venv/Scripts/python.exe -m pytest -q tests/test_image_search.py tests/test_lens_session.py
-.venv/Scripts/ruff.exe check --no-cache src/kanamibot/plugins/image_search src/kanamibot/lens_session.py scripts/lens_login.py tests/test_image_search.py tests/test_lens_session.py
+.venv/Scripts/python.exe -m pytest -q tests/test_image_search.py tests/test_lens_session.py tests/test_lens_browser.py
+.venv/Scripts/ruff.exe check --no-cache src/kanamibot/plugins/image_search src/kanamibot/lens_session.py src/kanamibot/lens_browser.py scripts/lens_login.py tests/test_image_search.py tests/test_lens_session.py tests/test_lens_browser.py
 ```
 
 结果预览与对应图源放在同一条目内，相似图也逐条展示。结果超过 3 条时发送合并聊天记录，群聊与私聊均不附加引用；不超过 3 条时直接回复。
