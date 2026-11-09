@@ -13,6 +13,7 @@ from kanamibot.lens_session import (
     authorize,
     header_cookies,
     is_lens_result,
+    manual_google_login,
     normalize_cookies,
     seed_login_cookies,
 )
@@ -109,6 +110,84 @@ def test_reopening_login_preserves_unsaved_google_session(tmp_path):
     asyncio.run(scenario())
 
 
+def test_normal_login_waits_for_browser_exit_without_automation(tmp_path, monkeypatch):
+    async def scenario():
+        started = asyncio.Event()
+        closed = asyncio.Event()
+        arguments = []
+
+        class Process:
+            async def wait(self):
+                await closed.wait()
+                return 0
+
+        async def spawn(*args, **kwargs):
+            arguments.extend(args)
+            started.set()
+            return Process()
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
+        task = asyncio.create_task(
+            manual_google_login("managed/chrome.exe", tmp_path, "http://127.0.0.1:7897", timeout=2)
+        )
+        await started.wait()
+        assert not task.done()
+        assert arguments[0] == "managed/chrome.exe"
+        assert f"--user-data-dir={tmp_path}" in arguments
+        assert not any("remote-debugging" in arg or "automation" in arg for arg in arguments)
+        closed.set()
+        assert await task
+
+    asyncio.run(scenario())
+
+
+def test_normal_login_timeout_leaves_browser_open(tmp_path, monkeypatch):
+    async def scenario():
+        process = AsyncMock()
+
+        async def wait():
+            await asyncio.Event().wait()
+
+        process.wait.side_effect = wait
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", AsyncMock(return_value=process))
+        assert not await manual_google_login("chrome.exe", tmp_path, "", timeout=0.01)
+        process.terminate.assert_not_called()
+        process.kill.assert_not_called()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("closed", [False, True])
+def test_login_finishes_before_playwright_opens_profile(tmp_path, monkeypatch, closed):
+    from kanamibot import lens_session
+
+    events = []
+    playwright = AsyncMock()
+    playwright.__aenter__.return_value = playwright
+    playwright.chromium.executable_path = "default/chrome.exe"
+    context = AsyncMock()
+
+    async def login(*args, **kwargs):
+        events.append("manual-login")
+        return closed
+
+    async def launch(*args, **kwargs):
+        events.append("automated-lens-test")
+        return context
+
+    playwright.chromium.launch_persistent_context.side_effect = launch
+    monkeypatch.setattr(lens_session, "async_playwright", lambda: playwright)
+    monkeypatch.setattr(lens_session, "browser_options", lambda *args: {})
+    monkeypatch.setattr(lens_session, "manual_google_login", login)
+    monkeypatch.setattr(lens_session, "seed_login_cookies", AsyncMock())
+    monkeypatch.setattr(lens_session, "authorize", AsyncMock(return_value=True))
+    result = lens_session.main(
+        ["--login", "--env-file", str(tmp_path / ".env"), "--cookie-file", str(tmp_path / "cookie")]
+    )
+    assert result == (0 if closed else 1)
+    assert events == (["manual-login", "automated-lens-test"] if closed else ["manual-login"])
+
+
 @pytest.mark.parametrize(
     "url,snapshot,expected",
     [
@@ -126,8 +205,7 @@ def test_success_requires_lens_results_not_just_cookies(url, snapshot, expected)
 
 
 @pytest.mark.parametrize("solve", [False, True])
-@pytest.mark.parametrize("login", [False, True])
-def test_manual_verification_browser_flow_and_automatic_save(tmp_path, solve, login):
+def test_manual_verification_browser_flow_and_automatic_save(tmp_path, solve):
     from playwright.async_api import async_playwright
 
     async def scenario():
@@ -141,13 +219,9 @@ def test_manual_verification_browser_flow_and_automatic_save(tmp_path, solve, lo
             assert await store.save(context, source="old-session")
             uploads = []
             submitted = asyncio.Event()
-            login_page_opened = asyncio.Event()
 
             async def serve(route):
-                if "accounts.google.com" in route.request.url:
-                    login_page_opened.set()
-                    await route.fulfill(content_type="text/html", body="<body>Sign in</body>")
-                elif "/v3/upload" in route.request.url:
+                if "/v3/upload" in route.request.url:
                     uploads.append(route.request.post_data_buffer)
                     submitted.set()
                     await route.fulfill(
@@ -170,12 +244,6 @@ def test_manual_verification_browser_flow_and_automatic_save(tmp_path, solve, lo
 
             await context.route("**/*", serve)
 
-            async def manual_login():
-                await login_page_opened.wait()
-                await asyncio.sleep(0.1)
-                assert not uploads
-                await context.pages[0].goto("https://lens.google.com/")
-
             async def manual_solve():
                 await submitted.wait()
                 page = context.pages[0]
@@ -187,9 +255,8 @@ def test_manual_verification_browser_flow_and_automatic_save(tmp_path, solve, lo
                 }""")
 
             task = asyncio.create_task(manual_solve()) if solve else None
-            login_task = asyncio.create_task(manual_login()) if login else None
             try:
-                result = await authorize(context, store, timeout=5, poll_interval=0.05, login=login)
+                result = await authorize(context, store, timeout=5, poll_interval=0.05)
                 assert result is solve
                 saved = json.loads(store.path.read_text())
                 assert saved["source"] == ("manual-verification" if solve else "old-session")
@@ -198,8 +265,6 @@ def test_manual_verification_browser_flow_and_automatic_save(tmp_path, solve, lo
             finally:
                 if task:
                     await task
-                if login_task:
-                    await login_task
                 await context.close()
                 await browser.close()
 

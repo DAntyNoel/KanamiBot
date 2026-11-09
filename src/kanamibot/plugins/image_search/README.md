@@ -89,7 +89,7 @@ URL 仅接受公开 HTTP(S) 标准端口，拒绝本机/内网地址，逐跳检
 ```powershell
 # 一次性导入现有 Chromium 的完整程序目录，并查看选用结果。
 .\lens-login.cmd --import-chromium "C:\path\to\chromium\chrome.exe" --browser-status
-# 先登录 Google，再自动触发 Lens 测试；账号和验证码由管理员在窗口中填写。
+# 在普通窗口中手动登录 Google，关闭该浏览器窗口后再自动测试 Lens。
 .\lens-login.cmd --login --timeout 1800
 # 查看当前浏览器选择，不打开窗口。
 .\lens-login.cmd --browser-status
@@ -107,6 +107,10 @@ URL 仅接受公开 HTTP(S) 标准端口，拒绝本机/内网地址，逐跳检
 升级或降级同一份资料；原有 Playwright 默认浏览器资料保持原路径。
 重新打开认证窗口会保留该资料目录里已有的 Google 登录，不会被较旧的导出 Cookie 覆盖。
 登录 Google 不代表 Lens 验证通过，只有确认实际 Lens 结果页后才覆盖导出的 Cookie。
+`--login` 直接打开普通 Chromium，登录期间不连接 Playwright 或调试接口；
+管理员登录后需关闭这个浏览器的全部窗口，工具再使用同一资料目录打开 Lens 测试。
+此模式使用托管 Chromium、显式 executable 或默认 Playwright Chromium；配置 channel 时，
+需改为指定相应浏览器的 `IMAGE_SEARCH_BROWSER_EXECUTABLE`。
 运行中的 Bot 在下次正常启动后采用新的浏览器选择；Cookie 更新仍可直接热加载。
 
 双击仓库根目录的 `lens-login.cmd`，或在终端运行：

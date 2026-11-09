@@ -241,14 +241,9 @@ async def authorize(
     timeout: float = 600,
     image: bytes | None = None,
     poll_interval: float = 1,
-    login: bool = False,
 ) -> bool:
     page = context.pages[0] if context.pages else await context.new_page()
-    start_url = "https://lens.google.com/"
-    if login:
-        start_url = "https://accounts.google.com/ServiceLogin?continue=https%3A%2F%2Flens.google.com%2F"
-        print("请在浏览器中登录 Google；返回 Lens 后会自动测试并保存 Cookie。", flush=True)
-    await page.goto(start_url, wait_until="domcontentloaded", timeout=45000)
+    await page.goto("https://lens.google.com/", wait_until="domcontentloaded", timeout=45000)
     deadline = time.monotonic() + timeout
     submitted, stable, notified = False, 0, False
     while time.monotonic() < deadline and not page.is_closed():
@@ -292,6 +287,36 @@ async def seed_login_cookies(context, cookies: CookieFile, seed_header: str = ""
         await cookies.reload(context, seed_header)
 
 
+async def manual_google_login(
+    executable: str, profile: Path, proxy: str, *, timeout: float
+) -> bool:
+    """Let the user sign in with a normal browser, before attaching any automation."""
+    arguments = [
+        executable,
+        f"--user-data-dir={profile}",
+        "--no-first-run",
+        "--no-default-browser-check",
+    ]
+    if proxy:
+        arguments.append(f"--proxy-server={proxy}")
+    arguments.append(
+        "https://accounts.google.com/ServiceLogin?continue=https%3A%2F%2Flens.google.com%2F"
+    )
+    process = await asyncio.create_subprocess_exec(
+        *arguments, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL
+    )
+    print(
+        "普通 Chromium 登录窗口已打开，登录期间未连接自动化。\n"
+        "请在窗口中登录 Google；完成后关闭这个登录浏览器的所有窗口，工具才会继续验证 Lens。",
+        flush=True,
+    )
+    try:
+        return await asyncio.wait_for(process.wait(), timeout=timeout) == 0
+    except TimeoutError:
+        print("等待登录窗口关闭超时，未覆盖 Cookie。可关闭窗口后重新运行认证工具。", flush=True)
+        return False
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="打开 Lens 浏览器，人工验证后自动保存 Cookie")
     parser.add_argument("--env-file", type=Path, default=PROJECT_ROOT / ".env")
@@ -299,7 +324,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--proxy", help="覆盖 IMAGE_SEARCH_PROXY；传空字符串可直连")
     parser.add_argument("--timeout", type=float, default=600)
     parser.add_argument("--image", type=Path, help="可选测试图片；默认使用程序生成的几何图形")
-    parser.add_argument("--login", action="store_true", help="先打开 Google 登录页面，再验证 Lens")
+    parser.add_argument(
+        "--login", action="store_true", help="先在普通浏览器中手动登录，关闭窗口后再验证 Lens"
+    )
     parser.add_argument(
         "--import-chromium", type=Path, metavar="EXE", help="复制现有 Chromium 程序到本项目托管目录"
     )
@@ -333,8 +360,15 @@ def main(argv: list[str] | None = None) -> int:
         if proxy:
             options["proxy"] = {"server": proxy}
         async with async_playwright() as playwright:
+            profile = profile_directory(PROJECT_ROOT / "data/image_search/browser-login", selection)
+            if args.login:
+                if "channel" in selection:
+                    raise ValueError("普通登录模式请指定浏览器 executable，或使用托管 Chromium。")
+                executable = selection.get("executable_path", playwright.chromium.executable_path)
+                if not await manual_google_login(executable, profile, proxy, timeout=args.timeout):
+                    return False
             context = await playwright.chromium.launch_persistent_context(
-                str(profile_directory(PROJECT_ROOT / "data/image_search/browser-login", selection)),
+                str(profile),
                 **options,
             )
             try:
@@ -349,7 +383,6 @@ def main(argv: list[str] | None = None) -> int:
                     cookies,
                     timeout=args.timeout,
                     image=args.image.read_bytes() if args.image else None,
-                    login=args.login,
                 )
             finally:
                 await context.close()
