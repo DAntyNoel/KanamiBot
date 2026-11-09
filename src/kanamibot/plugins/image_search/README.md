@@ -56,6 +56,7 @@ HTTP 引擎并发，浏览器引擎串行；单个引擎失败仍返回其他引
   也可通过 `IMAGE_SEARCH_BROWSER_EXECUTABLE` 指定浏览器路径，优先于 channel。
   executable 支持相对仓库根目录的路径；两者都为空时优先使用本项目托管 Chromium，
   未导入时使用 Playwright 默认 Chromium。
+- `IMAGE_SEARCH_BROWSER_HEADLESS`：默认 true，后台查询；false 显示查询浏览器窗口。
 - `IMAGE_SEARCH_PROXY`：可选浏览器代理，例如 `http://127.0.0.1:7890`。
   不启动代理、不更改系统配置；HTTP 引擎仍按 httpx 默认环境代理设置访问。
 - `IMAGE_SEARCH_STRICT_CONSENSUS`：默认 true；false 保留名字不一致的候选账号。
@@ -93,6 +94,9 @@ URL 仅接受公开 HTTP(S) 标准端口，拒绝本机/内网地址，逐跳检
 .\lens-login.cmd --login --timeout 1800
 # 查看当前浏览器选择，不打开窗口。
 .\lens-login.cmd --browser-status
+# 独立 Cookie 同步仍遇到验证时，直接在查询资料中人工验证。
+# 仅在该查询浏览器未运行时使用，否则 Chromium 的资料锁会阻止启动。
+.\lens-login.cmd --query-profile --timeout 1800
 ```
 
 程序复制到 `data/image_search/chromium/`，用 `browser.json` 记录当前选用版本；
@@ -112,6 +116,9 @@ URL 仅接受公开 HTTP(S) 标准端口，拒绝本机/内网地址，逐跳检
 此模式使用托管 Chromium、显式 executable 或默认 Playwright Chromium；配置 channel 时，
 需改为指定相应浏览器的 `IMAGE_SEARCH_BROWSER_EXECUTABLE`。
 运行中的 Bot 在下次正常启动后采用新的浏览器选择；Cookie 更新仍可直接热加载。
+部分 Google 风控与浏览器资料绑定，仅同步 Cookie 可能仍要求验证。
+此时可在查询浏览器关闭期间运行 `--query-profile`，验证完成后退出，再恢复查询。
+默认认证目录和查询目录仍相互独立；`--query-profile` 是显式的共用资料入口。
 
 双击仓库根目录的 `lens-login.cmd`，或在终端运行：
 

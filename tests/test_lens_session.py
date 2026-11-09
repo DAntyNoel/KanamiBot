@@ -158,7 +158,10 @@ def test_normal_login_timeout_leaves_browser_open(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("closed", [False, True])
-def test_login_finishes_before_playwright_opens_profile(tmp_path, monkeypatch, closed):
+@pytest.mark.parametrize("query_profile", [False, True])
+def test_login_finishes_before_playwright_opens_profile(
+    tmp_path, monkeypatch, closed, query_profile
+):
     from kanamibot import lens_session
 
     events = []
@@ -178,14 +181,23 @@ def test_login_finishes_before_playwright_opens_profile(tmp_path, monkeypatch, c
     playwright.chromium.launch_persistent_context.side_effect = launch
     monkeypatch.setattr(lens_session, "async_playwright", lambda: playwright)
     monkeypatch.setattr(lens_session, "browser_options", lambda *args: {})
+    monkeypatch.setattr(lens_session, "PROJECT_ROOT", tmp_path)
     monkeypatch.setattr(lens_session, "manual_google_login", login)
     monkeypatch.setattr(lens_session, "seed_login_cookies", AsyncMock())
     monkeypatch.setattr(lens_session, "authorize", AsyncMock(return_value=True))
-    result = lens_session.main(
-        ["--login", "--env-file", str(tmp_path / ".env"), "--cookie-file", str(tmp_path / "cookie")]
-    )
+    arguments = [
+        "--login", "--env-file", str(tmp_path / ".env"), "--cookie-file", str(tmp_path / "cookie")
+    ]
+    if query_profile:
+        arguments.append("--query-profile")
+    result = lens_session.main(arguments)
     assert result == (0 if closed else 1)
     assert events == (["manual-login", "automated-lens-test"] if closed else ["manual-login"])
+    if closed:
+        expected_name = "browser" if query_profile else "browser-login"
+        assert playwright.chromium.launch_persistent_context.call_args.args[0] == str(
+            tmp_path / "data/image_search" / expected_name
+        )
 
 
 @pytest.mark.parametrize(

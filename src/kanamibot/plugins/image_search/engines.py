@@ -75,7 +75,7 @@ class Browser:
         if self.context is None:
             self.playwright = await async_playwright().start()
             options = {
-                "headless": True,
+                "headless": self.config.image_search_browser_headless,
                 "accept_downloads": False,
                 "service_workers": "block",
             }

@@ -333,6 +333,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--browser-status", action="store_true", help="查看选用的浏览器，不打开窗口"
     )
+    parser.add_argument(
+        "--query-profile", action="store_true", help="直接验证查询资料；需先关闭该查询浏览器"
+    )
     args = parser.parse_args(argv)
     if args.timeout <= 0:
         parser.error("--timeout 必须大于 0")
@@ -360,7 +363,12 @@ def main(argv: list[str] | None = None) -> int:
         if proxy:
             options["proxy"] = {"server": proxy}
         async with async_playwright() as playwright:
-            profile = profile_directory(PROJECT_ROOT / "data/image_search/browser-login", selection)
+            profile_name = "browser" if args.query_profile else "browser-login"
+            profile = profile_directory(
+                PROJECT_ROOT / "data/image_search" / profile_name, selection
+            )
+            if args.query_profile:
+                print("正在验证查询资料；该查询浏览器需保持关闭，避免争用。", flush=True)
             if args.login:
                 if "channel" in selection:
                     raise ValueError("普通登录模式请指定浏览器 executable，或使用托管 Chromium。")

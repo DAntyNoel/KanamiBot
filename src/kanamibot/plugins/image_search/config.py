@@ -24,6 +24,7 @@ class Config(BaseModel):
     image_search_proxy: str = ""
     image_search_browser_channel: str = ""
     image_search_browser_executable: str = ""
+    image_search_browser_headless: bool = True
     image_search_cookie_file: str = "data/image_search/google_cookies.json"
     image_search_google_cookie: str = ""
     image_search_found_image: str = ""
