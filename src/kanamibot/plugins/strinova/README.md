@@ -134,6 +134,12 @@ Bot 查询超过 2 分钟会取消并发送超时提示。若已发送「正在�
 数据树及导入内容校验值记录在 [resource_source.json](resource_source.json)，与同步脚本一起提交；
 游戏图片、配置表和字体继续忽略，不进入本仓库。
 
+2026-11-11 同步游戏资源至 `1.18.7.17`（上游提交 `d24d68b274c2`）。
+另已核对游戏内 HTTP 最新正式发行版为
+[v0.6.4](https://github.com/kqhub-win/strinova-in-game-http/releases/tag/v0.6.4)，
+其发行包用于更新游戏内 DLL 和地址配置；战绩图片资源通过上述资源仓库单独同步。
+本次资源同步不部署 DLL，也不改变运行中的游戏或 Bot 服务。
+
 ```powershell
 # 首次获取上游；仓库访问权限使用本机 Git 凭据。
 git clone --depth 1 https://github.com/kqhub-win/calabiyau-resource.git data/strinova/calabiyau-resource
