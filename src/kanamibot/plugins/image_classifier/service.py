@@ -13,7 +13,7 @@ from nonebot.log import logger
 
 from .classifier import RULES, Classification, ImageClassifier
 from .config import Settings
-from .inputs import message_images
+from .inputs import DownloadFailureReporter, message_images
 from .storage import ResultStore
 
 
@@ -34,6 +34,7 @@ class ClassificationService:
         self.client: httpx.AsyncClient | None = None
         self.accepting = False
         self._results: OrderedDict[str, Classification] = OrderedDict()
+        self._download_failures = DownloadFailureReporter()
 
     async def start(self) -> None:
         # Even a missing/broken model bundle must not stop retention cleanup.
@@ -98,6 +99,8 @@ class ClassificationService:
                     self.client,
                     self.settings.max_download_mb * 1024 * 1024,
                     self.settings.local_roots,
+                    self._download_failures,
+                    job.source,
                 ):
                     try:
                         await asyncio.to_thread(self._classify_and_save, data, job.source | details)

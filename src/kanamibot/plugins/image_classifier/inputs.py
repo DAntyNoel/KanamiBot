@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator
 from pathlib import Path
+from time import monotonic
 from typing import Any
 from urllib.parse import unquote, urlsplit
 from urllib.request import url2pathname
@@ -12,6 +13,33 @@ from nonebot.adapters.onebot.v11 import Bot, Message, MessageSegment
 from nonebot.log import logger
 
 from .exclusions import bot_authored, bot_ids, is_command_message
+
+
+class DownloadFailureReporter:
+    """Share a warning budget across messages without retaining signed URLs."""
+
+    def __init__(self) -> None:
+        self.last_warning = float("-inf")
+        self.suppressed = 0
+
+    def report(self, exc: Exception, image_index: int, source: dict) -> None:
+        now = monotonic()
+        if now - self.last_warning < 60:
+            self.suppressed += 1
+            return
+        status = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else "-"
+        logger.warning(
+            "[image_classifier] 图片下载失败：群={} 消息={} 图片={} 异常={} HTTP={}；"
+            "此前另有 {} 次失败已合并（每60秒最多一条警告）",
+            source.get("group_id", "-"),
+            source.get("message_id", "-"),
+            image_index,
+            type(exc).__name__,
+            status,
+            self.suppressed,
+        )
+        self.last_warning = now
+        self.suppressed = 0
 
 
 async def download_image(client: httpx.AsyncClient, url: str, max_bytes: int) -> bytes:
@@ -38,12 +66,15 @@ async def message_images(
     client: httpx.AsyncClient,
     max_bytes: int,
     local_roots: list[Path] | None = None,
+    failures: DownloadFailureReporter | None = None,
+    source: dict | None = None,
 ) -> AsyncIterator[tuple[bytes, dict]]:
     """Visit images and merged forwards. Quoted old messages are not new images."""
     seen_forwards: set[str] = set()
     image_index = 0
     visited = 0
     ids = bot_ids(bot)
+    failures = failures if failures is not None else DownloadFailureReporter()
 
     def node_source(value: dict) -> dict:
         sender = value.get("sender") or {}
@@ -123,20 +154,26 @@ async def message_images(
                     yield content, details | {"local_path": str(path)}
                     return
                 direct = str(data.get("file") or "")
-                url = str(
-                    data.get("url")
-                    or (direct if direct.startswith(("http://", "https://")) else info.get("url"))
-                    or ""
-                )
-                content = await download_image(client, url, max_bytes)
+                # NapCat may return a newer signed URL than the original segment.
+                # Try each distinct HTTP source once; never retry a dead URL in a loop.
+                urls = list(dict.fromkeys(
+                    url for url in (info.get("url"), data.get("url"), direct)
+                    if isinstance(url, str) and url.startswith(("http://", "https://"))
+                ))
+                if not urls:
+                    raise ValueError("Image has no HTTP(S) URL")
+                async with asyncio.timeout(30):
+                    for index, url in enumerate(urls):
+                        try:
+                            content = await download_image(client, url, max_bytes)
+                            break
+                        except (httpx.HTTPStatusError, httpx.TransportError):
+                            if index == len(urls) - 1:
+                                raise
                 yield content, details
             except Exception as exc:
                 # Do not log signed QQ URLs or response bodies.
-                logger.warning(
-                    "[image_classifier] image {} download failed ({})",
-                    image_index,
-                    type(exc).__name__,
-                )
+                failures.report(exc, image_index, source or {})
         elif kind == "node":
             if bot_authored(data, ids):
                 return

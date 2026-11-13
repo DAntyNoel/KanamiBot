@@ -22,7 +22,11 @@ from kanamibot.plugins.image_classifier.classifier import (  # noqa: E402
     summarize,
 )
 from kanamibot.plugins.image_classifier.config import Settings  # noqa: E402
-from kanamibot.plugins.image_classifier.inputs import download_image, message_images  # noqa: E402
+from kanamibot.plugins.image_classifier.inputs import (  # noqa: E402
+    DownloadFailureReporter,
+    download_image,
+    message_images,
+)
 from kanamibot.plugins.image_classifier.models import SPECS, OnnxModel, preprocess  # noqa: E402
 from kanamibot.plugins.image_classifier.service import (  # noqa: E402
     ClassificationService,
@@ -374,6 +378,72 @@ class ResultStoreTest(unittest.TestCase):
 
 
 class ImageInputsTest(unittest.IsolatedAsyncioTestCase):
+    async def test_napcat_url_precedes_expired_segment_url(self):
+        bot = Mock(self_id="100")
+        bot.get_image = AsyncMock(return_value={"url": "https://example.test/fresh"})
+        requests = []
+
+        def respond(request):
+            requests.append(request.url.path)
+            return httpx.Response(200, content=png_bytes())
+
+        message = Message(MessageSegment("image", {
+            "file": "image.jpg", "url": "https://example.test/expired",
+        }))
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+            items = [item async for item in message_images(bot, message, client, 100_000)]
+        self.assertEqual(len(items), 1)
+        self.assertEqual(requests, ["/fresh"])
+
+    async def test_failed_napcat_url_falls_back_once_to_segment(self):
+        bot = Mock(self_id="100")
+        bot.get_image = AsyncMock(return_value={"url": "https://example.test/expired"})
+        requests = []
+
+        def respond(request):
+            requests.append(request.url.path)
+            return httpx.Response(
+                403 if request.url.path == "/expired" else 200, content=png_bytes()
+            )
+
+        message = Message(MessageSegment("image", {
+            "file": "image.jpg", "url": "https://example.test/fresh",
+        }))
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+            items = [item async for item in message_images(bot, message, client, 100_000)]
+        self.assertEqual(len(items), 1)
+        self.assertEqual(requests, ["/expired", "/fresh"])
+
+    async def test_failed_url_is_not_retried_and_warnings_are_shared_across_messages(self):
+        bot = Mock(self_id="100")
+        url = "https://example.test/expired?rkey=secret"
+        bot.get_image = AsyncMock(return_value={"url": url})
+        message = Message(MessageSegment("image", {"file": "image.jpg", "url": url}))
+        reporter = DownloadFailureReporter()
+        requests = []
+
+        def respond(request):
+            requests.append(request)
+            return httpx.Response(403, text="secret response")
+
+        with (
+            patch("kanamibot.plugins.image_classifier.inputs.logger") as log,
+            patch("kanamibot.plugins.image_classifier.inputs.monotonic",
+                  side_effect=[0, 1, 61]),
+        ):
+            async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+                for message_id in (10, 11, 12):
+                    items = [item async for item in message_images(
+                        bot, message, client, 100_000, [], reporter,
+                        {"group_id": 123, "message_id": message_id},
+                    )]
+                    self.assertEqual(items, [])
+            self.assertEqual(log.warning.call_count, 2)
+            self.assertEqual(log.warning.call_args.args[1:],
+                             (123, 12, 1, "HTTPStatusError", 403, 1))
+            self.assertNotIn("secret", str(log.warning.call_args_list))
+        self.assertEqual(len(requests), 3)
+
     async def test_forwarded_sources_are_attached_per_node(self):
         bot = Mock(self_id="100")
         bot.get_forward_msg = AsyncMock(
