@@ -77,6 +77,8 @@ class Result:
     pages: list[str] = field(default_factory=list)
     choices: list[dict] = field(default_factory=list)
     fallback: str = ""
+    # Only instructions absent from the image belong beside a successful card.
+    card_text: str = ""
 
 
 class Queries:
@@ -95,7 +97,11 @@ class Queries:
         text += "\n".join(
             f"{index}. {item['name']}【{item['type']}】" for index, item in enumerate(items[:20], 1)
         )
-        return Result(text=text, choices=items[:20])
+        return Result(
+            text=text,
+            choices=items[:20],
+            card_text="请发送 #粥 选择 编号（5 分钟内有效）。",
+        )
 
     async def execute(self, command: Command, key: str) -> Result:
         if command.action == "alias_list":
@@ -167,15 +173,38 @@ class Queries:
                 return Result(text=f"未找到「{name}」已实装的异格关系。")
         async with self.mcp.session() as session:
             items = []
+            other_kinds: set[str] = set()
             for target in targets:
                 payload = await session.call("search", {"query": target})
-                found = self.filter(command, payload.get("data", {}).get("items", []), target)
+                rows = payload.get("data", {}).get("items", [])
+                if not command.mode and not command.alter:
+                    other_kinds.update(
+                        item["type"]
+                        for item in rows
+                        if item.get("type") in {"干员", "敌人"}
+                        and item.get("id")
+                        and normalized(str(item.get("name", ""))) == normalized(target)
+                    )
+                found = self.filter(command, rows, target)
                 items.extend(found)
             items = list({item["id"]: item for item in items}.values())
             if not items:
                 return Result(text=f"未找到「{command.name}」的相关资料。")
             if len(items) == 1 and items[0].get("_exact"):
-                return await self.detail(session, command, items[0])
+                result = await self.detail(session, command, items[0])
+                if other_kinds == {"干员", "敌人"} and items[0]["type"] in other_kinds:
+                    name = items[0]["name"]
+                    hint = (
+                        f"「{name}」同时存在【敌人/干员】资料，可切换筛选：\n"
+                        f"#粥 {name} 敌人\n#粥 {name} 干员"
+                    )
+                    result.card_text = hint
+                    result.text += "\n" + hint
+                    if result.fallback:
+                        result.fallback += "\n" + hint
+                    if result.pages:
+                        result.pages.append(hint)
+                return result
             result = self.choices(key, command, items)
             try:
                 card = await session.call(

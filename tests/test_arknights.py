@@ -283,6 +283,27 @@ def test_mode_can_follow_operator_before_point():
         parse("#粥 德克萨斯 异格 敌人")
 
 
+@pytest.mark.parametrize("point", ["", " 干员", " 敌人", " 技能"])
+def test_same_name_enemy_operator_filter_hints(tmp_path, point):
+    backend = FakeBackend(
+        {
+            "塔露拉": [
+                {"id": "char", "name": "塔露拉", "type": "干员"},
+                {"id": "enemy", "name": "塔露拉", "type": "敌人"},
+            ]
+        }
+    )
+    queries = Queries(backend, Records(tmp_path / "aliases.json"))
+    result = run(queries.execute(parse(f"#粥 塔露拉{point}"), "user"))
+    for hint in ("【敌人/干员】", "#粥 塔露拉 敌人", "#粥 塔露拉 干员"):
+        assert hint in result.text
+        assert hint in result.card_text
+        if result.fallback:
+            assert hint in result.fallback
+        if result.pages:
+            assert hint in result.pages[-1]
+
+
 def test_onebot_handler_and_faction_forward_delivery(tmp_path, monkeypatch):
     from types import SimpleNamespace
 
@@ -332,3 +353,29 @@ def test_onebot_handler_and_faction_forward_delivery(tmp_path, monkeypatch):
         )
     )
     assert "天赋资料" in str(bot.send.await_args.args[1])
+
+    # Successful cards suppress both full chess descriptions and ordinary titles.
+    monkeypatch.setattr(backend, "image", AsyncMock(return_value=b"image"))
+    for text in ("佩佩 · 卫戍协议\n攻击力：100", "银灰【干员】"):
+        bot.send.reset_mock()
+        run(plugin.send_result(bot, event, Result(text=text, card_url="/card.png")))
+        message = bot.send.await_args.args[1]
+        assert [segment.type for segment in message] == ["reply", "image"]
+
+    choices = queries.choices(
+        "user", Command(name="银"), [{"id": "silverash", "name": "银灰", "type": "干员"}]
+    )
+    choices.card_url = "/search.png"
+    run(plugin.send_result(bot, event, choices))
+    message = bot.send.await_args.args[1]
+    assert "#粥 选择" in message.extract_plain_text()
+    assert "银灰" not in message.extract_plain_text()
+
+    # Additional filter hints survive successful cards; failed cards keep the full list.
+    hint = "其他筛选：#粥 塔露拉 敌人"
+    run(plugin.send_result(bot, event, Result(text="正文", card_url="/card.png", card_text=hint)))
+    assert bot.send.await_args.args[1].extract_plain_text() == hint + "\n"
+    backend.image.side_effect = BackendError("卡片不可用")
+    run(plugin.send_result(bot, event, choices))
+    message = Message(bot.send.await_args.args[1])
+    assert "银灰" in message.extract_plain_text() and "#粥 选择" in message.extract_plain_text()

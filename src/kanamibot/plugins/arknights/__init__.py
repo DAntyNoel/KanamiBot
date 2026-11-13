@@ -102,7 +102,7 @@ async def send_result(bot: Bot, event: MessageEvent, result: Result) -> None:
             await bot.send(
                 event,
                 MessageSegment.reply(event.message_id)
-                + MessageSegment.text(result.text + "\n")
+                + (MessageSegment.text(result.card_text + "\n") if result.card_text else Message())
                 + MessageSegment.image(card),
             )
             return
