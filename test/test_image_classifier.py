@@ -551,14 +551,30 @@ class ServiceTest(unittest.IsolatedAsyncioTestCase):
                 patch("kanamibot.plugins.image_classifier.service.logger") as log,
             ):
                 await service.start()
-                job = ImageJob(Mock(), Message(), {"group_id": 1, "message_id": 2})
+                bot = Mock(self_id="100")
+                bot.get_group_info = AsyncMock(return_value={"group_name": "测试群"})
+                job = ImageJob(bot, Message(), {"group_id": 1, "message_id": 2})
                 await service.submit(job)
                 await service.submit(job)
                 await service.stop()
             log.exception.assert_called_once()
             self.assertEqual(classifier.classify.call_count, 2)
-            self.assertEqual(len(list(Path(tmp).rglob("result.json"))), 1)
+            records = list(Path(tmp).rglob("result.json"))
+            self.assertEqual(len(records), 1)
+            self.assertEqual(json.loads(records[0].read_text(encoding="utf-8"))
+                             ["source"]["group_name"], "测试群")
+            bot.get_group_info.assert_awaited_once_with(group_id=1)
             self.assertFalse(service.accepting)
+
+    async def test_group_name_lookup_failure_is_cached_and_private_skips_lookup(self):
+        service = ClassificationService(Settings())
+        bot = Mock(self_id="100")
+        bot.get_group_info = AsyncMock(side_effect=RuntimeError("unavailable"))
+        self.assertIsNone(await service._group_name(bot, None))
+        bot.get_group_info.assert_not_awaited()
+        self.assertIsNone(await service._group_name(bot, 123))
+        self.assertIsNone(await service._group_name(bot, 123))
+        bot.get_group_info.assert_awaited_once_with(group_id=123)
 
     async def test_missing_models_do_not_start_worker_or_skip_cleanup(self) -> None:
         service = ClassificationService(Settings())
@@ -1029,6 +1045,9 @@ class ImageRequestTest(unittest.IsolatedAsyncioTestCase):
         source = {"group_id": 999, "user_id": 123, "sender_name": "群名片", "message_time": 0}
         details = image_details({"source": source})
         self.assertIn("来源：群聊 999", details)
+        self.assertIn("来源：群聊 测试群（群号 999）", image_details(
+            {"source": source | {"group_name": "测试群"}}
+        ))
         self.assertIn("发送者：群名片（QQ 123）", details)
         self.assertIn("1970-01-01 08:00:00（北京时间）", details)
         self.assertIn("来源：私聊", image_details({"source": source | {"group_id": None}}))

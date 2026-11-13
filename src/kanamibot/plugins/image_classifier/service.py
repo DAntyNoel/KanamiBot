@@ -35,6 +35,7 @@ class ClassificationService:
         self.accepting = False
         self._results: OrderedDict[str, Classification] = OrderedDict()
         self._download_failures = DownloadFailureReporter()
+        self._group_names: OrderedDict[tuple[str, int], tuple[float, str | None]] = OrderedDict()
 
     async def start(self) -> None:
         # Even a missing/broken model bundle must not stop retention cleanup.
@@ -88,11 +89,39 @@ class ClassificationService:
             # Backpressure instead of silently dropping images when the queue is full.
             await self.queue.put(job)
 
+    async def _group_name(self, bot: Bot, group_id: int | None) -> str | None:
+        if group_id is None:
+            return None
+        key = (str(bot.self_id), group_id)
+        cached = self._group_names.get(key)
+        if cached and cached[0] > time.monotonic():
+            self._group_names.move_to_end(key)
+            return cached[1]
+        name = None
+        try:
+            async with asyncio.timeout(5):
+                info = await bot.get_group_info(group_id=group_id)
+            value = info.get("group_name")
+            if isinstance(value, str) and value.strip():
+                name = value.strip()
+        except Exception as exc:
+            logger.debug("[image_classifier] group {} name lookup failed ({})",
+                         group_id, type(exc).__name__)
+        # Cache failures briefly too, so unavailable APIs do not delay every image.
+        self._group_names[key] = (time.monotonic() + (300 if name else 60), name)
+        self._group_names.move_to_end(key)
+        while len(self._group_names) > 1024:
+            self._group_names.popitem(last=False)
+        return name
+
     async def _run(self) -> None:
         assert self.client is not None
         while True:
             job = await self.queue.get()
             try:
+                source = job.source | {
+                    "group_name": await self._group_name(job.bot, job.source.get("group_id"))
+                }
                 async for data, details in message_images(
                     job.bot,
                     job.message,
@@ -100,10 +129,10 @@ class ClassificationService:
                     self.settings.max_download_mb * 1024 * 1024,
                     self.settings.local_roots,
                     self._download_failures,
-                    job.source,
+                    source,
                 ):
                     try:
-                        await asyncio.to_thread(self._classify_and_save, data, job.source | details)
+                        await asyncio.to_thread(self._classify_and_save, data, source | details)
                     except Exception:
                         logger.exception(
                             "[image_classifier] failed image: group {} message {} image {}",

@@ -40,8 +40,11 @@ def image_details(record: dict) -> str:
             return "未知"
 
     group = source.get("group_id")
+    group_name = source.get("group_name")
+    group_label = f"{group_name}（群号 {group}）" if group_name else str(group)
     lines = [
-        f"来源：群聊 {group}" if group is not None else "来源：私聊" if source else "来源：未知",
+        f"来源：群聊 {group_label}"
+        if group is not None else "来源：私聊" if source else "来源：未知",
         f"发送者：{sender(source)}",
         f"消息时间：{sent_at(source)}",
     ]
