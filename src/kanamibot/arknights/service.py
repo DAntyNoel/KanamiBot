@@ -40,7 +40,6 @@ TOOLS = {
     "卫戍协议策略": ("get_autochess_strategy_detail", "strategy_id"),
 }
 OPERATOR_TOOLS = {
-    "skills": "get_operator_skill",
     "modules": "get_operator_modules",
     "material": "get_operator_material",
     "training": "get_operator_material",
@@ -267,27 +266,6 @@ class Queries:
                 text=f"{name} · 卫戍协议\n{display(chess)}",
                 card_url=payload.get("card_image_url", ""),
             )
-        if kind == "干员" and command.point == "skills":
-            pages = []
-            for skill in data.get("技能", []):
-                # The full per-level response is available; show all real levels,
-                # split into separate chat-record nodes for comfortable reading.
-                title = f"{name} · 技能{skill.get('序号', '')} {skill.get('名称', '')}"
-                levels = skill.get("等级", [])
-                page = title
-                for level in levels:
-                    visible = {
-                        key: value
-                        for key, value in level.items()
-                        if key not in {"解包等级", "专精等级", "升级归属", "持续时间类型"}
-                    }
-                    block = "\n\n" + display(visible)
-                    if len(page) + len(block) > 2200:
-                        pages.append(page)
-                        page = title + "（续）"
-                    page += block
-                pages.append(page)
-            return Result(pages=pages, text="" if pages else f"{name}没有技能。")
         if kind == "干员" and command.point in FIELDS:
             value = data.get(FIELDS[command.point], {})
             if command.point == "trait" and isinstance(value, dict):

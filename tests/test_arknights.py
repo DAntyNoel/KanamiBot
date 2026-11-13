@@ -102,19 +102,6 @@ class FakeBackend:
         self.calls.append((tool, args))
         if tool == "search":
             return {"data": {"items": self.rows.get(args["query"], [])}}
-        if tool == "get_operator_skill":
-            return {
-                "data": {
-                    "技能": [
-                        {
-                            "名称": "测试技能",
-                            "等级": [
-                                {"游戏内等级": "专精三", "描述": "伤害提升", "解包等级": 10},
-                            ],
-                        }
-                    ]
-                }
-            }
         return {"data": {"name": args}, "card_image_url": "http://localhost/card.png"}
 
 
@@ -130,9 +117,10 @@ def test_alter_and_nickname_use_identical_tool_arguments(tmp_path):
     altered = run(queries.execute(parse("#粥 德克萨斯 异格 技能"), "user"))
     nickname = run(queries.execute(parse("#粥 异德 技能"), "user"))
     direct = run(queries.execute(parse("#粥 缄默德克萨斯 技能"), "user"))
-    assert altered.pages == nickname.pages == direct.pages
-    assert "解包" not in direct.pages[0]
-    assert backend.calls[-1] == ("get_operator_skill", {"operator_id": "texas2"})
+    basic = run(queries.execute(parse("#粥 缄默德克萨斯"), "user"))
+    assert altered == nickname == direct == basic
+    assert direct.card_url and not direct.pages
+    assert backend.calls[-1] == ("get_operator_basic_data", {"operator_id": "texas2"})
 
 
 def test_enemy_disambiguation_and_deleted_upstream_alias(tmp_path):
@@ -172,7 +160,7 @@ def test_multiple_alters_selection_scoped_and_expiring(tmp_path):
     assert len(result.choices) >= 2
     assert "过期" in run(queries.execute(parse("#粥 选择 1"), "group2:user1")).text
     run(queries.execute(parse("#粥 选择 2"), "group1:user1"))
-    assert backend.calls[-1] == ("get_operator_skill", {"operator_id": "1"})
+    assert backend.calls[-1] == ("get_operator_basic_data", {"operator_id": "1"})
     queries.pending["expired"] = (0, Command(), result.choices)
     assert "过期" in run(queries.execute(parse("#粥 选择 1"), "expired")).text
 
@@ -274,7 +262,7 @@ def test_single_fuzzy_candidate_needs_user_selection(tmp_path):
     queries = Queries(backend, Records(tmp_path / "aliases.json"))
     result = run(queries.execute(parse("#粥 银会 技能"), "user"))
     assert len(result.choices) == 1
-    assert not any(tool == "get_operator_skill" for tool, _ in backend.calls)
+    assert not any(tool == "get_operator_basic_data" for tool, _ in backend.calls)
 
 
 def test_mode_can_follow_operator_before_point():
@@ -323,6 +311,7 @@ def test_onebot_handler_and_faction_forward_delivery(tmp_path, monkeypatch):
         }
     )
     queries = Queries(backend, Records(tmp_path / "aliases.json"))
+    monkeypatch.setattr(backend, "image", AsyncMock(return_value=b"image"), raising=False)
     monkeypatch.setattr(plugin, "queries", queries)
     monkeypatch.setattr(plugin, "react_ok", AsyncMock())
     bot = SimpleNamespace(self_id="123", send=AsyncMock(), call_api=AsyncMock())
@@ -333,8 +322,10 @@ def test_onebot_handler_and_faction_forward_delivery(tmp_path, monkeypatch):
         message=Message("#粥 德克萨斯 异格 技能"),
     )
     run(plugin.handle_query(bot, event))
-    assert backend.calls[-1] == ("get_operator_skill", {"operator_id": "texas2"})
+    assert backend.calls[-1] == ("get_operator_basic_data", {"operator_id": "texas2"})
     assert bot.send.await_count == 1
+    assert [segment.type for segment in bot.send.await_args.args[1]] == ["reply", "image"]
+    assert bot.call_api.await_count == 0
     event.message = Message("#粥 绰号 列表")
     run(plugin.handle_query(bot, event))
     pages = queries.records.list_messages()
