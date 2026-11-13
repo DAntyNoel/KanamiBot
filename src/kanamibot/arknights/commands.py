@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-HEAD = re.compile(r"^#(?:粥|方舟|ark)(?=\s|$)\s*", re.IGNORECASE)
+HEAD = re.compile(r"^#(?:(?P<guard>卫)|粥|方舟|ark)(?=\s|$)\s*", re.IGNORECASE)
 MODES = {
     "卫": "卫戍",
     "卫戍": "卫戍",
@@ -41,7 +41,9 @@ POINTS = {
     "棋子": "chess",
     "wiki": "wiki",
 }
-RESERVED = frozenset({*MODES, *POINTS, "绰号", "列表", "删除", "选择", "帮助", "异格"})
+RESERVED = frozenset(
+    {*MODES, *POINTS, "绰号", "列表", "删除", "选择", "帮助", "异格", "boss", "隐秘", "隐秘核心"}
+)
 
 
 @dataclass(frozen=True)
@@ -53,18 +55,22 @@ class Command:
     alter: bool = False
     alias: str = ""
     index: int = 0
+    hidden: bool = False
 
 
 def command_body(text: str) -> str | None:
     text = re.sub(r"^(?:@\d+\s+)+", "", text.strip())
     match = HEAD.match(text)
-    return text[match.end() :].strip() if match else None
+    if not match:
+        return None
+    body = text[match.end() :].strip()
+    return f"卫 {body}".strip() if match.group("guard") else body
 
 
 def parse(text: str) -> Command:
     body = command_body(text)
     if body is None:
-        raise ValueError("请使用 #粥、#方舟 或 #ark。")
+        raise ValueError("请使用 #粥、#方舟、#ark 或 #卫。")
     words = body.split()
     if not words or words[0].casefold() in {"帮助", "help", "--help"}:
         return Command(action="help")
@@ -87,6 +93,24 @@ def parse(text: str) -> Command:
         raise ValueError("一次只能查询一种玩法。")
     mode = next(iter(modes), "")
     words = [word for word in words if word not in MODES]
+    if words and words[0].casefold() in {"帮助", "help", "--help"}:
+        return Command(action="help")
+    if mode == "卫戍" and words and words[0].casefold() == "boss":
+        usage = "用法：#卫 boss；#卫 boss 序号；#卫 boss 序号 隐秘"
+        if len(words) == 1:
+            return Command(action="boss", mode=mode)
+        if len(words) not in {2, 3} or not words[1].isdecimal():
+            raise ValueError(usage)
+        try:
+            index = int(words[1])
+        except ValueError as exc:
+            raise ValueError(usage) from exc
+        if not 1 <= index <= 100:
+            raise ValueError("Boss 序号超出范围，请先发送 #卫 boss 查看列表。")
+        hidden = len(words) == 3
+        if hidden and words[2].strip("()（）").casefold() not in {"隐秘", "隐秘核心"}:
+            raise ValueError(usage)
+        return Command(action="boss", mode=mode, index=index, hidden=hidden)
     # A mode can surround a normal entity-first query, e.g. 卫 银灰 棋子.
     alter = "异格" in words
     words = [word for word in words if word != "异格"]

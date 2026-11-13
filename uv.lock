@@ -684,6 +684,7 @@ name = "kanamibot"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "beautifulsoup4" },
     { name = "bilibili-api-python" },
     { name = "erbs-plugin", extra = ["render"] },
     { name = "fastapi" },
@@ -725,6 +726,7 @@ image-model-export = [
 
 [package.metadata]
 requires-dist = [
+    { name = "beautifulsoup4", specifier = ">=4.12,<5" },
     { name = "bilibili-api-python", specifier = ">=17.4.1,<18" },
     { name = "erbs-plugin", extras = ["render"], editable = "src/kanamibot/plugins/ERBS-plugin" },
     { name = "fastapi", specifier = ">=0.115,<1" },

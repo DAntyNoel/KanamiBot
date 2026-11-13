@@ -3,7 +3,7 @@ from __future__ import annotations
 import html
 import re
 from html.parser import HTMLParser
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 import httpx
 
@@ -60,6 +60,33 @@ class Wiki:
                 return value
         except (httpx.HTTPError, ValueError) as exc:
             raise BackendError("PRTS Wiki 暂时不可用，请稍后重试。") from exc
+
+    async def image(self, url: str) -> tuple[bytes, str]:
+        parsed = urlsplit(url)
+        if (
+            parsed.scheme != "https"
+            or parsed.hostname != "media.prts.wiki"
+            or parsed.port not in {None, 443}
+            or parsed.username
+        ):
+            raise BackendError("PRTS 图片地址无效。")
+        try:
+            async with (
+                httpx.AsyncClient(timeout=20, transport=self.transport, trust_env=False) as client,
+                client.stream("GET", url) as response,
+            ):
+                response.raise_for_status()
+                mime = response.headers.get("content-type", "").split(";", 1)[0]
+                if mime not in {"image/png", "image/jpeg", "image/webp", "image/gif"}:
+                    raise BackendError("PRTS 返回的头像不是受支持的图片。")
+                result = bytearray()
+                async for chunk in response.aiter_bytes():
+                    result.extend(chunk)
+                    if len(result) > 5 * 1024 * 1024:
+                        raise BackendError("PRTS 图片过大。")
+                return bytes(result), mime
+        except httpx.HTTPError as exc:
+            raise BackendError("PRTS 头像暂时无法下载，请稍后重试。") from exc
 
     async def search(self, name: str, *, reclamation: bool = False) -> list[dict]:
         title = "生息演算" if reclamation and not name else name

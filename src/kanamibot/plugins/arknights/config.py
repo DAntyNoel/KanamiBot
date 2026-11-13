@@ -10,6 +10,7 @@ class Config(BaseModel):
     arknights_mcp_url: str = "http://127.0.0.1:19090/mcp"
     arknights_timeout: float = Field(default=90, ge=5, le=180)
     arknights_nickname_admin_only: bool = False
+    arknights_browser_channel: str = ""
 
     @field_validator("arknights_mcp_url")
     @classmethod

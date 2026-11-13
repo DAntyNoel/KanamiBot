@@ -63,7 +63,8 @@ uv sync
 
 新增 [明日方舟查询插件](src/kanamibot/plugins/arknights/README.md)，使用独立 Amiya MCP 后端。
 支持 `#粥 银灰 技能`（同义前缀 `#方舟` / `#ark`）、异格匹配、社群绰号与群聊维护、
-卫戍盟约/策略/棋子，以及 PRTS 生息演算资料检索。
+卫戍盟约/策略/棋子，以及 PRTS 生息演算资料检索。`#卫` 等同于 `#粥 卫`；
+`#卫 boss` 显示每行 5 个的编号头像列表，`#卫 boss 1 隐秘` 展示 PRTS 隐秘核心原文。
 
 ```powershell
 docker compose -p kanamibot-arknights -f services/amiya-mcp.compose.yml up -d

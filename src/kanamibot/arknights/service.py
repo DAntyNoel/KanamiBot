@@ -5,6 +5,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+from .bosses import BossQueries
 from .client import MCP, BackendError
 from .commands import Command
 from .records import Records, normalized
@@ -76,6 +77,7 @@ class Result:
     pages: list[str] = field(default_factory=list)
     choices: list[dict] = field(default_factory=list)
     fallback: str = ""
+    card_html: str = ""
     # Only instructions absent from the image belong beside a successful card.
     card_text: str = ""
 
@@ -84,6 +86,7 @@ class Queries:
     def __init__(self, mcp: MCP, records: Records, wiki: Wiki | None = None) -> None:
         self.mcp, self.records = mcp, records
         self.wiki = wiki or Wiki()
+        self.bosses = BossQueries(self.wiki)
         self.pending: dict[str, tuple[float, Command, list[dict]]] = {}
 
     def choices(self, key: str, command: Command, items: list[dict]) -> Result:
@@ -103,6 +106,10 @@ class Queries:
         )
 
     async def execute(self, command: Command, key: str) -> Result:
+        if command.action == "boss":
+            self.pending.pop(key, None)
+            card = await self.bosses.query(command.index, command.hidden)
+            return Result(text=card.title, card_html=card.html, fallback=card.text)
         if command.action == "alias_list":
             return Result(pages=self.records.list_messages())
         if command.action == "alias_delete":

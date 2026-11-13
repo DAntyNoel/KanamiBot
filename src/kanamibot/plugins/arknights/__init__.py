@@ -17,6 +17,7 @@ from nonebot.rule import Rule
 from kanamibot.arknights.client import MCP, BackendError
 from kanamibot.arknights.commands import command_body, parse
 from kanamibot.arknights.records import Records
+from kanamibot.arknights.render import render_png
 from kanamibot.arknights.service import Queries, Result
 from kanamibot.core import ModuleRule
 from kanamibot.core.check_perm import LevelAdmin, LevelSuper
@@ -37,6 +38,9 @@ HELP = """明日方舟查询 · #粥 / #方舟 / #ark
 #粥 卫 银灰　　#粥 卫 炎 盟约
 #粥 卫 <名称> 策略
 卫 = 卫戍 = 卫戍协议
+#卫 = #粥 卫，例如 #卫 炎 盟约
+#卫 boss（头像编号列表）
+#卫 boss 1　　#卫 boss 1 隐秘（PRTS 原文）
 #粥 盐酸 <关键词>（PRTS Wiki）
 盐酸 = 演算 = 生息演算
 #粥 <关键词> wiki
@@ -96,9 +100,13 @@ async def send_result(bot: Bot, event: MessageEvent, result: Result) -> None:
         pages = [piece for page in result.pages for piece in split_pages(page)]
         await send_pages(bot, event, pages)
         return
-    if result.card_url:
+    if result.card_url or result.card_html:
         try:
-            card = await queries.mcp.image(result.card_url)
+            card = (
+                await render_png(result.card_html, config.arknights_browser_channel)
+                if result.card_html
+                else await queries.mcp.image(result.card_url)
+            )
             await bot.send(
                 event,
                 MessageSegment.reply(event.message_id)
