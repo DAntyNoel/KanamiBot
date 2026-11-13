@@ -337,7 +337,7 @@ class BossQueries:
             text += f"\n#卫 boss 序号 [隐秘]\n来源：{activity_url}"
             return BossCard(
                 "卫戍协议 · Boss",
-                render_html(title="卫戍协议 · Boss", entries=entries, source=activity_url),
+                render_html(title="卫戍协议 · Boss", entries=entries),
                 text,
             )
         if not 1 <= index <= len(bosses):

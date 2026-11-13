@@ -147,7 +147,7 @@ def test_boss_service_avoids_mcp_and_caches_source_without_mutation(tmp_path):
         assert "旧日的剑与锤" in hidden.fallback and "6,840,000" in hidden.fallback
         normal = await queries.execute(parse("#粥 卫 boss 1"), "user")
         assert "旧日的剑与锤" not in normal.fallback and "3,940,000" in normal.fallback
-        assert "oldid=123" in normal.card_html and "CC BY-SA 3.0" in normal.card_html
+        assert "oldid=123" in normal.fallback and "CC BY-SA 3.0" in normal.fallback
         assert wiki.request.await_count == 2
         mcp.session.assert_not_called()
         for text, match in [("#卫 boss 11", "1～10"), ("#卫 boss 4 隐秘", "没有列出")]:

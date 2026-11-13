@@ -41,9 +41,6 @@
     .wiki .enemyicon { display: inline-block; position: relative; }
     .wiki .enemyicon-index { display: none; }
     .wiki .statusRankText, .wiki .enemy-info-level-side-tag { display: none; }
-    .source, .footer { margin-top: 18px; color: #adb9c2; font-size: 17px;
-      line-height: 1.5; overflow-wrap: anywhere; }
-    .footer { border-top: 1px solid #69737c; padding-top: 18px; margin-top: 26px; }
   </style>
 </head>
 <body>
@@ -62,14 +59,11 @@
     </article>
     {% endfor %}
   </section>
-  <div class="source">来源：PRTS Wiki<br>{{ source }}</div>
   {% endif %}
   {% for section in sections %}
   <div class="section-title">{{ section.title }}</div>
   <section class="wiki">{{ section.html | safe }}</section>
-  <div class="source">来源：PRTS Wiki<br>{{ section.url }}</div>
   {% endfor %}
-  <footer class="footer">PRTS Wiki · CC BY-SA 3.0</footer>
 </main>
 </body>
 </html>
