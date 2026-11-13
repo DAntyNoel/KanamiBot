@@ -59,6 +59,18 @@ uv sync
 
 需要调整端口、令牌等本地配置时，修改 `.env`。
 
+## 明日方舟资料查询
+
+新增 [明日方舟查询插件](src/kanamibot/plugins/arknights/README.md)，使用独立 Amiya MCP 后端。
+支持 `#粥 银灰 技能`（同义前缀 `#方舟` / `#ark`）、异格匹配、社群绰号与群聊维护、
+卫戍盟约/策略/棋子，以及 PRTS 生息演算资料检索。
+
+```powershell
+docker compose -p kanamibot-arknights -f services/amiya-mcp.compose.yml up -d
+```
+
+后端默认仅监听本机 `19090` 端口，首次启动需要下载资源，配置见插件文档。
+
 ## 群图片自动分类
 
 新增 [image_classifier 插件](src/kanamibot/plugins/image_classifier/README.md)：在所有群静默处理图片，

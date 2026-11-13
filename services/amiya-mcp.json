@@ -1,0 +1,5 @@
+{
+  "BaseUrl": "http://127.0.0.1:19090/",
+  "CommandServiceUrl": "http://127.0.0.1:19090/",
+  "PortraitAttributeCardEnabled": true
+}

@@ -1,0 +1,13 @@
+services:
+  query-backend:
+    image: hsyhhssyy/amiyabot-mcp:v1.1.2@sha256:8a4ba55a1c09fc868660bd46fc7fafcb1ab918d21f8fc7099775b9bee807fa87
+    container_name: kanamibot-amiya-mcp
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:19090:9000"
+    volumes:
+      - ../data/amiya_mcp:/app/resources
+      - ./amiya-mcp.json:/app/config.json:ro
+    environment:
+      LOG_LEVEL: INFO
+    shm_size: 256mb
