@@ -1,0 +1,1505 @@
+{
+  "retrieved": "2026-11-13",
+  "sources": [
+    {
+      "url": "http://106.52.139.57:8000/replace/getGlobalReplace",
+      "sha256": "037ffaac6a3dbd5ea3f4913b8a7d117455b3797667879a6ecaf6e7f64787c629"
+    }
+  ],
+  "aliases": [
+    {
+      "alias": "祥子",
+      "name": "丰川祥子",
+      "faction": "Ave Mujica",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "小僧",
+      "name": "嵯峨",
+      "faction": "东",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "纳豆拌饭",
+      "name": "嵯峨",
+      "faction": "东",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "mmk",
+      "name": "遥",
+      "faction": "东",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "萌萌香",
+      "name": "遥",
+      "faction": "东",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "老爷子",
+      "name": "赫拉格",
+      "faction": "乌萨斯",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "将军",
+      "name": "赫拉格",
+      "faction": "乌萨斯",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "冬将军",
+      "name": "凛冬",
+      "faction": "乌萨斯学生自治团",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "索尼娅",
+      "name": "凛冬",
+      "faction": "乌萨斯学生自治团",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "拉达",
+      "name": "古米",
+      "faction": "乌萨斯学生自治团",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "早子姐",
+      "name": "早露",
+      "faction": "乌萨斯学生自治团",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "面包人",
+      "name": "可颂",
+      "faction": "企鹅物流",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "德狗",
+      "name": "德克萨斯",
+      "faction": "企鹅物流",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "异格德克萨斯",
+      "name": "缄默德克萨斯",
+      "faction": "企鹅物流",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "异格德狗",
+      "name": "缄默德克萨斯",
+      "faction": "企鹅物流",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "异德",
+      "name": "缄默德克萨斯",
+      "faction": "企鹅物流",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "张飞",
+      "name": "缄默德克萨斯",
+      "faction": "企鹅物流",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "小乐",
+      "name": "能天使",
+      "faction": "企鹅物流",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "苹果派",
+      "name": "能天使",
+      "faction": "企鹅物流",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "蕾缪乐",
+      "name": "能天使",
+      "faction": "企鹅物流",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "阿能",
+      "name": "能天使",
+      "faction": "企鹅物流",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "星棘",
+      "name": "引星棘刺",
+      "faction": "伊比利亚",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "海蛞蝓",
+      "name": "格劳克斯",
+      "faction": "伊比利亚",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "鸡翅",
+      "name": "棘刺",
+      "faction": "伊比利亚",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "海胆",
+      "name": "棘刺",
+      "faction": "伊比利亚",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "小鸟",
+      "name": "艾丽妮",
+      "faction": "伊比利亚",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "丽兹",
+      "name": "夜莺",
+      "faction": "使徒",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "闪剑圣",
+      "name": "闪灵",
+      "faction": "使徒",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "叔叔",
+      "name": "玛恩纳",
+      "faction": "卡西米尔",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "二爷",
+      "name": "玛恩纳",
+      "faction": "卡西米尔",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "玛莉亚",
+      "name": "瑕光",
+      "faction": "卡西米尔",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "玛利亚",
+      "name": "瑕光",
+      "faction": "卡西米尔",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "玛利亚临光",
+      "name": "瑕光",
+      "faction": "卡西米尔",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "欣特莱雅",
+      "name": "白金",
+      "faction": "卡西米尔",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "耀光",
+      "name": "耀骑士临光",
+      "faction": "卡西米尔",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "近卫临光",
+      "name": "耀骑士临光",
+      "faction": "卡西米尔",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "耀骑士",
+      "name": "耀骑士临光",
+      "faction": "卡西米尔",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "姑妈",
+      "name": "鞭刃",
+      "faction": "卡西米尔",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "佐菲娅",
+      "name": "鞭刃",
+      "faction": "卡西米尔",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "四爷",
+      "name": "伺夜",
+      "faction": "叙拉古",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "洁哥",
+      "name": "安洁莉娜",
+      "faction": "叙拉古",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "拉狗",
+      "name": "拉普兰德",
+      "faction": "叙拉古",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "大尾巴狼",
+      "name": "普罗旺斯",
+      "faction": "叙拉古",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "乌拉",
+      "name": "荒芜拉普兰德",
+      "faction": "叙拉古",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "我们的光",
+      "name": "铃兰",
+      "faction": "叙拉古",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "丽萨",
+      "name": "铃兰",
+      "faction": "叙拉古",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "安东尼西蒙",
+      "name": "山",
+      "faction": "哥伦比亚",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "米娜",
+      "name": "松果",
+      "faction": "哥伦比亚",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "龟龟",
+      "name": "蛇屠箱",
+      "faction": "哥伦比亚",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "鬼鬼",
+      "name": "蛇屠箱",
+      "faction": "哥伦比亚",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "蛇蛇",
+      "name": "霍尔海雅",
+      "faction": "哥伦比亚",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "银老板",
+      "name": "银灰",
+      "faction": "喀兰贸易",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "前夫哥",
+      "name": "银灰",
+      "faction": "喀兰贸易",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "黑骑士",
+      "name": "锏",
+      "faction": "喀兰贸易",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "三冠王",
+      "name": "锏",
+      "faction": "喀兰贸易",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "香蕉姐",
+      "name": "死芒",
+      "faction": "塔拉",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "异格苇草",
+      "name": "焰影苇草",
+      "faction": "塔拉",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "焰苇",
+      "name": "焰影苇草",
+      "faction": "塔拉",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "达不溜",
+      "name": "W",
+      "faction": "巴别塔",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "土豆",
+      "name": "伊内丝",
+      "faction": "巴别塔",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "ins",
+      "name": "伊内丝",
+      "faction": "巴别塔",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "异格w",
+      "name": "维什戴尔",
+      "faction": "巴别塔",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "ew",
+      "name": "维什戴尔",
+      "faction": "巴别塔",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "益达",
+      "name": "维什戴尔",
+      "faction": "巴别塔",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "doc",
+      "name": "医生",
+      "faction": "彩虹小队",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "iana",
+      "name": "双月",
+      "faction": "彩虹小队",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "fuze",
+      "name": "导火索",
+      "faction": "彩虹小队",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "机枪哥",
+      "name": "战车",
+      "faction": "彩虹小队",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "ash",
+      "name": "灰烬",
+      "faction": "彩虹小队",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "ela",
+      "name": "艾拉",
+      "faction": "彩虹小队",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "闪盾",
+      "name": "闪击",
+      "faction": "彩虹小队",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "夹子妹",
+      "name": "霜华",
+      "faction": "彩虹小队",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "蒂娜",
+      "name": "霜华",
+      "faction": "彩虹小队",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "异格送葬人",
+      "name": "圣约送葬人",
+      "faction": "拉特兰",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "异格阿葬",
+      "name": "圣约送葬人",
+      "faction": "拉特兰",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "圣葬",
+      "name": "圣约送葬人",
+      "faction": "拉特兰",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "阿尔图罗",
+      "name": "塑心",
+      "faction": "拉特兰",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "图图",
+      "name": "塑心",
+      "faction": "拉特兰",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "席德佳",
+      "name": "空弦",
+      "faction": "拉特兰",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "弦宝",
+      "name": "空弦",
+      "faction": "拉特兰",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "小莫",
+      "name": "莫斯提马",
+      "faction": "拉特兰",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "菲尼克斯",
+      "name": "菲亚梅塔",
+      "faction": "拉特兰",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "苦难陈述者",
+      "name": "菲亚梅塔",
+      "faction": "拉特兰",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "不死鸟",
+      "name": "菲亚梅塔",
+      "faction": "拉特兰",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "小凤凰",
+      "name": "菲亚梅塔",
+      "faction": "拉特兰",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "肥鸭",
+      "name": "菲亚梅塔",
+      "faction": "拉特兰",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "毁灭凤凰人",
+      "name": "菲亚梅塔",
+      "faction": "拉特兰",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "王小姐",
+      "name": "推进之王",
+      "faction": "格拉斯哥帮",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "王大锤",
+      "name": "推进之王",
+      "faction": "格拉斯哥帮",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "推王",
+      "name": "推进之王",
+      "faction": "格拉斯哥帮",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "大哥大",
+      "name": "达格达",
+      "faction": "格拉斯哥帮",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "大小姐",
+      "name": "锡兰",
+      "faction": "汐斯塔",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "三队长",
+      "name": "乌尔比安",
+      "faction": "深海猎人",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "海猫",
+      "name": "安哲拉",
+      "faction": "深海猎人",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "鲨鲨",
+      "name": "幽灵鲨",
+      "faction": "深海猎人",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "劳伦缇娜",
+      "name": "幽灵鲨",
+      "faction": "深海猎人",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "异格鲨鲨",
+      "name": "归溟幽灵鲨",
+      "faction": "深海猎人",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "归鲨",
+      "name": "归溟幽灵鲨",
+      "faction": "深海猎人",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "幽冥鲨",
+      "name": "归溟幽灵鲨",
+      "faction": "深海猎人",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "异格幽灵鲨",
+      "name": "归溟幽灵鲨",
+      "faction": "深海猎人",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "蒂蒂",
+      "name": "斯卡蒂",
+      "faction": "深海猎人",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "小虎鲸",
+      "name": "斯卡蒂",
+      "faction": "深海猎人",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "撕卡帝",
+      "name": "斯卡蒂",
+      "faction": "深海猎人",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "咸鱼",
+      "name": "斯卡蒂",
+      "faction": "深海猎人",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "二队长",
+      "name": "歌蕾蒂娅",
+      "faction": "深海猎人",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "歌蒂",
+      "name": "歌蕾蒂娅",
+      "faction": "深海猎人",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "异惊",
+      "name": "司霆惊蛰",
+      "faction": "炎",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "雷子姐",
+      "name": "惊蛰",
+      "faction": "炎",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "小海豚",
+      "name": "清流",
+      "faction": "炎",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "小黑",
+      "name": "罗小黑",
+      "faction": "炎",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "火陈",
+      "name": "赤刃明霄陈",
+      "faction": "炎",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "大哥",
+      "name": "重岳",
+      "faction": "炎-岁",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "白送",
+      "name": "拜松",
+      "faction": "炎-龙门",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "异格诗怀雅",
+      "name": "琳琅诗怀雅",
+      "faction": "炎-龙门",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "琳诗",
+      "name": "琳琅诗怀雅",
+      "faction": "炎-龙门",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "雪鸡",
+      "name": "雪雉",
+      "faction": "炎-龙门",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "拉菲艾拉席尔瓦",
+      "name": "羽毛笔",
+      "faction": "玻利瓦尔",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "埃内斯托萨拉斯",
+      "name": "龙舌兰",
+      "faction": "玻利瓦尔",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "牛头人",
+      "name": "帕拉斯",
+      "faction": "米诺斯",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "欢乐水牛",
+      "name": "帕拉斯",
+      "faction": "米诺斯",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "牛牛",
+      "name": "帕拉斯",
+      "faction": "米诺斯",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "一拳超人",
+      "name": "断罪者",
+      "faction": "米诺斯",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "索娜",
+      "name": "焰尾",
+      "faction": "红松骑士团",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "艾沃娜",
+      "name": "野鬃",
+      "faction": "红松骑士团",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "克里斯汀小姐",
+      "name": "Miss.Christine",
+      "faction": "维多利亚",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "克里斯汀",
+      "name": "Miss.Christine",
+      "faction": "维多利亚",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "影子哥",
+      "name": "傀影",
+      "faction": "维多利亚",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "火子姐",
+      "name": "天火",
+      "faction": "维多利亚",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "小马哥",
+      "name": "格拉尼",
+      "faction": "维多利亚",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "粉毛",
+      "name": "澄闪",
+      "faction": "维多利亚",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "苏茜",
+      "name": "澄闪",
+      "faction": "维多利亚",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "贞德",
+      "name": "琴柳",
+      "faction": "维多利亚",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "简薇洛",
+      "name": "琴柳",
+      "faction": "维多利亚",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "大铁老师",
+      "name": "白铁",
+      "faction": "维多利亚",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "维娜",
+      "name": "维娜·维多利亚",
+      "faction": "维多利亚",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "异格推王",
+      "name": "维娜·维多利亚",
+      "faction": "维多利亚",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "异格推进之王",
+      "name": "维娜·维多利亚",
+      "faction": "维多利亚",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "维娜维多利亚",
+      "name": "维娜·维多利亚",
+      "faction": "维多利亚",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "拉芙希妮",
+      "name": "苇草",
+      "faction": "维多利亚",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "近卫小车",
+      "name": "Castle-3",
+      "faction": "罗德岛",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "重装小车",
+      "name": "Friston-3",
+      "faction": "罗德岛",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "医疗小车",
+      "name": "Lancet-2",
+      "faction": "罗德岛",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "m3",
+      "name": "Mon3tr",
+      "faction": "罗德岛",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "自爆小车",
+      "name": "THRM-EX",
+      "faction": "罗德岛",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "尤里卡",
+      "name": "U-Official",
+      "faction": "罗德岛",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "路易莎",
+      "name": "亚叶",
+      "faction": "罗德岛",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "水陈",
+      "name": "假日威龙陈",
+      "faction": "罗德岛",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "异格陈",
+      "name": "假日威龙陈",
+      "faction": "罗德岛",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "老猞猁",
+      "name": "凯尔希",
+      "faction": "罗德岛",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "凯爹",
+      "name": "凯尔希",
+      "faction": "罗德岛",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "小刻",
+      "name": "刻俄柏",
+      "faction": "罗德岛",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "氪二百",
+      "name": "刻俄柏",
+      "faction": "罗德岛",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "ff0",
+      "name": "华法琳",
+      "faction": "罗德岛",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "42姐",
+      "name": "史尔特尔",
+      "faction": "罗德岛",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "莱瓦汀",
+      "name": "史尔特尔",
+      "faction": "罗德岛",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "42",
+      "name": "史尔特尔",
+      "faction": "罗德岛",
+      "source": "https://m.ali213.net/news/gl2408/1479047.html"
+    },
+    {
+      "alias": "奶嘉",
+      "name": "嘉维尔",
+      "faction": "罗德岛",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "异格克洛丝",
+      "name": "寒芒克洛丝",
+      "faction": "罗德岛",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "异克",
+      "name": "寒芒克洛丝",
+      "faction": "罗德岛",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "柳德米拉",
+      "name": "弑君者",
+      "faction": "罗德岛",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "异格格雷伊",
+      "name": "承曦格雷伊",
+      "faction": "罗德岛",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "桃金郎",
+      "name": "极境",
+      "faction": "罗德岛",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "鸡精",
+      "name": "极境",
+      "faction": "罗德岛",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "桃子",
+      "name": "桃金娘",
+      "faction": "罗德岛",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "萨卡兹大妹子",
+      "name": "泥岩",
+      "faction": "罗德岛",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "猫车",
+      "name": "泰拉大陆调查团",
+      "faction": "罗德岛",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "异格芙蓉",
+      "name": "濯尘芙蓉",
+      "faction": "罗德岛",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "芙蓉王",
+      "name": "濯尘芙蓉",
+      "faction": "罗德岛",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "小燕子",
+      "name": "灰喉",
+      "faction": "罗德岛",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "异格炎熔",
+      "name": "炎狱炎熔",
+      "faction": "罗德岛",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "异格嘉维尔",
+      "name": "百炼嘉维尔",
+      "faction": "罗德岛",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "嘉百炼",
+      "name": "百炼嘉维尔",
+      "faction": "罗德岛",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "百嘉",
+      "name": "百炼嘉维尔",
+      "faction": "罗德岛",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "近卫嘉维尔",
+      "name": "百炼嘉维尔",
+      "faction": "罗德岛",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "鳄鱼王",
+      "name": "百炼嘉维尔",
+      "faction": "罗德岛",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "大学生",
+      "name": "苏苏洛",
+      "faction": "罗德岛",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "莱娜",
+      "name": "调香师",
+      "faction": "罗德岛",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "特蕾西娅",
+      "name": "魔王",
+      "faction": "罗德岛",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "阿芙朵嘉",
+      "name": "鸿雪",
+      "faction": "罗德岛",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "异格煌",
+      "name": "烛煌",
+      "faction": "罗德岛-精英干员",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "大猫猫",
+      "name": "煌",
+      "faction": "罗德岛-精英干员",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "香香",
+      "name": "迷迭香",
+      "faction": "罗德岛-精英干员",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "logos",
+      "name": "逻各斯",
+      "faction": "罗德岛-精英干员",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "卡子姐",
+      "name": "卡涅利安",
+      "faction": "莱塔尼亚",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "大羊",
+      "name": "卡涅利安",
+      "faction": "莱塔尼亚",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "卡姐",
+      "name": "卡涅利安",
+      "faction": "莱塔尼亚",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "纯爱",
+      "name": "纯烬艾雅法拉",
+      "faction": "莱塔尼亚",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "纯艾",
+      "name": "纯烬艾雅法拉",
+      "faction": "莱塔尼亚",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "异格艾雅法拉",
+      "name": "纯烬艾雅法拉",
+      "faction": "莱塔尼亚",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "异格小羊",
+      "name": "纯烬艾雅法拉",
+      "faction": "莱塔尼亚",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "奶羊",
+      "name": "纯烬艾雅法拉",
+      "faction": "莱塔尼亚",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "小羊",
+      "name": "艾雅法拉",
+      "faction": "莱塔尼亚",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "烛骑士",
+      "name": "薇薇安娜",
+      "faction": "莱塔尼亚",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "vvan",
+      "name": "薇薇安娜",
+      "faction": "莱塔尼亚",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "马鹿",
+      "name": "玛露西尔",
+      "faction": "莱欧斯小队",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "玛露希尔",
+      "name": "玛露西尔",
+      "faction": "莱欧斯小队",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "小火龙",
+      "name": "伊芙利特",
+      "faction": "莱茵生命",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "伊芙芙",
+      "name": "伊芙利特",
+      "faction": "莱茵生命",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "塞妈",
+      "name": "塞雷娅",
+      "faction": "莱茵生命",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "莱茵拳皇",
+      "name": "塞雷娅",
+      "faction": "莱茵生命",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "塞爹",
+      "name": "塞雷娅",
+      "faction": "莱茵生命",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "赛雷娅",
+      "name": "塞雷娅",
+      "faction": "莱茵生命",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "炸弹人",
+      "name": "多萝西",
+      "faction": "莱茵生命",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "埃琳娜",
+      "name": "星源",
+      "faction": "莱茵生命",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "异格赫默",
+      "name": "淬羽赫默",
+      "faction": "莱茵生命",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "白咕咕",
+      "name": "白面鸮",
+      "faction": "莱茵生命",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "缪缪",
+      "name": "缪尔赛思",
+      "faction": "莱茵生命",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "麦旋风",
+      "name": "麦哲伦",
+      "faction": "莱茵生命",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "小企鹅",
+      "name": "麦哲伦",
+      "faction": "莱茵生命",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "客师傅",
+      "name": "异客",
+      "faction": "萨尔贡",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "唯一神",
+      "name": "异客",
+      "faction": "萨尔贡",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "艾利奥特",
+      "name": "异客",
+      "faction": "萨尔贡",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "卡密",
+      "name": "异客",
+      "faction": "萨尔贡",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "客门",
+      "name": "异客",
+      "faction": "萨尔贡",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "森rua",
+      "name": "森蚺",
+      "faction": "萨尔贡",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "祖玛玛",
+      "name": "森蚺",
+      "faction": "萨尔贡",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "克玛尔",
+      "name": "燧石",
+      "faction": "萨尔贡",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "小鳄鱼",
+      "name": "艾丝黛尔",
+      "faction": "萨尔贡",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "小天鹅",
+      "name": "柏喙",
+      "faction": "萨米",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "异格黑角",
+      "name": "火龙S黑角",
+      "faction": "行动组A4",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "火龙黑角",
+      "name": "火龙S黑角",
+      "faction": "行动组A4",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "异格夜刀",
+      "name": "麒麟R夜刀",
+      "faction": "行动组A4",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "麒麟夜刀",
+      "name": "麒麟R夜刀",
+      "faction": "行动组A4",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "kkdy",
+      "name": "克洛丝",
+      "faction": "行动预备组A1",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "kokodayo",
+      "name": "克洛丝",
+      "faction": "行动预备组A1",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "梅莉",
+      "name": "卡缇",
+      "faction": "行动预备组A4",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "德华",
+      "name": "史都华德",
+      "faction": "行动预备组A4",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "安塞尔",
+      "name": "安赛尔",
+      "faction": "行动预备组A4",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "阿莱塔",
+      "name": "空爆",
+      "faction": "行动预备组A6",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "异格银灰",
+      "name": "凛御银灰",
+      "faction": "谢拉格",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "恩雅希瓦艾什",
+      "name": "初雪",
+      "faction": "谢拉格",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "异格初雪",
+      "name": "圣聆初雪",
+      "faction": "谢拉格",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "浊蒂",
+      "name": "浊心斯卡蒂",
+      "faction": "阿戈尔",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "红蒂",
+      "name": "浊心斯卡蒂",
+      "faction": "阿戈尔",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "艾尔斯",
+      "name": "断崖",
+      "faction": "雷姆必拓",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "小锅盖",
+      "name": "温米",
+      "faction": "雷姆必拓",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "臭鼬",
+      "name": "蜜莓",
+      "faction": "雷姆必拓",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "内鬼",
+      "name": "阿",
+      "faction": "鲤氏侦探事务所",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "流泪猫猫头",
+      "name": "杰西卡",
+      "faction": "黑钢国际",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "猫猫头",
+      "name": "杰西卡",
+      "faction": "黑钢国际",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "异格杰西卡",
+      "name": "涤火杰西卡",
+      "faction": "黑钢国际",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "dj",
+      "name": "涤火杰西卡",
+      "faction": "黑钢国际",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "充电宝",
+      "name": "雷蛇",
+      "faction": "黑钢国际",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "异格星熊",
+      "name": "斩业星熊",
+      "faction": "龙门近卫局",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "鬼姐",
+      "name": "星熊",
+      "faction": "龙门近卫局",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "小脑斧",
+      "name": "诗怀雅",
+      "faction": "龙门近卫局",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "叉烧猫",
+      "name": "诗怀雅",
+      "faction": "龙门近卫局",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "小老虎",
+      "name": "诗怀雅",
+      "faction": "龙门近卫局",
+      "source": "AmiyaBot 社群全局绰号表"
+    },
+    {
+      "alias": "陈晖洁",
+      "name": "陈",
+      "faction": "龙门近卫局",
+      "source": "AmiyaBot 社群全局绰号表"
+    }
+  ]
+}
