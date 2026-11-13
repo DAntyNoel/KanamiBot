@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+from datetime import UTC, datetime
 
 from nonebot import get_bot, on_regex, require
 from nonebot.adapters.onebot.v11 import Bot, MessageEvent, MessageSegment
@@ -108,6 +109,25 @@ if ENABLED:
     from nonebot_plugin_apscheduler import scheduler
 
     from kanamibot.strinova.update_monitor import MANIFEST_TARGETS, check_update
+
+    if os.getenv("STRINOVA_RESOURCE_AUTO_UPDATE", "true").lower() in ("1", "true", "yes", "on"):
+        from kanamibot.strinova.resource_auto_update import check_resource_update
+
+        @scheduler.scheduled_job(
+            "interval", hours=3, id="strinova_resource_update", max_instances=1,
+            coalesce=True, next_run_time=datetime.now(UTC),
+        )
+        async def update_resources() -> None:
+            try:
+                result = await asyncio.to_thread(check_resource_update)
+                if result is not None:
+                    logger.info(
+                        "[strinova] 资源已合并：HTTP {}，游戏 {}，提交 {}，变更 {} 个文件",
+                        result["tag"], result["game_version"], result["commit"][:12],
+                        result["changed_files"],
+                    )
+            except Exception:
+                logger.exception("[strinova] 资源自动更新失败，保留当前资源，3 小时后重试")
 
     @scheduler.scheduled_job(
         "interval", minutes=1, id="strinova_tyf_update", max_instances=1, coalesce=True

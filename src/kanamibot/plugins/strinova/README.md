@@ -158,6 +158,27 @@ git -C data/strinova/calabiyau-resource pull --ff-only
 不会缓存暂时缺失的映射；更新失败并回滚后继续使用原资源。
 首次部署热重载代码时需让新框架 Bot 加载一次新代码，此后的资源更新无需重启。
 
+### 自动更新
+
+`STRINOVA_RESOURCE_AUTO_UPDATE=true`（默认）时，启用卡丘插件后在启动时检查一次，
+随后每 3 小时检查 `strinova-in-game-http` 的最新正式版 tag（`v主.次.修订`，
+忽略预发布后缀），同时检查 `calabiyau-resource` 默认分支的最新提交。
+资源仓库目前没有 tag，因此即使 HTTP tag 没变，独立发布的新资源也会触发合并。
+首次检查会校验并同步当前最新版。设置 `STRINOVA_RESOURCE_AUTO_UPDATE=false` 可关闭。
+
+通过 Git 使用运行 Bot 的系统账号已有的私有仓库凭据，全程禁用交互登录；
+需在部署机器上提前配置好 Git 及上述两个仓库的读取权限。检查、下载和校验在后台线程运行，
+同一个定时任务不重叠，不依赖 QQ 连接或战绩 API 健康状态。
+资源下载到独立临时检出，固定检查时读到的提交，通过部分克隆与稀疏检出只下载所需
+映射、配置表和战绩图片，仅导入数据，不执行上游脚本。
+完整校验后按上述流程合并，保留本地字体和 Wiki 立绘，下次查询自动加载。
+失败不推进已处理版本，下个周期重试；成功和失败写日志，无变化时静默。
+
+自动更新状态（HTTP tag、提交及资源校验值）保存在忽略的
+`data/strinova/resource_auto_update.json`，手动同步的 `resource_source.json` 不会被定时任务改写。
+任务只更新战绩图片资源，不部署或注入 HTTP DLL、不修改游戏地址配置，也不执行 Git 合并或推送。
+本功能需在新框架 Bot 下次加载代码后生效。
+
 本地字体从用户提供的游戏字体目录复制了 `Game-Semibold.ttf`（方正兰亭黑 Pro Global Semibold）
 及 `orbitron-*.otf`；界面中文使用前者，数值使用 `orbitron-medium.otf`。
 运行时仅从插件目录加载字体，不依赖原字体目录。

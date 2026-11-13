@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import importlib.util
 import io
 import json
 import os
@@ -15,15 +14,11 @@ from unittest.mock import patch
 
 from PIL import Image
 
+from kanamibot.strinova import resource_import as update
 from kanamibot.strinova.query import Query
 from kanamibot.strinova.render import render_html
 from kanamibot.strinova.resources import ResourcePack
 from kanamibot.strinova.service import Report
-
-SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "update_strinova_resources.py"
-SPEC = importlib.util.spec_from_file_location("update_strinova_resources", SCRIPT)
-update = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(update)
 
 
 class ResourceUpdateTests(unittest.TestCase):
