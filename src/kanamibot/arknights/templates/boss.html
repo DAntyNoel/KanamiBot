@@ -33,6 +33,9 @@
     .wiki td, .wiki th { border: 1px solid #6e7980; padding: 8px 12px;
       background-color: #20292f !important; }
     .wiki th { background-color: #39464f !important; }
+    .wiki .boss-attributes { table-layout: fixed; font-variant-numeric: tabular-nums; }
+    .wiki .boss-attributes td, .wiki .boss-attributes th { padding: 6px 10px; }
+    .wiki .boss-attributes tr > :nth-child(4) { border-left: 3px solid #7b8e99; }
     .wiki p { margin: 6px 0; }
     .wiki h2 { font-size: 25px; color: #ff9a60; margin: 18px 0 10px; }
     .wiki a { color: #a8dbed; text-decoration: none; }
@@ -47,7 +50,7 @@
 <main id="template">
   <header class="header">
     <h1>{{ title }}</h1>
-    {% if entries %}<div class="hint">#卫 boss 序号　／　#卫 boss 序号 隐秘</div>{% endif %}
+    {% if entries %}<div class="hint">#卫 boss 序号</div>{% endif %}
   </header>
   {% if entries %}
   <section class="grid">

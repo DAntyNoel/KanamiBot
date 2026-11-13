@@ -99,73 +99,87 @@ def roster(html: str) -> list[Boss]:
     return sorted(result, key=lambda b: order.get(b.name, len(order)))
 
 
-def activity_excerpt(html: str, boss: Boss, hidden: bool) -> str:
-    """Select source rows/columns and variant spans; never calculate new values."""
+def activity_excerpt(html: str, boss: Boss) -> str:
+    """Show both source variants in two adjacent groups of three columns."""
     parts = []
-    for original in leader_tables(BeautifulSoup(html, "html.parser")):
-        rs = rows(original)
+    for table in leader_tables(BeautifulSoup(html, "html.parser")):
+        rs = rows(table)
         if len(rs) < 3:
             continue
-        table = copy.deepcopy(original)
-        rs = rows(table)
+        entries = []
         if len(cells(rs[1])) == 5:
             matching = [r for r in rs[3:] if r.find("a", title=boss.name) is not None]
             if len(matching) != 1:
                 raise BackendError("PRTS 本期领袖数值暂时无法读取。")
-            for row in rs[3:]:
-                if row is not matching[0]:
-                    row.decompose()
-            if hidden:
-                keep = [0] + [i for i, c in enumerate(cells(matching[0])) if hidden_values(c)]
-                for row in (rs[1], matching[0]):
-                    for index, cell in reversed(list(enumerate(cells(row)))):
-                        if index not in keep:
-                            cell.decompose()
-            for cell in cells(matching[0])[1:]:
-                _select_value(cell, hidden)
-            width = len(cells(matching[0]))
+            entries = [
+                (heading.get_text(strip=True), *_variant_values(value))
+                for heading, value in zip(cells(rs[1])[1:], cells(matching[0])[1:], strict=True)
+            ]
         else:
             headers = cells(rs[1])
             column = next((i for i, c in enumerate(headers) if c.find("a", title=boss.name)), None)
             if column is None:
                 raise BackendError("PRTS 规程等级数值暂时无法读取。")
-            for row in rs[1:]:
+            for row in rs[3:]:
                 cs = cells(row)
                 if len(cs) == 1:
                     continue
-                if hidden and row is not rs[1] and not hidden_values(cs[column]):
-                    row.decompose()
-                    continue
-                for index, cell in reversed(list(enumerate(cs))):
-                    if index not in {0, column}:
-                        cell.decompose()
-                if row is not rs[1]:
-                    _select_value(cs[column], hidden)
-            width = 2
-        for cell in table.select("[colspan]"):
-            cell["colspan"] = str(width)
-        parts.append(str(table))
+                if len(cs) != len(headers):
+                    raise BackendError("PRTS 规程等级数值格式发生变化，请稍后重试。")
+                entries.append((cs[0].get_text(strip=True), *_variant_values(cs[column])))
+        if not entries:
+            raise BackendError("PRTS 本期领袖数值暂时无法读取。")
+        parts.append(_attribute_table(cells(rs[0])[0], cells(rs[2])[0], entries))
     if not parts:
         raise BackendError("PRTS 本期领袖数值暂时无法读取。")
     return "".join(parts)
 
 
-def _select_value(cell: Tag, hidden: bool) -> None:
-    values = hidden_values(cell)
-    if hidden:
-        if not values:
-            raise BackendError("PRTS 未列出该领袖的隐秘核心数值。")
-        selected = [copy.deepcopy(value) for value in values]
-        cell.clear()
-        cell.extend(selected)
-    else:
-        for value in values:
-            value.decompose()
-        for br in cell.find_all("br"):
-            br.decompose()
+def _variant_values(cell: Tag) -> tuple[str, str]:
+    normal = copy.deepcopy(cell)
+    for value in hidden_values(normal):
+        value.decompose()
+    return normal.get_text(strip=True), "".join(str(value) for value in hidden_values(cell))
 
 
-def enemy_excerpt(html: str, hidden: bool) -> tuple[str, str]:
+def _attribute_table(title: Tag, notice: Tag, entries: list[tuple[str, str, str]]) -> str:
+    soup = BeautifulSoup("", "html.parser")
+    table = soup.new_tag("table", attrs={"class": "boss-attributes"})
+    soup.append(table)
+
+    def full_row(source: Tag) -> None:
+        row = soup.new_tag("tr")
+        cell = copy.deepcopy(source)
+        cell["colspan"] = "6"
+        row.append(cell)
+        table.append(row)
+
+    full_row(title)
+    headers = soup.new_tag("tr")
+    for label in ("模式", "普通", "隐秘核心") * 2:
+        cell = soup.new_tag("th")
+        cell.string = label
+        headers.append(cell)
+    table.append(headers)
+    full_row(notice)
+    # Read down the left half, then the right; copy every source value once.
+    halfway = (len(entries) + 1) // 2
+    for index in range(halfway):
+        row = soup.new_tag("tr")
+        for position in (index, index + halfway):
+            values = entries[position] if position < len(entries) else ("", "", "")
+            for column, value in enumerate(values):
+                cell = soup.new_tag("td")
+                if column == 2 and value:
+                    cell.extend(BeautifulSoup(value, "html.parser").contents)
+                else:
+                    cell.string = value or ("—" if values[0] else "")
+                row.append(cell)
+        table.append(row)
+    return str(table)
+
+
+def enemy_excerpt(html: str) -> tuple[str, str]:
     soup = BeautifulSoup(html, "html.parser")
     overview = soup.select_one("table.enemy-info-common")
     if overview is None:
@@ -174,15 +188,10 @@ def enemy_excerpt(html: str, hidden: bool) -> tuple[str, str]:
     # Use the visible default, without duplicating the alternative or tooltips.
     for alternative in overview.select(".mw-collapsed"):
         alternative.decompose()
-    if not hidden:
-        for marker in overview.find_all("span", string="隐秘核心"):
-            for sibling in list(marker.next_siblings):
-                sibling.extract()
-            marker.decompose()
     detail = []
     for block in soup.select(".prts-enemy-level-table"):
         heading = block.find_previous("h2")
-        if heading is None or ("隐秘核心" in heading.get_text()) != hidden:
+        if heading is None:
             continue
         detail.extend([str(heading), str(block)])
     # Preserve PRTS's warning about general enemy data when including those tables.
@@ -318,7 +327,7 @@ class BossQueries:
                 img.replace_with(img.get("alt", ""))
         return str(soup)
 
-    async def query(self, index: int = 0, hidden: bool = False) -> BossCard:
+    async def query(self, index: int = 0) -> BossCard:
         from .render import render_html
 
         activity = await self.page(ACTIVITY)
@@ -334,7 +343,7 @@ class BossQueries:
             text = "卫戍协议 · Boss\n" + "\n".join(
                 f"{i}. {boss.name}" for i, boss in enumerate(bosses, 1)
             )
-            text += f"\n#卫 boss 序号 [隐秘]\n来源：{activity_url}"
+            text += f"\n#卫 boss 序号\n来源：{activity_url}"
             return BossCard(
                 "卫戍协议 · Boss",
                 render_html(title="卫戍协议 · Boss", entries=entries),
@@ -343,11 +352,9 @@ class BossQueries:
         if not 1 <= index <= len(bosses):
             raise ValueError(f"Boss 序号应为 1～{len(bosses)}，请发送 #卫 boss 查看列表。")
         boss = bosses[index - 1]
-        if hidden and not boss.hidden:
-            raise ValueError(f"{boss.name}：PRTS 本期列表没有列出独立的隐秘核心版本。")
         enemy = await self.page(boss.name)
-        overview, details = enemy_excerpt(enemy["text"]["*"], hidden)
-        values = activity_excerpt(activity_html, boss, hidden)
+        overview, details = enemy_excerpt(enemy["text"]["*"])
+        values = activity_excerpt(activity_html, boss)
         blocks = [
             ("能力", overview, source_url(boss.name, enemy.get("revid", 0))),
             ("卫戍协议·规程", values, activity_url),
@@ -367,7 +374,7 @@ class BossQueries:
                     "url": url,
                 }
             )
-        title = f"{index}. {boss.name} · {'隐秘核心' if hidden else '普通'}"
+        title = f"{index}. {boss.name}"
         text = (
             title
             + "\n\n"

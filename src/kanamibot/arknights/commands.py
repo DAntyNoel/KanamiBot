@@ -55,7 +55,6 @@ class Command:
     alter: bool = False
     alias: str = ""
     index: int = 0
-    hidden: bool = False
 
 
 def command_body(text: str) -> str | None:
@@ -96,7 +95,7 @@ def parse(text: str) -> Command:
     if words and words[0].casefold() in {"帮助", "help", "--help"}:
         return Command(action="help")
     if mode == "卫戍" and words and words[0].casefold() == "boss":
-        usage = "用法：#卫 boss；#卫 boss 序号；#卫 boss 序号 隐秘"
+        usage = "用法：#卫 boss；#卫 boss 序号（普通与隐秘核心资料合并展示）。"
         if len(words) == 1:
             return Command(action="boss", mode=mode)
         if len(words) not in {2, 3} or not words[1].isdecimal():
@@ -110,7 +109,7 @@ def parse(text: str) -> Command:
         hidden = len(words) == 3
         if hidden and words[2].strip("()（）").casefold() not in {"隐秘", "隐秘核心"}:
             raise ValueError(usage)
-        return Command(action="boss", mode=mode, index=index, hidden=hidden)
+        return Command(action="boss", mode=mode, index=index)
     # A mode can surround a normal entity-first query, e.g. 卫 银灰 棋子.
     alter = "异格" in words
     words = [word for word in words if word != "异格"]

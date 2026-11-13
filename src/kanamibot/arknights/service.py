@@ -108,7 +108,7 @@ class Queries:
     async def execute(self, command: Command, key: str) -> Result:
         if command.action == "boss":
             self.pending.pop(key, None)
-            card = await self.bosses.query(command.index, command.hidden)
+            card = await self.bosses.query(command.index)
             return Result(text=card.title, card_html=card.html, fallback=card.text)
         if command.action == "alias_list":
             return Result(pages=self.records.list_messages())

@@ -51,9 +51,7 @@ def test_boss_grammar(head):
     assert parse(f"{head} BOSS") == Command(action="boss", mode="卫戍")
     assert parse(f"{head} boss 1") == Command(action="boss", mode="卫戍", index=1)
     for word in ("隐秘", "隐秘核心", "（隐秘）", "(隐秘)"):
-        assert parse(f"{head} boss 1 {word}") == Command(
-            action="boss", mode="卫戍", index=1, hidden=True
-        )
+        assert parse(f"{head} boss 1 {word}") == Command(action="boss", mode="卫戍", index=1)
 
 
 @pytest.mark.parametrize("body", ["boss -1", "boss 0", "boss a", "boss 101", "boss 1 攻略"])
@@ -67,38 +65,74 @@ def test_actual_prts_roster_and_variant_values():
     bosses = roster(html)
     assert tuple(b.name for b in bosses) == BOSS_ORDER
     assert [i for i, b in enumerate(bosses, 1) if b.hidden] == [1, 2, 3, 7, 8, 9]
-    normal = clean_excerpt(activity_excerpt(html, bosses[0], False)).get_text()
-    hidden = clean_excerpt(activity_excerpt(html, bosses[0], True)).get_text()
-    assert "3,940,000" in normal and "6,840,000" not in normal
-    assert "6,840,000" in hidden and "3,940,000" not in hidden
-    assert "283,680" in normal and "283,680" not in hidden
-    assert "规程等级20" in hidden and "规程等级1\n" not in hidden
-    assert "假想敌：铳" not in normal
-    for boss in bosses:
-        assert boss.name in clean_excerpt(activity_excerpt(html, boss, False)).get_text()
+    combined = clean_excerpt(activity_excerpt(html, bosses[0])).get_text()
+    assert "3,940,000" in combined and "6,840,000" in combined
+    assert "283,680" in combined
+    assert "规程等级20" in combined and "规程等级1" in combined
+    assert "假想敌：铳" not in combined
+
+
+@pytest.mark.parametrize("name", BOSS_ORDER)
+def test_six_column_tables_keep_each_source_value_with_its_mode(name):
+    html = fixture("boss_roster")
+    boss = next(b for b in roster(html) if b.name == name)
+    source = BeautifulSoup(html, "html.parser").find_all("table")
+    tables = clean_excerpt(activity_excerpt(html, boss)).select("table.boss-attributes")
+    assert len(tables) == 2
+    for original, output in zip(source, tables, strict=True):
+        original_rows = original.find_all("tr")
+        headers = original_rows[1].find_all(["th", "td"])
+        if len(headers) == 5:
+            row = next(row for row in original_rows[3:] if row.find("a", title=name))
+            source_values = [
+                (header.get_text(strip=True), value)
+                for header, value in zip(headers[1:], row.find_all("td")[1:], strict=True)
+            ]
+        else:
+            column = next(i for i, header in enumerate(headers) if header.find("a", title=name))
+            source_values = [
+                (row.find_all("td")[0].get_text(strip=True), row.find_all("td")[column])
+                for row in original_rows[3:]
+            ]
+        expected = []
+        for mode, value in source_values:
+            value = BeautifulSoup(str(value), "html.parser")
+            hidden = value.select('span[style*="#ff9a9a"]')
+            hidden_text = "".join(span.get_text(strip=True) for span in hidden) or "—"
+            for span in hidden:
+                span.decompose()
+            expected.append([mode, value.get_text(strip=True), hidden_text])
+        output_rows = output.find_all("tr")
+        assert [c.get_text(strip=True) for c in output_rows[1].find_all("th")] == [
+            "模式",
+            "普通",
+            "隐秘核心",
+        ] * 2
+        records = [[c.get_text(strip=True) for c in row.find_all("td")] for row in output_rows[3:]]
+        assert all(len(record) == 6 for record in records)
+        actual = [record[offset : offset + 3] for offset in (0, 3) for record in records]
+        assert [triple for triple in actual if triple[0]] == expected
 
 
 def test_source_default_corrections_and_selected_level_preserved():
     raw = fixture("boss_zhou")
-    overview, levels = enemy_excerpt(raw, False)
+    overview, levels = enemy_excerpt(raw)
     text = clean_excerpt(overview).get_text()
     assert "不会额外发射<刺胄之弹>" in text
-    assert "隐秘核心" not in text and "旧日的剑与锤" not in text
+    assert "隐秘核心" in text and "旧日的剑与锤" in text
     assert "因描述与游戏实际表现不符合" not in text
     assert "切换原文版本" not in text
-    hidden_overview, hidden_levels = enemy_excerpt(raw, True)
-    assert "旧日的剑与锤" in clean_excerpt(hidden_overview).get_text()
-    assert "1200000" in clean_excerpt(hidden_levels).get_text()
-    assert "1200000" not in clean_excerpt(levels).get_text()
+    assert "1200000" in clean_excerpt(levels).get_text()
+    assert "级别0(隐秘核心)" in clean_excerpt(levels).get_text()
     assert "最大生命值" in clean_excerpt(levels).get_text()
 
 
 def test_missing_hidden_detail_does_not_substitute_normal_stats():
-    overview, levels = enemy_excerpt(fixture("boss_xie"), True)
-    assert levels == ""
+    overview, levels = enemy_excerpt(fixture("boss_xie"))
+    assert "级别0" in clean_excerpt(levels).get_text()
+    assert "隐秘核心" not in clean_excerpt(levels).get_text()
     assert "衰颓与复兴" in clean_excerpt(overview).get_text()
     assert "洪流攻势" in clean_excerpt(overview).get_text()
-    assert enemy_excerpt(fixture("boss_xie"), False)[1]
 
 
 def test_source_html_controls_and_untrusted_markup_removed():
@@ -146,13 +180,16 @@ def test_boss_service_avoids_mcp_and_caches_source_without_mutation(tmp_path):
         hidden = await queries.execute(parse("#卫 boss 1 隐秘"), "user")
         assert "旧日的剑与锤" in hidden.fallback and "6,840,000" in hidden.fallback
         normal = await queries.execute(parse("#粥 卫 boss 1"), "user")
-        assert "旧日的剑与锤" not in normal.fallback and "3,940,000" in normal.fallback
+        assert "旧日的剑与锤" in normal.fallback and "3,940,000" in normal.fallback
+        assert normal == hidden
         assert "oldid=123" in normal.fallback and "CC BY-SA 3.0" in normal.fallback
         assert wiki.request.await_count == 2
         mcp.session.assert_not_called()
-        for text, match in [("#卫 boss 11", "1～10"), ("#卫 boss 4 隐秘", "没有列出")]:
-            with pytest.raises(ValueError, match=match):
-                await queries.execute(parse(text), "user")
+        with pytest.raises(ValueError, match="1～10"):
+            await queries.execute(parse("#卫 boss 11"), "user")
+        assert await queries.execute(parse("#卫 boss 4 隐秘"), "user") == await queries.execute(
+            parse("#卫 boss 4"), "user"
+        )
 
     run(scenario())
 
