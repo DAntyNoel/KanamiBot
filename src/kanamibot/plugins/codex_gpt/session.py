@@ -198,7 +198,23 @@ class ImageSessionStore:
     async def clear(self, session_id: str) -> None:
         async with self._lock:
             await self._ensure_loaded()
-            self._sessions.pop(session_id, None)
+            session = self._sessions.get(session_id)
+            if session is not None:
+                session["history"] = []
+            await self._save_locked()
+
+    async def get_model(self, session_id: str) -> str | None:
+        async with self._lock:
+            await self._ensure_loaded()
+            model = self._sessions.get(session_id, {}).get("model")
+            return model if isinstance(model, str) and model else None
+
+    async def set_model(self, session_id: str, model: str | None) -> None:
+        async with self._lock:
+            await self._ensure_loaded()
+            session = self._sessions.setdefault(session_id, {"history": []})
+            session["model"] = model
+            session["updated_at"] = time.time()
             await self._save_locked()
 
     @timed()

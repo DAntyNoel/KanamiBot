@@ -31,6 +31,23 @@ class ImageSessionStoreTest(unittest.IsolatedAsyncioTestCase):
             await reloaded.clear("private:2")
             self.assertEqual(await reloaded.build_prompt("private:2", "重新画"), "重新画")
 
+    async def test_model_persists_is_isolated_and_survives_context_clear(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "image_sessions.json"
+            store = ImageSessionStore(80, path)
+            await store.add_turn("private:2", "旧请求", "旧结果")
+            self.assertIsNone(await store.get_model("private:2"))
+            await store.set_model("private:2", "custom-image")
+            self.assertIsNone(await store.get_model("private:3"))
+            self.assertIn("旧请求", await store.build_prompt("private:2", "继续"))
+            reloaded = ImageSessionStore(80, path)
+            self.assertEqual(await reloaded.get_model("private:2"), "custom-image")
+            await reloaded.clear("private:2")
+            self.assertEqual(await reloaded.get_model("private:2"), "custom-image")
+            self.assertEqual(await reloaded.build_prompt("private:2", "新请求"), "新请求")
+            await reloaded.set_model("private:2", None)
+            self.assertIsNone(await ImageSessionStore(80, path).get_model("private:2"))
+
     async def test_zero_limit_disables_image_context(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             store = ImageSessionStore(0, Path(temp_dir) / "image_sessions.json")

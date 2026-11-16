@@ -163,7 +163,9 @@ async def handle_codex_image(bot: Bot, event: MessageEvent):
 
     if (not prompt and not input_images) or prompt.lower() in HELP_ALIASES:
         debug.log("image.command_help", session_id=session_id)
-        await codex_image.finish(_reply(event) + _image_help_text())
+        await codex_image.finish(
+            _reply(event) + _image_help_text(await image_store.get_model(session_id))
+        )
         return
 
     await _run_image(bot, event, session_id, prompt, input_images)
@@ -173,6 +175,12 @@ async def handle_codex_image(bot: Bot, event: MessageEvent):
 async def handle_codex_gpt(bot: Bot, event: MessageEvent):
     raw_text = _extract_payload(event)
     session_id = _session_id(event)
+    command, rest = _split_first(raw_text)
+    image_command, image_rest = _split_first(rest)
+    if command.lower() == "image" and image_command.lower() in {"model", "模型"}:
+        await _handle_image_model_command(bot, session_id, image_rest, event)
+        return
+
     input_images = await _download_event_images(event, session_id, bot)
     debug.log(
         "command.received",
@@ -345,6 +353,7 @@ async def _run_image(
         await codex_image.finish(_reply(event) + _not_configured_text())
         return
 
+    model = await image_store.get_model(session_id) or config.image_model
     status_message_id = None
     try:
         status_text = "图片编辑中..." if input_images else "图片生成中..."
@@ -364,6 +373,7 @@ async def _run_image(
             prompt=prompt,
             event=event,
             verify_hash_collision=True,
+            model=model,
         )
         if input_records:
             debug.log(
@@ -375,14 +385,12 @@ async def _run_image(
         debug.log(
             "image.start",
             session_id=session_id,
-            model=config.image_model,
+            model=model,
             prompt_chars=len(prompt),
             image_count=len(input_images),
             context_chars=max(0, len(request_prompt) - len(prompt)),
         )
-        image = await client.create_image(
-            prompt=request_prompt, model=config.image_model, images=input_images
-        )
+        image = await client.create_image(prompt=request_prompt, model=model, images=input_images)
 
         if status_message_id is not None:
             await _delete_message(bot, status_message_id)
@@ -392,7 +400,7 @@ async def _run_image(
             session_id=session_id,
             prompt=prompt,
             event=event,
-            model=config.image_model,
+            model=model,
             mime_type=image.mime_type,
             revised_prompt=image.revised_prompt,
             text=image.text,
@@ -408,7 +416,7 @@ async def _run_image(
         debug.log(
             "image.success",
             session_id=session_id,
-            model=config.image_model,
+            model=model,
             bytes=len(image.data),
             text_chars=len(image.text or ""),
             stored_file_id=output_record.get("file_id") if output_record else None,
@@ -422,7 +430,7 @@ async def _run_image(
         debug.log(
             "image.text_response",
             session_id=session_id,
-            model=config.image_model,
+            model=model,
             chars=len(text),
         )
         await _send_long_reply(event, text, bot=bot)
@@ -596,6 +604,36 @@ async def _handle_active_reply(bot: Bot, event: GroupMessageEvent) -> None:
             )
 
 
+async def _handle_image_model_command(
+    bot: Bot, session_id: str, rest: str, event: MessageEvent
+) -> None:
+    subcommand, value = _split_first(rest)
+    action = subcommand.lower()
+    if not rest or action in {"show", "current", "status", "当前"}:
+        model = await image_store.get_model(session_id) or config.image_model
+        await _send_model_list(event, command="#gpt image", prefix=f"当前图片模型：{model}\n")
+        return
+    if action in {"list", "ls", "models", "search", "find", "可用", "列表", "搜索"}:
+        await _send_model_list(event, value.strip(), command="#gpt image")
+        return
+    if not await SUPERUSER(bot, event):
+        await codex_gpt.finish(_reply(event) + "只有 superuser 可以切换图片模型。")
+        return
+    if action in {"default", "reset", "默认", "重置"}:
+        await image_store.set_model(session_id, None)
+        await codex_gpt.finish(_reply(event) + f"已恢复默认图片模型：{config.image_model}")
+        return
+    model_arg = value if action in {"use", "set", "select", "选择", "切换"} else rest
+    try:
+        model = await _resolve_model_arg(model_arg.strip())
+    except (CodexGPTError, httpx.HTTPError) as exc:
+        await codex_gpt.finish(_reply(event) + f"切换图片模型失败：{_safe_error(exc)}")
+        return
+    await image_store.set_model(session_id, model)
+    debug.log("image.model_changed", session_id=session_id, model=model)
+    await codex_gpt.finish(_reply(event) + f"当前图片会话模型已切换为：{model}")
+
+
 async def _handle_model_command(bot: Bot, session_id: str, rest: str, event: MessageEvent) -> None:
     debug.log("model.command", session_id=session_id, rest=rest)
     if not rest:
@@ -685,7 +723,9 @@ async def _handle_models_command(event: MessageEvent) -> None:
     await codex_gpt.finish(_reply(event) + "可用模型：\n" + "\n".join(visible) + suffix)
 
 
-async def _send_model_list(event: MessageEvent, keyword: str = "") -> None:
+async def _send_model_list(
+    event: MessageEvent, keyword: str = "", *, command: str = "#gpt", prefix: str = ""
+) -> None:
     try:
         all_models = await _get_models(refresh=True)
     except (CodexGPTError, httpx.HTTPError) as exc:
@@ -703,7 +743,7 @@ async def _send_model_list(event: MessageEvent, keyword: str = "") -> None:
         await codex_gpt.finish(_reply(event) + "没有匹配的模型。")
         return
 
-    visible = indexed_models[:60]
+    visible = indexed_models if command == "#gpt image" else indexed_models[:60]
     debug.log(
         "model.list_success",
         keyword=keyword,
@@ -719,10 +759,11 @@ async def _send_model_list(event: MessageEvent, keyword: str = "") -> None:
     )
     await codex_gpt.finish(
         _reply(event)
+        + prefix
         + "可用模型：\n"
         + "\n".join(lines)
         + suffix
-        + "\n\nsuperuser 可用：#gpt model use <编号|模型名>"
+        + f"\n\nsuperuser 可用：{command} model use <编号|模型名>"
     )
 
 
@@ -1268,6 +1309,7 @@ def _help_text() -> str:
         "#image clear：清空当前会话\n"
         "#gpt forget：忘记上一轮对话\n"
         "#gpt status：查看当前会话状态\n"
+        "#gpt image model：查看当前图片模型和全部可用模型\n"
         "#gpt model：查看当前模型和模型命令\n"
         "#gpt model list [关键词]：从 /v1/models 拉取可用模型\n"
         "#gpt model use <编号|模型名>：superuser 切换当前会话模型\n"
@@ -1278,15 +1320,19 @@ def _help_text() -> str:
     )
 
 
-def _image_help_text() -> str:
+def _image_help_text(model: str | None = None) -> str:
     return (
         "图片生成用法\n"
         "#image <描述>：生成图片\n"
         "#image <描述> + 图片：基于图片编辑/创作\n"
         "#image + 图片：默认基于图片内容创作\n"
         "#image clear：清空当前会话\n"
+        "#gpt image model：查看当前图片模型\n"
+        "#gpt image model list [关键词]：查看接口全部可用模型\n"
+        "#gpt image model use <编号|模型名>：superuser 切换当前图片会话模型\n"
+        "#gpt image model reset：superuser 恢复默认图片模型\n"
         "别名：#img\n"
-        f"当前图片模型：{config.image_model}"
+        f"当前图片模型：{model or config.image_model}"
     )
 
 

@@ -17,6 +17,10 @@
 - `#gpt model reset`：superuser 恢复默认模型
 - `#gpt models`：拉取可用模型列表
 - `#gpt system [设定]`：查看或设置当前会话 system prompt
+- `#gpt image model`：查看当前图片模型和接口全部可用模型
+- `#gpt image model list [关键词]`：查看或搜索接口全部可用模型
+- `#gpt image model use <编号|模型名>`：superuser 切换当前图片会话模型；也可直接用 `#gpt image model <编号|模型名>`
+- `#gpt image model reset`：superuser 恢复配置的默认图片模型
 - `#image <描述>`：生成图片
 - `#image <描述>` + 图片：基于图片编辑/创作
 - `#image` + 图片：默认基于图片内容创作
@@ -54,6 +58,8 @@ CODEX_GPT_IMAGE_MODEL=gpt-image-2
 - `CODEX_GPT_IMAGE_SIZE`：图片生成/编辑尺寸；不设置则不向图片接口传 `size`
 - `CODEX_GPT_DEBUG`：是否输出本地 debug 日志，默认 `0`
 - `CODEX_GPT_DEBUG_LOG`：debug 日志路径，默认 `data/codex_gpt/debug.log`
+
+图片模型切换沿用 `CODEX_GPT_SESSION_SCOPE` 的会话范围，立即生效并持久保存，不影响对话模型。`#image clear` 只清空图片上下文，保留模型选择。模型列表不按名称筛选，所选模型是否支持图片生成/编辑取决于接口能力。列表编号沿用完整模型列表，可用关键词过滤。
 
 文本会话保存在 `data/codex_gpt/sessions.json`，图片会话保存在 `data/codex_gpt/image_sessions.json`。`data/` 已加入 `.gitignore`，不会提交上下文。
 
