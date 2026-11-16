@@ -177,8 +177,13 @@ async def handle_codex_gpt(bot: Bot, event: MessageEvent):
     session_id = _session_id(event)
     command, rest = _split_first(raw_text)
     image_command, image_rest = _split_first(rest)
-    if command.lower() == "image" and image_command.lower() in {"model", "模型"}:
-        await _handle_image_model_command(bot, session_id, image_rest, event)
+    if command.lower() == "image":
+        if image_command.lower() in {"model", "模型"}:
+            await _handle_image_model_command(bot, session_id, image_rest, event)
+        else:
+            await codex_gpt.finish(
+                _reply(event) + _image_help_text(await image_store.get_model(session_id))
+            )
         return
 
     input_images = await _download_event_images(event, session_id, bot)

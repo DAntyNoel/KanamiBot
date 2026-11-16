@@ -17,6 +17,7 @@
 - `#gpt model reset`：superuser 恢复默认模型
 - `#gpt models`：拉取可用模型列表
 - `#gpt system [设定]`：查看或设置当前会话 system prompt
+- `#gpt image`：显示图片命令帮助；未识别的图片子命令也显示帮助，不进入对话
 - `#gpt image model`：查看当前图片模型和接口全部可用模型
 - `#gpt image model list [关键词]`：查看或搜索接口全部可用模型
 - `#gpt image model use <编号|模型名>`：superuser 切换当前图片会话模型；也可直接用 `#gpt image model <编号|模型名>`

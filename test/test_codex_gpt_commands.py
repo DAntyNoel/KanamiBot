@@ -33,6 +33,29 @@ class CodexGPTCommandTest(unittest.IsolatedAsyncioTestCase):
                 download_images.assert_not_awaited()
                 finish.assert_awaited_once_with("reply:已清空图片上下文。")
 
+    async def test_gpt_image_never_falls_through_to_chat(self) -> None:
+        for payload in ("image", "IMAGE", "image help", "image 画一只猫", "image unknown"):
+            with (
+                self.subTest(payload=payload),
+                patch.object(codex_gpt, "_extract_payload", return_value=payload),
+                patch.object(codex_gpt, "_session_id", return_value="private:2"),
+                patch.object(codex_gpt, "_reply", return_value=""),
+                patch.object(
+                    codex_gpt.image_store, "get_model", AsyncMock(return_value="custom-image")
+                ),
+                patch.object(codex_gpt, "_download_event_images", AsyncMock()) as download,
+                patch.object(codex_gpt, "_run_chat", AsyncMock()) as chat,
+                patch.object(codex_gpt, "_run_image", AsyncMock()) as generate,
+                patch.object(codex_gpt.codex_gpt, "finish", AsyncMock()) as finish,
+            ):
+                await codex_gpt.handle_codex_gpt(SimpleNamespace(), SimpleNamespace())
+                download.assert_not_awaited()
+                chat.assert_not_awaited()
+                generate.assert_not_awaited()
+                reply = finish.call_args.args[0]
+                self.assertIn("图片生成用法", reply)
+                self.assertIn("当前图片模型：custom-image", reply)
+
     async def test_image_model_routing_lists_all_models_without_downloading(self) -> None:
         event = SimpleNamespace(message_id=1, user_id=2)
         with tempfile.TemporaryDirectory() as temp_dir:
