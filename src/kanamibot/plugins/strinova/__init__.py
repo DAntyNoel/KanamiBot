@@ -17,8 +17,10 @@ from kanamibot.strinova.client import Settings
 from kanamibot.strinova.query import QueryError, parse_query
 from kanamibot.strinova.render import render_png
 from kanamibot.strinova.service import QUERY_TIMEOUT_SECONDS, check_available, create_report
+from kanamibot.strinova.update_monitor import query_client_versions
 
 USAGE = (
+    "#卡丘客户端（查询全部跟踪客户端的最新版本号）\n"
     "#卡丘战绩 {昵称或ID}（默认玩家概览）\n"
     "#卡丘战绩 {昵称或ID} 对局战绩\n"
     "#卡丘战绩 {昵称或ID} 2（最近战绩第 2 页）\n"
@@ -46,7 +48,7 @@ __plugin_meta__ = PluginMetadata(
     usage=USAGE,
 )
 COMMAND = re.compile(
-    r"^\s*#(?P<command>卡丘(?:资料|状态|生涯|战绩|赛季列表|赛季|名片))"
+    r"^\s*#(?P<command>卡丘(?:客户端|资料|状态|生涯|战绩|赛季列表|赛季|名片))"
     r"(?:\s+(?P<args>.*))?\s*$",
     re.IGNORECASE | re.DOTALL,
 )
@@ -66,6 +68,9 @@ query_gate = asyncio.Semaphore(2)
 async def handle_strinova(event: MessageEvent, matcher: Matcher, bot: Bot) -> None:
     match = COMMAND.fullmatch(event.message.extract_plain_text())
     if match is None:
+        return
+    if match.group("command") == "卡丘客户端":
+        await matcher.finish(await query_client_versions())
         return
     try:
         settings = Settings.from_env()

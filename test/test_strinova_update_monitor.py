@@ -14,6 +14,7 @@ from kanamibot.strinova.update_monitor import (
     OWNER_ID,
     check_update,
     parse_manifest,
+    query_client_versions,
 )
 
 
@@ -22,6 +23,31 @@ def manifest(version="1.18.1.8004", checksum="abc", depot="Game_TYF"):
         f"--last_version--\n{version}\n--download_version--\n"
         f"{version}->{version}|/{depot}/{version}/full_zip/a.7z|{checksum}|123\n"
     )
+
+
+@pytest.mark.parametrize("failed", [None, "Game_TYF", "Game_Release"])
+def test_query_live_versions_without_changing_baselines(tmp_path, monkeypatch, failed):
+    targets = tuple(replace(target, state_path=tmp_path / target.state_path.name)
+                    for target in MANIFEST_TARGETS)
+    monkeypatch.setattr("kanamibot.strinova.update_monitor.MANIFEST_TARGETS", targets)
+    for target in targets:
+        target.state_path.write_text("old baseline", encoding="utf-8")
+
+    def respond(request):
+        target = next(target for target in targets if target.url == str(request.url))
+        assert request.headers["Cache-Control"] == "no-cache"
+        if target.depot == failed:
+            return httpx.Response(500)
+        return httpx.Response(200, text=manifest("1.18.7.17", depot=target.depot))
+
+    result = asyncio.run(query_client_versions(transport=httpx.MockTransport(respond)))
+    assert result.splitlines() == [
+        f"{target.name}：" + ("查询失败，请稍后重试" if target.depot == failed else "1.18.7.17")
+        for target in targets
+    ]
+    assert "http" not in result
+    for target in targets:
+        assert target.state_path.read_text(encoding="utf-8") == "old baseline"
 
 
 @pytest.mark.parametrize("target", MANIFEST_TARGETS, ids=lambda target: target.depot)

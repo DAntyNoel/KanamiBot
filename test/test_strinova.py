@@ -1282,6 +1282,25 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
         gate.start()
         self.addCleanup(gate.stop)
 
+    async def test_client_versions_bypass_game_api_health(self):
+        from nonebot.adapters.onebot.v11 import Message
+        from nonebot.exception import FinishedException
+
+        matcher = SimpleNamespace(finish=AsyncMock(side_effect=FinishedException))
+        with (
+            patch.object(self.plugin, "check_available", AsyncMock()) as health,
+            patch.object(self.plugin, "query_client_versions", AsyncMock(
+                return_value="测试服：1.18.3.8014\n正式服客户端：1.18.7.17"
+            )) as versions,
+        ):
+            with self.assertRaises(FinishedException):
+                await self.plugin.handle_strinova(
+                    SimpleNamespace(message=Message("#卡丘客户端")), matcher, self.bot
+                )
+        versions.assert_awaited_once_with()
+        health.assert_not_awaited()
+        matcher.finish.assert_awaited_once_with("测试服：1.18.3.8014\n正式服客户端：1.18.7.17")
+
     async def test_manual_disable_is_preserved_and_healthy_handler_returns_png(self):
         self.assertFalse(self.plugin.ENABLED)
         self.assertFalse(hasattr(self.plugin, "strinova_matcher"))

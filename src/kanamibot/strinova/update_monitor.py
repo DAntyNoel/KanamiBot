@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import re
@@ -8,6 +9,7 @@ from pathlib import Path
 
 import httpx
 from nonebot.adapters.onebot.v11 import Bot, MessageSegment
+from nonebot.log import logger
 
 from kanamibot.core.paths import DATA_DIR
 from kanamibot.core.timing import timed
@@ -56,6 +58,29 @@ def save_state(path: Path, state: dict[str, str]) -> None:
     temporary.replace(path)
 
 
+async def fetch_manifest(client: httpx.AsyncClient, target: ManifestTarget) -> dict[str, str]:
+    response = await client.get(target.url, headers={"Cache-Control": "no-cache"})
+    response.raise_for_status()
+    return parse_manifest(response.text, depot=target.depot)
+
+
+async def query_client_versions(*, transport: httpx.AsyncBaseTransport | None = None) -> str:
+    # Read live manifests without advancing notification baselines.
+    async with httpx.AsyncClient(timeout=20, trust_env=False, transport=transport) as client:
+        results = await asyncio.gather(
+            *(fetch_manifest(client, target) for target in MANIFEST_TARGETS),
+            return_exceptions=True,
+        )
+    lines = []
+    for target, result in zip(MANIFEST_TARGETS, results, strict=True):
+        if isinstance(result, BaseException):
+            logger.warning("[strinova] {}版本查询失败：{}", target.name, type(result).__name__)
+            lines.append(f"{target.name}：查询失败，请稍后重试")
+        else:
+            lines.append(f"{target.name}：{result['version']}")
+    return "\n".join(lines)
+
+
 @timed()
 async def check_update(
     bot: Bot,
@@ -74,9 +99,7 @@ async def check_update(
         ):
             raise ValueError(f"{target.name}监测基线无效")
     async with httpx.AsyncClient(timeout=20, trust_env=False, transport=transport) as client:
-        response = await client.get(target.url, headers={"Cache-Control": "no-cache"})
-        response.raise_for_status()
-        current = parse_manifest(response.text, depot=target.depot)
+        current = await fetch_manifest(client, target)
     if previous is None:
         save_state(state_path, current)
         return
