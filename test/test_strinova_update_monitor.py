@@ -41,7 +41,9 @@ def test_query_live_versions_without_changing_baselines(tmp_path, monkeypatch, f
         return httpx.Response(200, text=manifest("1.18.7.17", depot=target.depot))
 
     result = asyncio.run(query_client_versions(transport=httpx.MockTransport(respond)))
-    assert result.splitlines() == [
+    assert [line for line in result.splitlines() if any(
+        line.startswith(f"{target.name}：") for target in targets
+    )] == [
         f"{target.name}：" + ("查询失败，请稍后重试" if target.depot == failed else "1.18.7.17")
         for target in targets
     ]
@@ -141,3 +143,68 @@ def test_fetch_failures_preserve_baseline(tmp_path, status, body, target):
         asyncio.run(check_update(bot, target=target, state_path=state_path, transport=transport))
     assert state_path.read_bytes() == original
     bot.send_group_msg.assert_not_called()
+
+
+@pytest.mark.parametrize("modified,expected", [
+    ("Tue, 10 Nov 2026 02:43:11 GMT", "2026-11-10 10:43:11"),
+    ("invalid", "未提供"),
+    ("", "未提供"),
+])
+def test_remote_time_and_read_only_query(tmp_path, monkeypatch, modified, expected):
+    target = replace(MANIFEST_TARGETS[0], state_path=tmp_path / "state.json")
+    monkeypatch.setattr("kanamibot.strinova.update_monitor.MANIFEST_TARGETS", (target,))
+    transport = httpx.MockTransport(lambda request: httpx.Response(
+        200, text=manifest(), headers={"Last-Modified": modified}
+    ))
+    bot = AsyncMock()
+    asyncio.run(check_update(bot, target=target, transport=transport))
+    history_path = target.state_path.with_suffix(".history.json")
+    original = history_path.read_bytes()
+    history = json.loads(original)
+    assert len(history) == 1
+    assert history[0]["first_seen_at"].endswith("+00:00")
+    result = asyncio.run(query_client_versions(transport=transport))
+    assert f"远端清单修改时间：{expected}" in result
+    assert "本地首次发现时间：尚无记录" not in result
+    assert "不等于官方发布时间" in result
+    assert history_path.read_bytes() == original
+    asyncio.run(check_update(bot, target=target, transport=transport))
+    assert history_path.read_bytes() == original
+    bot.send_group_msg.assert_not_called()
+
+
+def test_discovery_survives_delivery_failure_and_header_changes(tmp_path):
+    target = replace(MANIFEST_TARGETS[0], state_path=tmp_path / "state.json")
+    # Legacy baseline has no timestamps. Migration records now without notifying.
+    target.state_path.write_text(json.dumps(parse_manifest(manifest())))
+    body = manifest()
+    modified = "Tue, 10 Nov 2026 02:43:11 GMT"
+    transport = httpx.MockTransport(lambda request: httpx.Response(
+        200, text=body, headers={"Last-Modified": modified}
+    ))
+    bot = AsyncMock()
+
+    def poll():
+        asyncio.run(check_update(bot, target=target, transport=transport))
+
+    poll()
+    bot.send_group_msg.assert_not_called()
+    modified = "Wed, 11 Nov 2026 02:43:11 GMT"
+    poll()
+    bot.send_group_msg.assert_not_called()
+    body = manifest("1.18.1.8005")
+    baseline = target.state_path.read_bytes()
+    bot.send_group_msg.side_effect = RuntimeError("offline")
+    with pytest.raises(RuntimeError):
+        poll()
+    assert target.state_path.read_bytes() == baseline
+    history_path = target.state_path.with_suffix(".history.json")
+    history = history_path.read_bytes()
+    assert len(json.loads(history)) == 2
+    bot.send_group_msg.side_effect = None
+    poll()
+    assert history_path.read_bytes() == history
+    message = str(bot.send_group_msg.call_args.kwargs["message"])
+    assert "远端清单修改时间：2026-11-11 10:43:11" in message
+    assert "本地首次发现时间：" in message
+    assert json.loads(target.state_path.read_text())["version"] == "1.18.1.8005"
