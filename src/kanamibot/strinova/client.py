@@ -145,6 +145,14 @@ class StrinovaClient:
         await self.check_health()
         try:
             response = await self.http.get(path.lstrip("/"), params=params)
+            if response.status_code == 503:
+                try:
+                    payload = response.json()
+                except ValueError:
+                    payload = {}
+                detail = payload.get("data") if isinstance(payload, dict) else None
+                if isinstance(detail, dict) and detail.get("error_code") == "lobby_not_ready":
+                    raise APIError("游戏大厅尚未登录或正在重连，请进入大厅后重试。")
             response.raise_for_status()
         except httpx.TimeoutException as exc:
             raise APIError("API 请求超时，请稍后重试。") from exc

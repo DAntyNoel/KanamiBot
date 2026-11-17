@@ -14,12 +14,17 @@ from nonebot.plugin import PluginMetadata
 from kanamibot.core.group_manager import ModuleRule
 from kanamibot.core.timing import timed
 from kanamibot.strinova.client import Settings
+from kanamibot.strinova.leaderboards import COMMANDS as LEADERBOARD_COMMANDS
+from kanamibot.strinova.leaderboards import create_leaderboard
 from kanamibot.strinova.query import QueryError, parse_query
-from kanamibot.strinova.render import render_png
+from kanamibot.strinova.render import render_leaderboard_png, render_png
 from kanamibot.strinova.service import QUERY_TIMEOUT_SECONDS, check_available, create_report
 from kanamibot.strinova.update_monitor import query_client_versions
 
 USAGE = (
+    "#卡丘奇点（查询当前奇点分数线）\n"
+    "#卡丘排名 昵称（查询全区段位排名）\n"
+    "#卡丘角色榜 角色（查询全区角色战力前 10 名）\n"
     "#卡丘客户端（查询全部跟踪客户端的最新版本号）\n"
     "#卡丘战绩 {昵称或ID}（默认玩家概览）\n"
     "#卡丘战绩 {昵称或ID} 对局战绩\n"
@@ -48,7 +53,7 @@ __plugin_meta__ = PluginMetadata(
     usage=USAGE,
 )
 COMMAND = re.compile(
-    r"^\s*#(?P<command>卡丘(?:客户端|资料|状态|生涯|战绩|赛季列表|赛季|名片))"
+    r"^\s*#(?P<command>卡丘(?:奇点|排名|角色榜|客户端|资料|状态|生涯|战绩|赛季列表|赛季|名片))"
     r"(?:\s+(?P<args>.*))?\s*$",
     re.IGNORECASE | re.DOTALL,
 )
@@ -79,6 +84,9 @@ async def handle_strinova(event: MessageEvent, matcher: Matcher, bot: Bot) -> No
         await matcher.finish(str(exc))
     args = (match.group("args") or "").strip()
     command = match.group("command")
+    if command in LEADERBOARD_COMMANDS:
+        await handle_leaderboard(command, args, settings, matcher)
+        return
     view = COMMAND_VIEWS.get(command, "overview")
     if (not args and view != "seasons") or args in ("帮助", "help", "--help"):
         await matcher.finish(USAGE)
@@ -107,6 +115,41 @@ async def handle_strinova(event: MessageEvent, matcher: Matcher, bot: Bot) -> No
             logger.exception("[strinova] unexpected query or rendering failure")
             await matcher.finish("战绩查询或图片生成失败，请稍后重试。")
     await matcher.finish(MessageSegment.image(image))
+
+
+async def handle_leaderboard(command: str, args: str, settings: Settings, matcher: Matcher) -> None:
+    if query_gate.locked():
+        await matcher.finish("战绩查询正在忙，请稍后再试。")
+        return
+    async with query_gate:
+        try:
+            async with asyncio.timeout(QUERY_TIMEOUT_SECONDS):
+                report = await create_leaderboard(command, args, settings)
+                try:
+                    image = await render_leaderboard_png(report, settings)
+                except Exception:
+                    logger.exception("[strinova] leaderboard rendering failed")
+                    image = None
+        except QueryError as exc:
+            await matcher.finish(str(exc))
+            return
+        except TimeoutError:
+            await matcher.finish("排行榜查询已超过 2 分钟，请稍后重试。")
+            return
+        except Exception:
+            logger.exception("[strinova] leaderboard query failed")
+            await matcher.finish("排行榜查询失败，请稍后重试。")
+            return
+    if image is None:
+        await matcher.finish(report.text())
+        return
+    try:
+        await matcher.send(MessageSegment.image(image))
+    except Exception:
+        logger.exception("[strinova] leaderboard image delivery failed")
+        await matcher.finish(report.text())
+        return
+    await matcher.finish()
 
 
 if ENABLED:

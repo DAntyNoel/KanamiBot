@@ -1301,6 +1301,66 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
         health.assert_not_awaited()
         matcher.finish.assert_awaited_once_with("测试服：1.18.3.8014\n正式服客户端：1.18.7.17")
 
+    async def test_leaderboard_commands_route_without_entering_player_reports(self):
+        from nonebot.adapters.onebot.v11 import Message
+        from nonebot.exception import FinishedException
+
+        from kanamibot.strinova.leaderboards import LeaderboardReport
+
+        report = LeaderboardReport("测试榜单", "当前赛季")
+        for text, command, args in (
+            ("#卡丘奇点", "卡丘奇点", ""),
+            ("#卡丘排名 玩家 2", "卡丘排名", "玩家 2"),
+            ("#卡丘角色榜 香奈美", "卡丘角色榜", "香奈美"),
+        ):
+            matcher = SimpleNamespace(send=AsyncMock(), finish=AsyncMock(
+                side_effect=FinishedException
+            ))
+            with (
+                self.subTest(text=text),
+                patch.object(self.plugin, "check_available", AsyncMock()),
+                patch.object(self.plugin, "create_report", AsyncMock()) as ordinary,
+                patch.object(self.plugin, "create_leaderboard", AsyncMock(
+                    return_value=report
+                )) as create,
+                patch.object(self.plugin, "render_leaderboard_png", AsyncMock(
+                    return_value=b"png"
+                )),
+            ):
+                with self.assertRaises(FinishedException):
+                    await self.plugin.handle_strinova(
+                        SimpleNamespace(message=Message(text)), matcher, self.bot
+                    )
+            self.assertEqual(create.call_args.args[:2], (command, args))
+            ordinary.assert_not_awaited()
+            self.assertEqual(matcher.send.call_args.args[0].type, "image")
+            matcher.finish.assert_awaited_once_with()
+
+    async def test_leaderboard_image_failures_fall_back_to_full_text(self):
+        from nonebot.exception import FinishedException
+
+        from kanamibot.strinova.leaderboards import LeaderboardReport
+
+        report = LeaderboardReport("测试榜单", "当前赛季", facts=[("积分", "250 分")])
+        for rendering_failure in (True, False):
+            matcher = SimpleNamespace(
+                send=AsyncMock(side_effect=RuntimeError("发送失败")),
+                finish=AsyncMock(side_effect=FinishedException),
+            )
+            render = AsyncMock(
+                side_effect=RuntimeError("渲染失败") if rendering_failure else None,
+                return_value=b"png",
+            )
+            with (
+                patch.object(self.plugin, "create_leaderboard", AsyncMock(return_value=report)),
+                patch.object(self.plugin, "render_leaderboard_png", render),
+                patch.object(self.plugin.logger, "exception"),
+            ):
+                with self.assertRaises(FinishedException):
+                    await self.plugin.handle_leaderboard("卡丘奇点", "", Settings(), matcher)
+            matcher.finish.assert_awaited_once_with(report.text())
+            self.assertEqual(self.plugin.query_gate._value, 2)
+
     async def test_manual_disable_is_preserved_and_healthy_handler_returns_png(self):
         self.assertFalse(self.plugin.ENABLED)
         self.assertFalse(hasattr(self.plugin, "strinova_matcher"))

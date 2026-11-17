@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8">
+<style>
+* { box-sizing: border-box; }
+body { margin: 0; background: #edf0f3; color: #202831; font-family: "Microsoft YaHei", sans-serif; }
+#report { width: 840px; padding: 32px; border-top: 7px solid #d74654; }
+header { background: #222d39; color: white; padding: 24px; }
+.brand { color: #f5a2aa; font-size: 12px; letter-spacing: 3px; }
+h1 { margin: 10px 0; font-size: 29px; overflow-wrap: anywhere; }
+.subtitle { color: #c4cdd6; font-size: 14px; }
+.facts { display: flex; gap: 16px; margin-top: 18px; }
+.fact { flex: 1; background: white; padding: 24px; }
+.label { color: #64707d; font-size: 14px; }
+.value { font-size: 30px; color: #c83c4c; margin-top: 12px; overflow-wrap: anywhere; }
+table { width: 100%; border-collapse: collapse; margin-top: 18px; background: white; table-layout: fixed; }
+th { background: #dce2e8; text-align: left; font-size: 13px; color: #53606d; }
+td, th { padding: 15px 16px; }
+td { border-bottom: 1px solid #edf0f3; font-size: 15px; overflow-wrap: anywhere; }
+th:first-child { width: 78px; } th:nth-child(2) { width: 300px; }
+th:nth-child(3) { width: 185px; }
+.position { color: #c83c4c; font-weight: bold; }
+footer { margin-top: 22px; font-size: 13px; color: #63707d; line-height: 1.8; }
+</style>
+<div id="report">
+<header><div class="brand">STRINOVA · 卡拉彼丘</div><h1>{{ report.title }}</h1>
+<div class="subtitle">{{ report.subtitle }}</div></header>
+{% if report.facts %}<div class="facts">{% for label, value in report.facts %}
+<div class="fact"><div class="label">{{ label }}</div><div class="value">{{ value }}</div></div>
+{% endfor %}</div>{% endif %}
+{% if report.rows %}<table><thead><tr><th>名次</th><th>引航者</th><th>积分 / 战力</th><th>段位 / 胜场</th></tr></thead>
+<tbody>{% for row in report.rows %}<tr><td class="position">{{ row.position }}</td><td>{{ row.nick }}</td>
+<td>{{ row.score }}</td><td>{{ row.detail }}</td></tr>{% endfor %}</tbody></table>{% endif %}
+<footer>{{ report.note }}<br>查询时间：{{ report.fetched_at }}（北京时间）</footer>
+</div></html>

@@ -10,6 +10,7 @@ from typing import Any
 from kanamibot.core.timing import timed
 
 from .client import Settings
+from .leaderboards import LeaderboardReport
 from .query import GAME_MODE_NAMES, SEASON_LABEL, QueryError
 from .resources import PLUGIN_DIR, resource_pack
 from .service import Report
@@ -756,3 +757,11 @@ def _render_in_thread(html: str, settings: Settings) -> bytes:
 @timed()
 async def render_png(report: Report, settings: Settings) -> bytes:
     return await asyncio.to_thread(_render_in_thread, render_html(report), settings)
+
+
+async def render_leaderboard_png(report: LeaderboardReport, settings: Settings) -> bytes:
+    from jinja2 import Environment, FileSystemLoader, select_autoescape
+
+    env = Environment(loader=FileSystemLoader(TEMPLATE_DIR), autoescape=select_autoescape(["html"]))
+    html = env.get_template("leaderboard.html").render(report=report)
+    return await asyncio.to_thread(_render_in_thread, html, settings)
