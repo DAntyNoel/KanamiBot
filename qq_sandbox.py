@@ -57,13 +57,15 @@ def create_app(
         }],
     )
     nonebot.get_driver().register_adapter(QQAdapter)
-    for plugin in ("kanamibot.plugins.ping", "kanamibot.qqbot.permissions"):
+    for plugin in (
+        "kanamibot.plugins.ping", "kanamibot.qqbot.permissions", "kanamibot.qqbot.image",
+    ):
         if nonebot.load_plugin(plugin) is None:
             raise RuntimeError(f"无法加载插件：{plugin}")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="QQ 官方机器人独立沙箱（ping/pong 和群权限提醒）")
+    parser = argparse.ArgumentParser(description="QQ 官方机器人入口（连接、群权限和图片收发测试）")
     parser.add_argument("--credentials", type=Path, default=DEFAULT_CREDENTIALS)
     parser.add_argument("--port", type=int, default=12710)
     parser.add_argument("--webhook", action="store_true", help="改用已配置公网回调的 Webhook")
