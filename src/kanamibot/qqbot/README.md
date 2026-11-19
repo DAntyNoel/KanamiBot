@@ -1,5 +1,29 @@
 # 官方 QQBot 图库接入
 
+## 独立 worktree 运行
+
+主目录 `D:\DAntyNoel\kanami.top\KanamiBot` 保持 `dev`，
+`feature/qqbot` 位于旁边的 `KanamiBot-qqbot` worktree。
+这是独立的 NoneBot + 官方 QQ 适配器实例，不是新的 NapCat/OneBot 登录端。
+
+在 feature worktree 中运行 `powershell -File scripts/start-qqbot.ps1`，
+默认正式环境、仅监听 `127.0.0.1:12766`；测试沙箱追加 `-Sandbox`。
+复用主目录 Python 依赖环境，不修改或重装该环境；进程的 `PYTHONPATH`
+强制指向 feature 的 `src`，避免 editable 安装误加载 `dev` 的插件。
+启动脚本不停止已有进程，端口占用会直接报错。日志保留在 feature 的 `logs/`。
+同一个官方机器人不能让旧入口和新入口重复连接，应先确认并停止旧 QQBot 实例；
+不要停止主目录的 OneBot Bot 或旧仓库服务。
+
+本机使用 Windows Junction（不复制内容）：
+
+- `KanamiBot-qqbot/data` → `KanamiBot/data`，共享图库及运行数据。
+- `KanamiBot-qqbot/assets` → `KanamiBot/files`，复用当前实际素材目录；
+  主仓库目前没有独立的 `assets` 目录。
+
+链接仅用于本机，不提交；克隆到其他机器后需重新创建对应目录链接。
+主目录 `dev` 尚未加载 feature 的图库锁，因此保持 QQBot 图库写入关闭，
+不应为测试图片发送而开启 `enable_writes`。图片发送和公开图库读取不受影响。
+
 `qq_sandbox.py` 与 `bot.py` 加载同一个 `plugins/image` 插件，共享
 `data/advanced_media`，不复制图库。文件夹别名、哈希去重、可见性、预览编号、
 负数索引、标签模糊检索和管理员权限使用同一套处理逻辑。

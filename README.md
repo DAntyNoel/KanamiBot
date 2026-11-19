@@ -20,7 +20,7 @@
 .venv\Scripts\python.exe qq_sandbox.py
 ```
 
-默认通过 WebSocket 接收消息，本地监听 `127.0.0.1:12710`，无需公网入站端口。
+默认通过 WebSocket 接收消息，本地监听 `127.0.0.1:12766`，无需公网入站端口。
 默认连接沙箱网关；通过手机 QQ 实际邀请机器人进群、使用正式环境内部体验账号时，
 请启动 `.venv\Scripts\python.exe qq_sandbox.py --production`，连接官方正式 API 和网关。
 两个网关的事件投递范围不同，沙箱私聊正常并不证明实际群聊事件会投递到沙箱。

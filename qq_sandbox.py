@@ -32,7 +32,7 @@ def read_credentials(path: Path) -> tuple[str, str]:
 
 def create_app(
     credentials: Path,
-    port: int = 12710,
+    port: int = 12766,
     websocket: bool = True,
     *,
     production: bool = False,
@@ -68,7 +68,7 @@ def create_app(
 def main() -> None:
     parser = argparse.ArgumentParser(description="QQ 官方机器人入口（连接、群权限和图片收发测试）")
     parser.add_argument("--credentials", type=Path, default=DEFAULT_CREDENTIALS)
-    parser.add_argument("--port", type=int, default=12710)
+    parser.add_argument("--port", type=int, default=12766)
     parser.add_argument("--webhook", action="store_true", help="改用已配置公网回调的 Webhook")
     parser.add_argument("--production", action="store_true", help="接收实际邀请群的正式环境事件")
     args = parser.parse_args()

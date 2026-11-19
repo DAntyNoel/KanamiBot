@@ -56,6 +56,7 @@ def test_official_qq_routes_without_onebot_plugins(tmp_path, production):
         production = sys.argv[2] == "True"
         create_app(Path(sys.argv[1]), production=production)
         driver = nonebot.get_driver()
+        assert driver.config.port == 12766
         adapter = driver._adapters["QQ"]
         expected_base = (
             "https://api.bot.qq.com/" if production else "https://sandbox.api.sgroup.qq.com/"

@@ -6,6 +6,7 @@ files/napcat_runtime/
 files/erbs-assets/
 logs/
 data/
+/assets/
 vendor/NapCatQQ/
 vendor/NapCat.Shell
 vendor/NapCat.Shell/
