@@ -8,14 +8,14 @@ from dataclasses import dataclass
 from typing import Any
 
 from nonebot import get_driver, on_regex
-from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, MessageEvent, MessageSegment
+from nonebot.adapters import Bot, Event
 from nonebot.exception import FinishedException
 from nonebot.internal.matcher import Matcher
 from nonebot.log import logger
 from nonebot.plugin import PluginMetadata
 
-from kanamibot.core import ModuleRule
-from kanamibot.core.paths import DEFAULT_FONT_PATH, FILES_DIR
+from kanamibot.core import query_transport as transport
+from kanamibot.core.paths import DEFAULT_FONT_PATH, FILES_DIR, PROJECT_ROOT
 from kanamibot.core.timing import timed, timing_span
 
 from .parser import (
@@ -27,7 +27,11 @@ from .parser import (
     parse_match_args,
 )
 from .progress import SummaryProgressReporter
-from .store import get_binding, remove_binding, set_binding
+
+if transport.official_only():
+    from kanamibot.qqbot.query_bindings import get_binding, remove_binding, set_binding
+else:
+    from .store import get_binding, remove_binding, set_binding
 
 MODULE_NAME = "er_dak"
 HELP_TEXT = """永恒轮回查询
@@ -83,7 +87,8 @@ try:
 except ImportError as exc:
     logger.warning(f"[er_dak] ERBS-plugin submodule/dependency unavailable; plugin disabled: {exc}")
 else:
-    from . import pet_jobs
+    if not transport.official_only():
+        from . import pet_jobs
     from .match_detail import MatchDetailRenderer, detail_card
 
     _user_cooldowns: dict[int, float] = {}
@@ -106,7 +111,10 @@ else:
         async with _runtime_lock:
             if _runtime is None:
                 config = ERBSConfig(
-                    asset_directory=FILES_DIR / "erbs-assets",
+                    asset_directory=(
+                        PROJECT_ROOT / "assets" if transport.official_only()
+                        and (PROJECT_ROOT / "assets").is_dir() else FILES_DIR
+                    ) / "erbs-assets",
                     render_font_path=DEFAULT_FONT_PATH if DEFAULT_FONT_PATH.is_file() else None,
                 )
                 client = AsyncERBSClient(config)
@@ -115,7 +123,8 @@ else:
 
     async def _shutdown_runtime() -> None:
         global _runtime
-        await pet_jobs.shutdown()
+        if not transport.official_only():
+            await pet_jobs.shutdown()
         if _runtime is None:
             return
         await _runtime.renderer.close()
@@ -127,33 +136,33 @@ else:
     er_matcher = on_regex(
         COMMAND_PATTERN,
         flags=re.IGNORECASE,
-        rule=ModuleRule(MODULE_NAME),
+        rule=transport.module_rule(MODULE_NAME),
         priority=5,
         block=True,
     )
 
-    def _check_cooldown(event: MessageEvent) -> str | None:
+    def _check_cooldown(event: Event) -> str | None:
         now = time.monotonic()
-        user_wait = 5 - (now - _user_cooldowns.get(event.user_id, 0))
+        user_wait = 5 - (now - _user_cooldowns.get(transport.user_id(event), 0))
         if user_wait > 0:
             return f"查询冷却中，请 {user_wait:.1f} 秒后再试。"
-        if isinstance(event, GroupMessageEvent):
-            group_wait = 2 - (now - _group_cooldowns.get(event.group_id, 0))
+        if transport.group_id(event) is not None:
+            group_wait = 2 - (now - _group_cooldowns.get(transport.group_id(event), 0))
             if group_wait > 0:
                 return f"本群查询冷却中，请 {group_wait:.1f} 秒后再试。"
-            _group_cooldowns[event.group_id] = now
-        _user_cooldowns[event.user_id] = now
+            _group_cooldowns[transport.group_id(event)] = now
+        _user_cooldowns[transport.user_id(event)] = now
         return None
 
-    def _nickname(event: MessageEvent, explicit: str | None) -> str:
-        nickname = explicit or get_binding(event.user_id)
+    def _nickname(event: Event, explicit: str | None) -> str:
+        nickname = explicit or get_binding(transport.user_id(event))
         if not nickname:
             raise InvalidQuery("请提供昵称，或先使用 #BS 绑定 <昵称>。")
         return nickname
 
     @timed()
     async def _card_for(
-        service: ERBSService, event: MessageEvent, command: ParsedCommand, *, progress=None,
+        service: ERBSService, event: Event, command: ParsedCommand, *, progress=None,
     ) -> Any:
         action, args = command.action, command.args
         if action == "summary":
@@ -228,7 +237,7 @@ else:
             explicit, count = parse_match_args(args)
             return await service.matches_card(_nickname(event, explicit), count=count)
         if action == "多查":
-            binding = get_binding(event.user_id)
+            binding = get_binding(transport.user_id(event))
             names = list(args) or ([binding] if binding else [])
             return await service.multi_card([name for name in names if name])
         if action == "对比":
@@ -252,7 +261,8 @@ else:
         raise InvalidQuery("未知子命令，请使用 #BS 帮助。")
 
     @er_matcher.handle()
-    async def handle_er(bot: Bot, event: MessageEvent, matcher: Matcher) -> None:
+    @transport.reply_deadline
+    async def handle_er(bot: Bot, event: Event, matcher: Matcher) -> None:
         try:
             command = parse_command(event.get_plaintext())
         except ValueError as exc:
@@ -267,11 +277,13 @@ else:
         if command.action == "绑定":
             if len(command.args) != 1:
                 await matcher.finish("用法：#BS 绑定 <DAK.GG 昵称>")
-            set_binding(event.user_id, command.args[0])
+            set_binding(transport.user_id(event), command.args[0])
             await matcher.finish(f"已绑定永恒轮回昵称：{command.args[0]}")
         if command.action == "解绑":
-            removed = remove_binding(event.user_id)
+            removed = remove_binding(transport.user_id(event))
             await matcher.finish("已解绑。" if removed else "当前没有绑定昵称。")
+        if command.action == "群宠" and transport.is_qq(event):
+            await matcher.finish("官方QQBot暂未接入群宠订阅推送；其他永恒轮回查询可正常使用。")
         cooldown = _check_cooldown(event)
         if cooldown:
             await matcher.finish(cooldown)
@@ -291,8 +303,7 @@ else:
                     image = await renderer.render(card)
                 finally:
                     await renderer.close()
-                await matcher.finish(MessageSegment.reply(event.message_id)
-                                     + MessageSegment.image(image))
+                await matcher.finish(transport.image(event, image, reply=True))
             card = await _card_for(
                 runtime.service, event, command, progress=SummaryProgressReporter(matcher.send),
             )
@@ -322,4 +333,4 @@ else:
         except Exception:
             logger.exception("[er_dak] unexpected command failure")
             await matcher.finish("永恒轮回查询暂时失败，请稍后再试。")
-        await matcher.finish(MessageSegment.reply(event.message_id) + MessageSegment.image(image))
+        await matcher.finish(transport.image(event, image, reply=True))

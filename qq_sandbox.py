@@ -44,6 +44,7 @@ def create_app(
         host="127.0.0.1",
         port=port,
         log_level="INFO",
+        qq_query_only=True,
         command_start={"", "/", "#"},
         qq_api_base=(
             "https://api.bot.qq.com/" if production else "https://sandbox.api.sgroup.qq.com/"
@@ -60,6 +61,7 @@ def create_app(
     for plugin in (
         "kanamibot.plugins.ping", "kanamibot.qqbot.permissions",
         "kanamibot.qqbot.image_transport", "kanamibot.plugins.image",
+        "kanamibot.plugins.strinova", "kanamibot.plugins.er_dak",
     ):
         if nonebot.load_plugin(plugin) is None:
             raise RuntimeError(f"无法加载插件：{plugin}")

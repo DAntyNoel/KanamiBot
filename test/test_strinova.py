@@ -1267,6 +1267,11 @@ class RenderingTests(unittest.TestCase):
         self.assertNotIn('src="http', html)
 
 
+class _MessageEvent(SimpleNamespace):
+    def get_plaintext(self):
+        return self.message.extract_plain_text()
+
+
 class PluginTests(unittest.IsolatedAsyncioTestCase):
     @classmethod
     def setUpClass(cls):
@@ -1295,7 +1300,7 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
         ):
             with self.assertRaises(FinishedException):
                 await self.plugin.handle_strinova(
-                    SimpleNamespace(message=Message("#卡丘客户端")), matcher, self.bot
+                    _MessageEvent(message=Message("#卡丘客户端")), matcher, self.bot
                 )
         versions.assert_awaited_once_with()
         health.assert_not_awaited()
@@ -1329,7 +1334,7 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
             ):
                 with self.assertRaises(FinishedException):
                     await self.plugin.handle_strinova(
-                        SimpleNamespace(message=Message(text)), matcher, self.bot
+                        _MessageEvent(message=Message(text)), matcher, self.bot
                     )
             self.assertEqual(create.call_args.args[:2], (command, args))
             ordinary.assert_not_awaited()
@@ -1386,7 +1391,7 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
         ):
             with self.assertRaises(Finished):
                 await self.plugin.handle_strinova(
-                    SimpleNamespace(message=Message("#卡丘战绩 测试玩家")), matcher, self.bot
+                    _MessageEvent(message=Message("#卡丘战绩 测试玩家")), matcher, self.bot
                 )
         self.assertEqual(matcher.result.type, "image")
         self.assertTrue(matcher.result.data["file"].startswith("base64://"))
@@ -1421,7 +1426,7 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
             ):
                 with self.assertRaises(Finished):
                     await self.plugin.handle_strinova(
-                        SimpleNamespace(message=Message(command)), matcher, self.bot
+                        _MessageEvent(message=Message(command)), matcher, self.bot
                     )
                 self.assertIn("全部查询功能已暂停", matcher.finish.call_args.args[0])
                 matcher.send.assert_not_awaited()
@@ -1453,7 +1458,7 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
             ):
                 self.assertIsNone(self.plugin.COMMAND.fullmatch(command))
                 await self.plugin.handle_strinova(
-                    SimpleNamespace(message=Message(command)), matcher, self.bot
+                    _MessageEvent(message=Message(command)), matcher, self.bot
                 )
                 health.assert_not_awaited()
                 create.assert_not_awaited()
@@ -1486,7 +1491,7 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
             ):
                 with self.assertRaises(Finished):
                     await self.plugin.handle_strinova(
-                        SimpleNamespace(message=Message(command)), matcher, self.bot
+                        _MessageEvent(message=Message(command)), matcher, self.bot
                     )
                 matcher.send.assert_not_awaited()
                 create.assert_not_awaited()
@@ -1530,7 +1535,7 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
             ):
                 with self.assertRaises(Finished):
                     await self.plugin.handle_strinova(
-                        SimpleNamespace(message=Message(command)), matcher, self.bot
+                        _MessageEvent(message=Message(command)), matcher, self.bot
                     )
             actual = create.call_args.args[0]
             self.assertEqual((actual.view, actual.target), (view, target))
@@ -1563,7 +1568,7 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
             ):
                 with self.assertRaises(Finished):
                     await self.plugin.handle_strinova(
-                        SimpleNamespace(message=Message(command)), matcher, self.bot
+                        _MessageEvent(message=Message(command)), matcher, self.bot
                     )
                 self.assertEqual(create.call_args.args[0].target, "测试玩家")
                 self.assertEqual(create.call_args.args[0].view, view)
@@ -1592,7 +1597,7 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
             ):
                 with self.assertRaises(Finished):
                     await self.plugin.handle_strinova(
-                        SimpleNamespace(message=Message(command)), matcher, self.bot
+                        _MessageEvent(message=Message(command)), matcher, self.bot
                     )
                 query = create.call_args.args[0]
                 self.assertEqual(query.target, "测试玩家")
@@ -1630,7 +1635,7 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
             ):
                 with self.assertRaises(Finished):
                     await self.plugin.handle_strinova(
-                        SimpleNamespace(message=Message("#卡丘战绩 测试玩家")), matcher, self.bot
+                        _MessageEvent(message=Message("#卡丘战绩 测试玩家")), matcher, self.bot
                     )
                 self.assertIn(expected, matcher.finish.call_args.args[0])
                 self.assertNotIn("private error", matcher.finish.call_args.args[0])
@@ -1672,7 +1677,7 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
             ):
                 with self.assertRaises(Finished):
                     await self.plugin.handle_strinova(
-                        SimpleNamespace(message=Message("#卡丘战绩 测试玩家")), matcher, self.bot
+                        _MessageEvent(message=Message("#卡丘战绩 测试玩家")), matcher, self.bot
                     )
                 self.assertTrue(cancelled.is_set())
                 self.assertIn("超过 2 分钟", matcher.finish.call_args.args[0])
@@ -1698,7 +1703,7 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
         ):
             task = asyncio.create_task(
                 self.plugin.handle_strinova(
-                    SimpleNamespace(message=Message("#卡丘战绩 测试玩家")), matcher, self.bot
+                    _MessageEvent(message=Message("#卡丘战绩 测试玩家")), matcher, self.bot
                 )
             )
             await asyncio.wait_for(started.wait(), timeout=1)

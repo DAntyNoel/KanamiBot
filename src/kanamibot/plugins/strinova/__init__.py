@@ -6,12 +6,12 @@ import re
 from datetime import UTC, datetime
 
 from nonebot import get_bot, on_regex, require
-from nonebot.adapters.onebot.v11 import Bot, MessageEvent, MessageSegment
+from nonebot.adapters import Bot, Event
 from nonebot.internal.matcher import Matcher
 from nonebot.log import logger
 from nonebot.plugin import PluginMetadata
 
-from kanamibot.core.group_manager import ModuleRule
+from kanamibot.core import query_transport as transport
 from kanamibot.core.timing import timed
 from kanamibot.strinova.client import Settings
 from kanamibot.strinova.leaderboards import COMMANDS as LEADERBOARD_COMMANDS
@@ -70,8 +70,8 @@ query_gate = asyncio.Semaphore(2)
 
 
 @timed()
-async def handle_strinova(event: MessageEvent, matcher: Matcher, bot: Bot) -> None:
-    match = COMMAND.fullmatch(event.message.extract_plain_text())
+async def handle_strinova(event: Event, matcher: Matcher, bot: Bot) -> None:
+    match = COMMAND.fullmatch(event.get_plaintext())
     if match is None:
         return
     if match.group("command") == "卡丘客户端":
@@ -85,7 +85,7 @@ async def handle_strinova(event: MessageEvent, matcher: Matcher, bot: Bot) -> No
     args = (match.group("args") or "").strip()
     command = match.group("command")
     if command in LEADERBOARD_COMMANDS:
-        await handle_leaderboard(command, args, settings, matcher)
+        await handle_leaderboard(command, args, settings, matcher, event)
         return
     view = COMMAND_VIEWS.get(command, "overview")
     if (not args and view != "seasons") or args in ("帮助", "help", "--help"):
@@ -114,10 +114,12 @@ async def handle_strinova(event: MessageEvent, matcher: Matcher, bot: Bot) -> No
         except Exception:
             logger.exception("[strinova] unexpected query or rendering failure")
             await matcher.finish("战绩查询或图片生成失败，请稍后重试。")
-    await matcher.finish(MessageSegment.image(image))
+    await matcher.finish(transport.image(event, image))
 
 
-async def handle_leaderboard(command: str, args: str, settings: Settings, matcher: Matcher) -> None:
+async def handle_leaderboard(
+    command: str, args: str, settings: Settings, matcher: Matcher, event: Event | None = None,
+) -> None:
     if query_gate.locked():
         await matcher.finish("战绩查询正在忙，请稍后再试。")
         return
@@ -144,7 +146,7 @@ async def handle_leaderboard(command: str, args: str, settings: Settings, matche
         await matcher.finish(report.text())
         return
     try:
-        await matcher.send(MessageSegment.image(image))
+        await matcher.send(transport.image(event, image))
     except Exception:
         logger.exception("[strinova] leaderboard image delivery failed")
         await matcher.finish(report.text())
@@ -153,46 +155,48 @@ async def handle_leaderboard(command: str, args: str, settings: Settings, matche
 
 
 if ENABLED:
-    require("nonebot_plugin_apscheduler")
-    from nonebot_plugin_apscheduler import scheduler
+    if not transport.official_only():
+        require("nonebot_plugin_apscheduler")
+        from nonebot_plugin_apscheduler import scheduler
 
-    from kanamibot.strinova.update_monitor import MANIFEST_TARGETS, check_update
+        from kanamibot.strinova.update_monitor import MANIFEST_TARGETS, check_update
 
-    if os.getenv("STRINOVA_RESOURCE_AUTO_UPDATE", "true").lower() in ("1", "true", "yes", "on"):
-        from kanamibot.strinova.resource_auto_update import check_resource_update
+        if os.getenv("STRINOVA_RESOURCE_AUTO_UPDATE", "true").lower() in ("1", "true", "yes", "on"):
+            from kanamibot.strinova.resource_auto_update import check_resource_update
+
+            @scheduler.scheduled_job(
+                "interval", hours=3, id="strinova_resource_update", max_instances=1,
+                coalesce=True, next_run_time=datetime.now(UTC),
+            )
+            async def update_resources() -> None:
+                try:
+                    result = await asyncio.to_thread(check_resource_update)
+                    if result is not None:
+                        logger.info(
+                            "[strinova] 资源已合并：HTTP {}，游戏 {}，提交 {}，变更 {} 个文件",
+                            result["tag"], result["game_version"], result["commit"][:12],
+                            result["changed_files"],
+                        )
+                except Exception:
+                    logger.exception("[strinova] 资源自动更新失败，保留当前资源，3 小时后重试")
 
         @scheduler.scheduled_job(
-            "interval", hours=3, id="strinova_resource_update", max_instances=1,
-            coalesce=True, next_run_time=datetime.now(UTC),
+            "interval", minutes=1, id="strinova_tyf_update", max_instances=1, coalesce=True
         )
-        async def update_resources() -> None:
+        @timed()
+        async def check_tyf_update() -> None:
             try:
-                result = await asyncio.to_thread(check_resource_update)
-                if result is not None:
-                    logger.info(
-                        "[strinova] 资源已合并：HTTP {}，游戏 {}，提交 {}，变更 {} 个文件",
-                        result["tag"], result["game_version"], result["commit"][:12],
-                        result["changed_files"],
-                    )
-            except Exception:
-                logger.exception("[strinova] 资源自动更新失败，保留当前资源，3 小时后重试")
-
-    @scheduler.scheduled_job(
-        "interval", minutes=1, id="strinova_tyf_update", max_instances=1, coalesce=True
-    )
-    @timed()
-    async def check_tyf_update() -> None:
-        try:
-            bot = get_bot()
-        except ValueError:
-            return
-        for target in MANIFEST_TARGETS:
-            try:
-                await check_update(bot, target=target)
-            except Exception:
-                logger.exception("[strinova] {}更新监测失败，保留基线等待下次重试", target.name)
+                bot = get_bot()
+            except ValueError:
+                return
+            for target in MANIFEST_TARGETS:
+                try:
+                    await check_update(bot, target=target)
+                except Exception:
+                    logger.exception("[strinova] {}更新监测失败，保留基线等待下次重试", target.name)
 
     strinova_matcher = on_regex(
-        COMMAND.pattern, flags=COMMAND.flags, priority=8, block=True, rule=ModuleRule("strinova")
+        COMMAND.pattern, flags=COMMAND.flags, priority=8, block=True,
+        rule=transport.module_rule("strinova"),
     )
     strinova_matcher.handle()(handle_strinova)
