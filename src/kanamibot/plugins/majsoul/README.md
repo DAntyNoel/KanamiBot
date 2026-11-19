@@ -2,6 +2,12 @@
 
 本目录是从老仓库 `D:\DAntyNoel\Kanami-NB\plugins\Majsoul` 迁移来的雀魂查询插件，模块名为 `majsoul`，可用核心命令启停。
 
+## 使用与配置
+
+- NoneBot 自动加载插件，群内默认开启。若此前被关闭，群管理员可发送 `/enable majsoul` 重新启用；在群内发送 `帮助 雀魂` 查看用法。
+- 牌谱屋可能要求牌谱和月报请求使用专用 API 密钥。请按照[牌谱屋维护者的说明](https://github.com/SAPikachu/amae-koromo/issues/129)申请；将密钥填到本机 `.env` 的 `MAJSOUL_API_KEY`。如果维护者指定数据节点，则把节点编号填到 `MAJSOUL_API_NODE`（默认 `1`）。不要将密钥发送到群里或提交到 Git。
+- 配置随 NoneBot 启动加载；未配置时仍尝试公开接口。授权请求使用 HTTPS Bearer 头，并在本进程内限制为每秒最多一次。
+
 ## 原始来源
 
 - 原始作者：NekoRabi，老插件 `source.py` 头部标注版本 `0.6.5`，更新时间 `2022/8/28 3:14`。

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Awaitable
 
 from nonebot import on_command, on_regex
 from nonebot.adapters.onebot.v11 import (
@@ -13,13 +14,22 @@ from nonebot.plugin import PluginMetadata
 
 from kanamibot.core.group_manager import ModuleRule
 
-from .source import MajsoulQuery, db_init, link_account, query_pt_byid
+from .source import MajsoulApiError, MajsoulQuery, db_init, link_account, query_pt_byid
 from .unicode import convert_majong_unicode
 
 __plugin_meta__ = PluginMetadata(
     name="雀魂助手",
     description="雀魂数据查询、绑定查询与牌画转换",
-    usage="qhpt, qhpaipu, qhinfo, qhyb, qhbind, qhm*, qh <牌型>",
+    usage=(
+        "以下指令在 QQ 群内发送，无需加 #。\n"
+        "qhpt <昵称> [3/4] [序号]：查段位分，同名时可指定序号。\n"
+        "qhinfo <昵称> [3/4] [场况] [类型]：查详细统计，例如 qhinfo 昵称 4 玉 基本。\n"
+        "qhpaipu <昵称> [3/4] [数量]：查最近牌谱，默认 5 场，最多 10 场。\n"
+        "qhyb <昵称> [3/4] [年月]：查月报，例如 qhyb 昵称 4 2026-11。\n"
+        "先用 qhpt 查询，再用 qhbind <昵称> 绑定。\n"
+        "绑定后可用 qhmpt、qhminfo、qhmpaipu、qhmyb 查询自己。\n"
+        "qh 123m456p789s123z：把牌型简写转成麻将牌字符。"
+    ),
 )
 
 MATCH_TYPE_ALIASES = {
@@ -136,6 +146,13 @@ def _search(pattern: str, text: str) -> re.Match[str] | None:
     return re.match(pattern, text.strip(), re.IGNORECASE)
 
 
+async def _query_reply(query: Awaitable[Message | str]) -> Message | str:
+    try:
+        return await query
+    except MajsoulApiError as error:
+        return str(error)
+
+
 qhpt_matcher = on_regex(_cmd['qhpt'], priority=10, block=True, rule=ModuleRule('majsoul'))
 @qhpt_matcher.handle()
 async def _(event: GroupMessageEvent):
@@ -148,9 +165,10 @@ async def _(event: GroupMessageEvent):
     raw_args = m.group(3)
     if raw_args:
         selecttype, selectindex = _parse_type_and_number(raw_args, default_type="4")
-        msg = await MajsoulQuery.getcertaininfo(username, selecttype or "4", selectindex or 1)
+        query = MajsoulQuery.getcertaininfo(username, selecttype or "4", selectindex or 1)
     else:
-        msg = await MajsoulQuery.query(username)
+        query = MajsoulQuery.query(username)
+    msg = await _query_reply(query)
     await qhpt_matcher.finish(_with_at(event.user_id, msg))
 
 
@@ -164,7 +182,7 @@ async def _(event: GroupMessageEvent):
 
     username = m.group(2)
     type_, cnt = _parse_type_and_number(m.group(3))
-    msg = await MajsoulQuery.getsomeqhpaipu(username, type_, cnt)
+    msg = await _query_reply(MajsoulQuery.getsomeqhpaipu(username, type_, cnt))
     await qhpaipu_matcher.finish(_with_at(event.user_id, msg))
 
 
@@ -178,7 +196,7 @@ async def _(event: GroupMessageEvent):
 
     username = m.group(2)
     type_, level, model = _parse_info_args(m.group(3))
-    msg = await MajsoulQuery.getplayerdetail(username, type_, level, model)
+    msg = await _query_reply(MajsoulQuery.getplayerdetail(username, type_, level, model))
     await qhinfo_matcher.finish(_with_at(event.user_id, msg))
 
 
@@ -192,7 +210,7 @@ async def _(event: GroupMessageEvent):
 
     username = m.group(2)
     type_, year, month = _parse_month_args(m.group(3))
-    msg = await MajsoulQuery.getmonthreport(username, type_, year, month)
+    msg = await _query_reply(MajsoulQuery.getmonthreport(username, type_, year, month))
     await qhyb_matcher.finish(_with_at(event.user_id, msg))
 
 
@@ -227,19 +245,21 @@ async def _(event: GroupMessageEvent):
 
     username = player_info.get("playername")
     if operation == "pt":
-        msg = await query_pt_byid(player_info.get("account"))
+        query = query_pt_byid(player_info.get("account"))
     elif operation == "yb":
         type_, year, month = _parse_month_args(raw_args)
         type_ = type_ or "4"
-        msg = await MajsoulQuery.getmonthreport(username, type_, year, month)
+        query = MajsoulQuery.getmonthreport(username, type_, year, month)
     elif operation == "info":
         type_, level, model = _parse_info_args(raw_args)
-        msg = await MajsoulQuery.getplayerdetail(username, type_ or "4", level, model)
+        query = MajsoulQuery.getplayerdetail(username, type_ or "4", level, model)
     elif operation == "paipu":
         type_, cnt = _parse_type_and_number(raw_args, default_type="4")
-        msg = await MajsoulQuery.getsomeqhpaipu(username, type_, cnt)
+        query = MajsoulQuery.getsomeqhpaipu(username, type_, cnt)
     else:
-        msg = "无此方法"
+        await qhm_matcher.finish(_with_at(event.user_id, "无此方法"))
+        return
+    msg = await _query_reply(query)
     await qhm_matcher.finish(_with_at(event.user_id, msg))
 
 

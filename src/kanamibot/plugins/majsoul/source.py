@@ -6,8 +6,10 @@
 """
 
 # ruff: noqa: E501
+import asyncio
 import logging
 import math
+import os
 import random
 import re
 import sqlite3
@@ -23,6 +25,24 @@ from kanamibot.core.utils import messagechain_builder, text_to_imagebytes
 SHARE_FILES_DIR = DATA_DIR
 DB_PATH = SHARE_FILES_DIR / "majsoul" / "majsoul.sqlite"
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+_API_HOST = re.compile(r"[0-9]+\.data\.amae-koromo\.com")
+_next_authenticated_request = 0.0
+
+
+class MajsoulApiError(RuntimeError):
+    pass
+
+
+async def _wait_for_api_slot() -> None:
+    global _next_authenticated_request
+    while True:
+        now = time.monotonic()
+        delay = _next_authenticated_request - now
+        if delay <= 0:
+            _next_authenticated_request = now + 1
+            return
+        await asyncio.sleep(delay)
 
 
 class ClientTimeout:
@@ -60,7 +80,20 @@ class _ResponseContext:
     async def json(self) -> Any:
         if self._response is None:
             return None
-        return self._response.json()
+        if self.status == 429 and self._response.text.startswith("[x-cap-token-required]"):
+            raise MajsoulApiError("牌谱屋要求接口授权，请联系 Bot 管理员检查牌谱屋密钥和节点配置。")
+        if self.status == 429:
+            raise MajsoulApiError("牌谱屋请求太频繁，请稍后再试。")
+        if self.status in {401, 403}:
+            raise MajsoulApiError("牌谱屋拒绝访问，请联系 Bot 管理员检查牌谱屋密钥和节点配置。")
+        if self.status == 404:
+            raise MajsoulApiError("牌谱屋未找到对应数据，请检查昵称、三麻/四麻和场况。")
+        if not self._response.is_success:
+            raise MajsoulApiError(f"牌谱屋暂时无法查询（HTTP {self.status}），请稍后再试。")
+        try:
+            return self._response.json()
+        except ValueError:
+            raise MajsoulApiError("牌谱屋返回的数据格式有误，请稍后再试。") from None
 
 
 class ClientSession:
@@ -72,11 +105,12 @@ class ClientSession:
         headers: dict[str, str] | None = None,
     ) -> None:
         limits = httpx.Limits(max_connections=connector.limit if connector else None)
+        self._api_key = os.environ.get("MAJSOUL_API_KEY", "").strip()
         self._client = httpx.AsyncClient(
             headers=headers,
             limits=limits,
             timeout=timeout.total if timeout else None,
-            verify=connector.ssl if connector else True,
+            verify=bool(self._api_key) or connector is None or connector.ssl,
         )
 
     async def __aenter__(self) -> "ClientSession":
@@ -86,14 +120,22 @@ class ClientSession:
         await self._client.aclose()
 
     def get(self, url: str) -> _ResponseContext:
-        return _ResponseContext(self._client.get(url))
+        return _ResponseContext(self._get(url))
+
+    async def _get(self, url: str) -> httpx.Response:
+        target = httpx.URL(url)
+        if self._api_key and target.scheme == "https" and _API_HOST.fullmatch(target.host):
+            await _wait_for_api_slot()
+            return await self._client.get(target, headers={"Authorization": f"Bearer {self._api_key}"})
+        return await self._client.get(target)
 
 
 fontsize = 36
 
 levellist = [[1200, 1400, 2000], [2800, 3200, 3600], [4000, 6000, 9000]]
 
-_link_index = 1
+_configured_node = os.environ.get("MAJSOUL_API_NODE", "").strip()
+_link_index = int(_configured_node) if re.fullmatch(r"[1-9][0-9]?", _configured_node) else 1
 
 match_level = {
     4: {
