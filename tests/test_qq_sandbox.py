@@ -37,7 +37,9 @@ def test_official_qq_routes_without_onebot_plugins(tmp_path, production):
     script = dedent('''
         import asyncio
         import sys
+        from io import BytesIO
         from pathlib import Path
+        from types import SimpleNamespace
         from unittest.mock import AsyncMock, patch
 
         import nonebot
@@ -47,6 +49,7 @@ def test_official_qq_routes_without_onebot_plugins(tmp_path, production):
         )
         from nonebot.adapters.qq.models import Dispatch, User
         from nonebot.exception import NetworkError
+        from PIL import Image
 
         from qq_sandbox import create_app
 
@@ -61,18 +64,20 @@ def test_official_qq_routes_without_onebot_plugins(tmp_path, production):
         assert adapter.qq_config.qq_verify_webhook is True
         assert adapter.qq_config.qq_bots[0].use_websocket is True
         assert {plugin.name for plugin in nonebot.get_loaded_plugins()} == {
-            "ping", "permissions",
+            "ping", "permissions", "image",
         }
+        from kanamibot.qqbot.image import IMAGE_HELP, build_test_image
         from kanamibot.qqbot.permissions import PERMISSION_GUIDE, _sent_events
 
         bot = Bot(adapter, "123456", adapter.qq_config.qq_bots[0])
         bot.self_info = User(id="bot-user", username="Test", bot=True)
 
-        def group_event(command, event_type="GROUP_AT_MESSAGE_CREATE"):
+        def group_event(command, event_type="GROUP_AT_MESSAGE_CREATE", attachments=None):
             data = {
                 "id": "message-id", "content": " " + command,
                 "timestamp": "2026-11-19T12:00:00+08:00",
                 "group_openid": "group-openid",
+                "attachments": attachments,
                 "author": {"id": "user", "member_openid": "member",
                            "bot": False, "member_role": "member"},
             }
@@ -107,6 +112,69 @@ def test_official_qq_routes_without_onebot_plugins(tmp_path, production):
                 del event.message
                 await bot.handle_event(event)
                 api.assert_not_awaited()
+
+                with Image.open(BytesIO(build_test_image())) as picture:
+                    assert picture.format == "PNG"
+                    assert picture.size == (480, 240)
+
+                image_attachments = [
+                    {"content_type": "image/png", "url": "https://example.com/first.png"},
+                    {"content_type": "image/jpeg", "url": "https://example.com/second.jpg"},
+                ]
+                for private in (False, True):
+                    for echo in (False, True):
+                        api.reset_mock()
+                        api.return_value = SimpleNamespace(file_info="uploaded-file-info")
+                        attachments = image_attachments if echo else None
+                        if private:
+                            image_event = C2CMessageCreateEvent(
+                                id="private-image", content="/image",
+                                timestamp="2026-11-19T12:00:00+08:00",
+                                author={"id": "user", "user_openid": "user"},
+                                attachments=attachments,
+                            )
+                        else:
+                            image_event = group_event("#image", attachments=attachments)
+                        await bot.handle_event(image_event)
+                        assert api.await_count == 2
+                        upload, send = api.call_args_list
+                        expected_prefix = "post_c2c" if private else "post_group"
+                        assert upload.args == (expected_prefix + "_files",)
+                        assert upload.kwargs["file_type"] == 1
+                        assert upload.kwargs["srv_send_msg"] is False
+                        if echo:
+                            assert upload.kwargs["url"] == "https://example.com/first.png"
+                            assert "file_data" not in upload.kwargs
+                        else:
+                            assert upload.kwargs["file_data"] == build_test_image()
+                        assert send.args == (expected_prefix + "_messages",)
+                        assert send.kwargs["msg_type"] == 7
+                        assert send.kwargs["media"].file_info == "uploaded-file-info"
+                        assert send.kwargs["msg_id"] == image_event.id
+                        assert send.kwargs["msg_seq"] == 1
+                        if echo:
+                            assert "2" in send.kwargs["content"]
+
+                api.reset_mock()
+                await bot.handle_event(group_event("image help"))
+                api.assert_awaited_once()
+                assert api.call_args.kwargs["content"] == IMAGE_HELP
+                api.reset_mock()
+                await bot.handle_event(group_event("image", attachments=[
+                    {"content_type": "video/mp4", "url": "https://example.com/video.mp4"},
+                ]))
+                api.assert_awaited_once()
+                assert api.call_args.args == ("post_group_messages",)
+                assert api.call_args.kwargs["msg_type"] == 0
+                api.reset_mock()
+                await bot.handle_event(group_event("", attachments=image_attachments))
+                api.assert_not_awaited()
+                api.side_effect = [NetworkError("test failure"), SimpleNamespace()]
+                await bot.handle_event(group_event("image"))
+                assert api.await_count == 2
+                assert api.call_args.args == ("post_group_messages",)
+                assert "失败" in api.call_args.kwargs["content"]
+                api.reset_mock(side_effect=True)
 
                 await bot.handle_event(group_event("ping", "GROUP_MESSAGE_CREATE"))
                 api.assert_awaited_once()
@@ -172,6 +240,9 @@ def test_official_qq_routes_without_onebot_plugins(tmp_path, production):
                 )
                 api.reset_mock()
                 with patch.object(OneBot, "call_api", new_callable=AsyncMock) as onebot_api:
+                    await onebot.handle_event(onebot_event)
+                    onebot_event.message = OneBotMessage("#image")
+                    onebot_event.original_message = onebot_event.message.copy()
                     await onebot.handle_event(onebot_event)
                     onebot_api.assert_not_awaited()
                 api.assert_not_awaited()
