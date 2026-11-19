@@ -30,7 +30,13 @@ def read_credentials(path: Path) -> tuple[str, str]:
     return values["id"], values["secret"]
 
 
-def create_app(credentials: Path, port: int = 12710, websocket: bool = True) -> None:
+def create_app(
+    credentials: Path,
+    port: int = 12710,
+    websocket: bool = True,
+    *,
+    production: bool = False,
+) -> None:
     app_id, secret = read_credentials(credentials)
     nonebot.init(
         _env_file=None,
@@ -39,7 +45,9 @@ def create_app(credentials: Path, port: int = 12710, websocket: bool = True) -> 
         port=port,
         log_level="INFO",
         command_start={"", "/", "#"},
-        qq_api_base="https://sandbox.api.sgroup.qq.com/",
+        qq_api_base=(
+            "https://api.bot.qq.com/" if production else "https://sandbox.api.sgroup.qq.com/"
+        ),
         qq_verify_webhook=True,
         qq_bots=[{
             "id": app_id,
@@ -59,11 +67,13 @@ def main() -> None:
     parser.add_argument("--credentials", type=Path, default=DEFAULT_CREDENTIALS)
     parser.add_argument("--port", type=int, default=12710)
     parser.add_argument("--webhook", action="store_true", help="改用已配置公网回调的 Webhook")
+    parser.add_argument("--production", action="store_true", help="接收实际邀请群的正式环境事件")
     args = parser.parse_args()
-    create_app(args.credentials, args.port, not args.webhook)
+    create_app(args.credentials, args.port, not args.webhook, production=args.production)
     log_path = PROJECT_ROOT / "logs" / "qq_sandbox.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     logger.add(log_path, level="INFO", rotation="5 MB", retention="3 days", encoding="utf-8")
+    logger.info("QQBot 连接环境：{}", "正式环境" if args.production else "沙箱环境")
     nonebot.run()
 
 
