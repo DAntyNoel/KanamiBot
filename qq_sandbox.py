@@ -5,8 +5,9 @@ import re
 from pathlib import Path
 
 import nonebot
-from nonebot.adapters.qq import Adapter
 from nonebot.log import logger
+
+from kanamibot.qqbot.adapter import QQAdapter
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 DEFAULT_CREDENTIALS = Path.home() / "Downloads" / "qqbot.txt"
@@ -47,13 +48,14 @@ def create_app(credentials: Path, port: int = 12710, websocket: bool = True) -> 
             "intent": {"c2c_group_at_messages": True},
         }],
     )
-    nonebot.get_driver().register_adapter(Adapter)
-    if nonebot.load_plugin("kanamibot.plugins.ping") is None:
-        raise RuntimeError("无法加载 ping 插件")
+    nonebot.get_driver().register_adapter(QQAdapter)
+    for plugin in ("kanamibot.plugins.ping", "kanamibot.qqbot.permissions"):
+        if nonebot.load_plugin(plugin) is None:
+            raise RuntimeError(f"无法加载插件：{plugin}")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="QQ 官方机器人独立沙箱（仅 ping/pong）")
+    parser = argparse.ArgumentParser(description="QQ 官方机器人独立沙箱（ping/pong 和群权限提醒）")
     parser.add_argument("--credentials", type=Path, default=DEFAULT_CREDENTIALS)
     parser.add_argument("--port", type=int, default=12710)
     parser.add_argument("--webhook", action="store_true", help="改用已配置公网回调的 Webhook")
