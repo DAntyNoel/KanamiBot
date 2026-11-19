@@ -64,7 +64,7 @@ def test_official_qq_routes_without_onebot_plugins(tmp_path, production):
         assert adapter.qq_config.qq_verify_webhook is True
         assert adapter.qq_config.qq_bots[0].use_websocket is True
         assert {plugin.name for plugin in nonebot.get_loaded_plugins()} == {
-            "ping", "permissions", "image",
+            "ping", "permissions", "image_transport", "image",
         }
         from kanamibot.qqbot.image import IMAGE_HELP, build_test_image
         from kanamibot.qqbot.permissions import PERMISSION_GUIDE, _sent_events

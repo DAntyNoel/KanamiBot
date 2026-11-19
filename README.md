@@ -11,7 +11,8 @@
 
 ## QQ 官方机器人沙箱
 
-独立入口加载现有 ping 插件、QQBot 群权限提醒和图片收发测试，与普通启动入口并行运行。
+独立入口加载现有 ping、共享图库、QQBot 群权限提醒和图片收发测试，与普通入口并行运行。
+图库指令、首次升级、身份绑定和官方限制见 [QQBot 图库接入说明](src/kanamibot/qqbot/README.md)。
 先运行 `uv sync` 安装依赖，将 AppID 和 Secret 保存在当前用户下载目录的 `qqbot.txt`，
 格式为 `appid:值`、`secret:值` 两行。凭据从外部文件读取，不写入仓库或日志。
 

@@ -58,7 +58,8 @@ def create_app(
     )
     nonebot.get_driver().register_adapter(QQAdapter)
     for plugin in (
-        "kanamibot.plugins.ping", "kanamibot.qqbot.permissions", "kanamibot.qqbot.image",
+        "kanamibot.plugins.ping", "kanamibot.qqbot.permissions",
+        "kanamibot.qqbot.image_transport", "kanamibot.plugins.image",
     ):
         if nonebot.load_plugin(plugin) is None:
             raise RuntimeError(f"无法加载插件：{plugin}")

@@ -212,6 +212,8 @@ def get_folder_name(alias: str, create_new: bool = False) -> str | None:
             return folder
             
     if create_new:
+        if not alias or alias in {'.', '..'} or any(char in alias for char in '/\\:'):
+            raise ValueError("图库名称不能包含路径分隔符")
         init_folder(alias, visibility=True)
         return alias
     return None

@@ -8,8 +8,9 @@ from dataclasses import dataclass
 class SentImageRecord:
     image_id: str
     folder: str
-    message_id: int
+    message_id: int | str
     ts: int
+    scope: str = ""
 
 
 class SendImageBuffer:
@@ -26,7 +27,8 @@ class SendImageBuffer:
             item for item in self.history if current_time - item.ts <= self.ttl_seconds
         ][-self.max_items :]
 
-    def add(self, image_id: str, folder: str, msg_id: int | None) -> None:
+    def add(self, image_id: str, folder: str, msg_id: int | str | None,
+            *, scope: str = "") -> None:
         if msg_id is None:
             return
         self.flush()
@@ -36,19 +38,21 @@ class SendImageBuffer:
                 folder=folder,
                 message_id=msg_id,
                 ts=int(time.time()),
+                scope=scope,
             )
         )
         if len(self.history) > self.max_items:
             self.history = self.history[-self.max_items :]
 
-    def remove(self, msg_id: int) -> None:
-        self.history = [item for item in self.history if item.message_id != msg_id]
+    def remove(self, msg_id: int | str, *, scope: str = "") -> None:
+        self.history = [item for item in self.history
+                        if (item.message_id, item.scope) != (msg_id, scope)]
         self.flush()
 
-    def get(self, msg_id: int) -> tuple[str, str] | None:
+    def get(self, msg_id: int | str, *, scope: str = "") -> tuple[str, str] | None:
         self.flush()
         for item in reversed(self.history):
-            if item.message_id == msg_id:
+            if item.message_id == msg_id and item.scope == scope:
                 return item.image_id, item.folder
         return None
 
