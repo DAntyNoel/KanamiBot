@@ -9,6 +9,26 @@
 
 基于 NoneBot2 + NapCatQQ / OneBot V11 的 QQ Bot。
 
+## QQ 官方机器人沙箱
+
+独立入口仅加载现有 ping 插件，使用 QQ 官方沙箱 API，与普通启动入口并行运行。
+先运行 `uv sync` 安装依赖，将 AppID 和 Secret 保存在当前用户下载目录的 `qqbot.txt`，
+格式为 `appid:值`、`secret:值` 两行。凭据从外部文件读取，不写入仓库或日志。
+
+```powershell
+.venv\Scripts\python.exe qq_sandbox.py
+```
+
+默认通过 WebSocket 接收消息，本地监听 `127.0.0.1:12710`，无需公网入站端口。
+在开放平台将测试账号和群加入沙箱配置，将机器人加入测试群后，发送 `@机器人 /ping`，
+预期回复 `pong`；也支持 `ping`、`#ping`，私聊测试可发送 `/ping`。
+真实 QQ 客户端收到回复才算完成收发验收，仅鉴权成功或 READY 不代表消息已送达。
+
+可用 `--credentials 路径` 指定其他凭据文件，`--port 端口` 修改监听端口。
+若平台只开放 Webhook，可加 `--webhook`，并在平台配置指向本机 `/qq/webhook` 的
+公网 HTTPS 回调和群聊/私聊消息事件；回调签名校验默认开启。
+运行日志保存在忽略提交的 `logs/qq_sandbox.log`，按 5 MB 轮换、保留三天。
+
 ## 启动
 
 首次运行：
