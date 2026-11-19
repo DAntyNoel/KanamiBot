@@ -7,6 +7,7 @@ import math
 import os
 import shutil
 import uuid
+from functools import wraps
 from io import BytesIO
 from pathlib import Path
 from typing import Any, Literal
@@ -16,6 +17,7 @@ from nonebot.log import logger
 from kanamibot.core.timing import timed
 
 from .paths import DATA_DIR, DEFAULT_FONT_PATH
+from .storage_lock import storage_lock
 
 # 尝试导入 PIL
 try:
@@ -86,6 +88,11 @@ def _same_file_content(
 
 
 def rebuild_global_index() -> dict[str, Any]:
+    with storage_lock(DATA_ROOT):
+        return _rebuild_global_index()
+
+
+def _rebuild_global_index() -> dict[str, Any]:
     DATA_ROOT.mkdir(parents=True, exist_ok=True)
     folders: dict[str, Any] = {}
 
@@ -118,6 +125,15 @@ def rebuild_global_index() -> dict[str, Any]:
     return payload
 
 
+def _transaction(method):
+    @wraps(method)
+    def wrapped(self, *args, **kwargs):
+        with storage_lock(self.data_root):
+            self.metadata_registry = self._load_metadata()
+            return method(self, *args, **kwargs)
+    return wrapped
+
+
 class AdvancedMediaStorageSystem:
     """
     增强版文件存储交互系统
@@ -141,8 +157,9 @@ class AdvancedMediaStorageSystem:
         self.metadata_path = self.storage_root / "metadata.json"
         self.index_path = self.storage_root / FOLDER_INDEX_NAME
         
-        self._initialize_storage()
-        self.metadata_registry = self._load_metadata()
+        with storage_lock(self.data_root):
+            self._initialize_storage()
+            self.metadata_registry = self._load_metadata()
 
     def _initialize_storage(self):
         if not self.files_dir.exists():
@@ -156,7 +173,7 @@ class AdvancedMediaStorageSystem:
         try:
             with open(self.metadata_path, encoding='utf-8') as f:
                 return json.load(f)
-        except (json.JSONDecodeError, FileNotFoundError):
+        except FileNotFoundError:
             return {}
 
     @timed()
@@ -284,6 +301,7 @@ class AdvancedMediaStorageSystem:
             "model": meta.get("model"),
         }
 
+    @_transaction
     def rebuild_index(self, *, force_thumbnails: bool = False) -> dict[str, Any]:
         changed = False
         entries: list[dict[str, Any]] = []
@@ -314,6 +332,7 @@ class AdvancedMediaStorageSystem:
             rebuild_global_index()
 
     # --- 核心功能：下标访问 ---
+    @_transaction
     def __getitem__(self, key: str | int | slice) -> dict | list[dict]:
         if isinstance(key, str):
             if key not in self.metadata_registry:
@@ -402,6 +421,7 @@ class AdvancedMediaStorageSystem:
 
     # --- 核心功能：增强版上传 (支持多类型) ---
     @timed()
+    @_transaction
     def upload(self, 
                source: str | Path | bytes | BytesIO | Image.Image,
                ext: str | None = None,
@@ -514,6 +534,7 @@ class AdvancedMediaStorageSystem:
         return {**metadata, "status": "created", "file_id": unique_id}
 
     @timed()
+    @_transaction
     def delete(self, file_id: str) -> bool:
         if file_id not in self.metadata_registry:
             logger.warning("[MediaStorage] Delete failed: id not found: %s", file_id)
@@ -530,12 +551,14 @@ class AdvancedMediaStorageSystem:
         return True
     
     @timed()
+    @_transaction
     def update(self, file_id: str, **kwargs):
         if file_id in self.metadata_registry:
             self.metadata_registry[file_id].update(kwargs)
             self._save_metadata()
             self._refresh_indexes()
 
+    @_transaction
     def list_files(self, 
                    return_type: Literal['dict', 'image'] = 'image', 
                    limit: int | None = None,
