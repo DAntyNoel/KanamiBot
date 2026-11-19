@@ -30,7 +30,8 @@ def test_invalid_credentials_do_not_disclose_secret(tmp_path):
     assert "private-value" not in str(error.value)
 
 
-def test_official_qq_routes_without_onebot_plugins(tmp_path):
+@pytest.mark.parametrize("production", [False, True])
+def test_official_qq_routes_without_onebot_plugins(tmp_path, production):
     credentials = tmp_path / "credentials.txt"
     credentials.write_text("appid:123456\nsecret:test-secret", encoding="utf-8")
     script = dedent('''
@@ -49,10 +50,14 @@ def test_official_qq_routes_without_onebot_plugins(tmp_path):
 
         from qq_sandbox import create_app
 
-        create_app(Path(sys.argv[1]))
+        production = sys.argv[2] == "True"
+        create_app(Path(sys.argv[1]), production=production)
         driver = nonebot.get_driver()
         adapter = driver._adapters["QQ"]
-        assert str(adapter.qq_config.qq_api_base) == "https://sandbox.api.sgroup.qq.com/"
+        expected_base = (
+            "https://api.bot.qq.com/" if production else "https://sandbox.api.sgroup.qq.com/"
+        )
+        assert str(adapter.qq_config.qq_api_base) == expected_base
         assert adapter.qq_config.qq_verify_webhook is True
         assert adapter.qq_config.qq_bots[0].use_websocket is True
         assert {plugin.name for plugin in nonebot.get_loaded_plugins()} == {
@@ -174,7 +179,7 @@ def test_official_qq_routes_without_onebot_plugins(tmp_path):
         asyncio.run(check())
     ''')
     result = subprocess.run(
-        [sys.executable, "-c", script, str(credentials)],
+        [sys.executable, "-c", script, str(credentials), str(production)],
         cwd=Path(__file__).resolve().parents[1],
         capture_output=True,
         text=True,
