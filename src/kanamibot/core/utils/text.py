@@ -37,12 +37,10 @@ def get_best_items_by_text_list(
     _limit: int = 6,
 ) -> list[tuple[Any, int | float]]:
     '''根据文本内容做模糊匹配 (RapidFuzz 优化版)'''
-    matches = process.extract(
-        text, [item[0] for item in text_list], limit=_limit, scorer=fuzz.WRatio
-    )
+    matches = process.extract(text, text_list, limit=_limit, scorer=fuzz.WRatio)
     results = []
     for match in matches:
-        item_tuple = text_list[match[2]]
+        item_tuple = match[0] # (str, Any)
         score = match[1]
         if score >= _threshold:
             results.append((item_tuple[1], score))

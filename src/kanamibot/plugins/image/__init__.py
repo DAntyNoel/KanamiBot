@@ -6,16 +6,15 @@ from argparse import Namespace
 from pathlib import Path
 from typing import Annotated, Any
 
-import httpx
 from nonebot import on_command, on_shell_command
-from nonebot.adapters import Bot, Event
-from nonebot.adapters.onebot.v11 import Message, MessageSegment
+from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message, MessageSegment
 from nonebot.internal.matcher import Matcher
 from nonebot.params import ShellCommandArgs
 from nonebot.plugin import PluginMetadata
 from nonebot.rule import ArgumentParser
 
-from kanamibot.core import gallery_transport as transport
+from kanamibot.core import get_first_superuser
+from kanamibot.core.group_manager import ADMIN_PERMISSION, ModuleRule
 from kanamibot.core.image_wrappers import (
     DATA_ROOT as IMAGE_FOLDER,
 )
@@ -33,17 +32,15 @@ from kanamibot.core.image_wrappers import (
 )
 from kanamibot.core.message_reactions import react_ok
 from kanamibot.core.timing import timed
-from kanamibot.core.utils.image import guess_extension
+from kanamibot.core.utils.image import download_all_images_from_event, guess_extension
 from kanamibot.core.utils.text import get_best_items_by_text_list
 
 from .buffer import send_buffer
 
 MODULE_NAME = "image"
-GROUP_RULE = transport.GROUP_RULE
-ADMIN_PERMISSION = transport.ADMIN_PERMISSION
+GROUP_RULE = ModuleRule(MODULE_NAME)
 IMAGE_PREVIEW_LIMIT = 5
 _CQ_IMAGE_TAG_PATTERN = re.compile(r"^\[CQ:image(?:,|\])", re.IGNORECASE)
-_QQ_IMAGE_TAG_PATTERN = re.compile(r"^<(?:local_)?attachment\[image\]", re.IGNORECASE)
 ShellArgs = Annotated[Namespace, ShellCommandArgs()]
 
 __plugin_meta__ = PluginMetadata(
@@ -63,7 +60,7 @@ def _plain_tags(values: list[Any]) -> list[str]:
         if not isinstance(value, str):
             continue
         text = value.strip()
-        if text and not _CQ_IMAGE_TAG_PATTERN.match(text) and not _QQ_IMAGE_TAG_PATTERN.match(text):
+        if text and not _CQ_IMAGE_TAG_PATTERN.match(text):
             tags.append(text)
     return tags
 
@@ -79,9 +76,7 @@ def _message_id_from_receipt(receipt: Any) -> int | None:
         return None
 
 
-def _reply_message_id(event: Event) -> int | str | None:
-    if transport.is_qq(event):
-        return transport.reply_id(event)
+def _reply_message_id(event: GroupMessageEvent) -> int | None:
     reply = getattr(event, "reply", None)
     raw_id = getattr(reply, "message_id", None) or getattr(reply, "id", None)
     if raw_id is not None:
@@ -110,33 +105,16 @@ def _image_path(folder: str, image_id: str, filename: str | None = None) -> Path
     return (IMAGE_FOLDER / folder / "files" / image_id).resolve()
 
 
-def _get_record(bot: Bot, event: Event, quote_id: int | str) -> tuple[str, str] | None:
-    record = send_buffer.get(quote_id, scope=transport.scope(bot, event))
-    if record and transport.is_qq(event):
-        image_id, folder = record
-        visible = get_visible_images(folder, transport.group_id(event))
-        if not any(str(image["id"]) == image_id for image in visible):
-            return None
-    return record
-
-
 @timed()
 async def _send_stored_image(
     matcher: type[Matcher],
     folder: str,
     image: dict[str, Any],
-    bot: Bot,
-    event: Event,
 ) -> None:
     image_id = str(image["id"])
     imagepath = _image_path(folder, image_id, str(image.get("filename", "")))
-    receipt = await matcher.send(transport.segments(event).image(imagepath))
-    msg_id = (
-        transport.receipt_id(receipt) if transport.is_qq(event)
-        else _message_id_from_receipt(receipt)
-    )
-    send_buffer.add(image_id=image_id, folder=folder, msg_id=msg_id,
-                    scope=transport.scope(bot, event))
+    receipt = await matcher.send(MessageSegment.image(imagepath))
+    send_buffer.add(image_id=image_id, folder=folder, msg_id=_message_id_from_receipt(receipt))
 
 
 def _format_image_info(image: dict[str, Any]) -> str:
@@ -171,16 +149,15 @@ save_image_matcher = on_shell_command(
 @timed()
 async def save_image_handler(
     bot: Bot,
-    event: Event,
+    event: GroupMessageEvent,
     matcher: Matcher,
     args: ShellArgs,
 ) -> None:
     alias = args.folder
     tags = _plain_tags(args.tags)
 
-    can_create_folder = transport.can_create(event)
-    if not transport.writes_enabled(event):
-        await matcher.finish("图库安全写入尚未启用，请管理员先完成双 Bot 升级。")
+    first_superuser = await get_first_superuser()
+    can_create_folder = first_superuser is not None and event.user_id == first_superuser
 
     existing_folder = get_folder_name(alias, create_new=False)
     new_folder_flag = False
@@ -189,24 +166,11 @@ async def save_image_handler(
             await matcher.finish("该图库不存在，只有首个超管可以创建新图库。")
         new_folder_flag = True
 
-    try:
-        folder = get_folder_name(alias, create_new=new_folder_flag)
-    except ValueError as exc:
-        await matcher.finish(str(exc))
+    folder = get_folder_name(alias, create_new=new_folder_flag)
     if not folder:
         await matcher.finish("找不到指定图库。")
 
-    try:
-        images_bytes = await transport.download_images(event, bot)
-    except (ValueError, OSError, httpx.HTTPError):
-        await matcher.finish("图片读取失败，请确认图片有效且不超过20 MB，稍后重试。")
-    if not images_bytes and transport.is_qq(event):
-        quote_id = _reply_message_id(event)
-        request = _get_record(bot, event, quote_id) if quote_id else None
-        if request:
-            path = get_image_file_path(*request)
-            if path and path.exists():
-                images_bytes = [path.read_bytes()]
+    images_bytes = await download_all_images_from_event(event, bot)
     if not images_bytes:
         await matcher.finish("请附带图片、回复图片或发送合并转发聊天记录进行保存。")
 
@@ -222,56 +186,40 @@ async def save_image_handler(
                 imagetype,
                 folder,
                 tags=tags,
-                qq=transport.user_id(event),
-                group=transport.group_id(event),
+                qq=event.user_id,
+                group=event.group_id,
             )
             if result["status"] != "exists":
                 saved_count += 1
                 continue
             similar_imagedatas = [result]
 
-        if transport.is_qq(event):
-            visible_ids = {item["id"] for item in get_visible_images(
-                folder, transport.group_id(event)
-            )}
-            similar_imagedatas = [item for item in similar_imagedatas if item["id"] in visible_ids]
-        ret_msg = transport.message(
-            event, f"第 {index} 张：检测到相同图片，已跳过，不允许重复保存。\n"
-        )
-        ret_msg += transport.segments(event).text("当前输入：\n")
-        ret_msg += transport.segments(event).image(imagebytes)
-        ret_msg += transport.segments(event).text(
+        ret_msg = Message(f"第 {index} 张：检测到相同图片，已跳过，不允许重复保存。\n")
+        ret_msg += MessageSegment.text("当前输入：\n")
+        ret_msg += MessageSegment.image(imagebytes)
+        ret_msg += MessageSegment.text(
             f"tag: {','.join(tags) or '无'}\n=====================\n已保存图片：\n"
         )
         for sim_img in similar_imagedatas[:IMAGE_PREVIEW_LIMIT]:
             path = _image_path(folder, sim_img["id"], sim_img.get("filename"))
-            ret_msg += transport.segments(event).image(path)
-            ret_msg += transport.segments(event).text(
+            ret_msg += MessageSegment.image(path)
+            ret_msg += MessageSegment.text(
                 f"{sim_img['filename']} tag: {','.join(sim_img['tags']) or '无'}\n"
             )
         similar_messages.append(ret_msg)
 
-    if saved_count > 0 and not transport.is_qq(event):
+    if saved_count > 0:
         await react_ok(bot, event)
-    if transport.is_qq(event):
-        if similar_messages:
-            summary = (f"图库：{alias}\n保存了 {saved_count} 张图片，"
-                       f"跳过 {len(similar_messages)} 张重复图片。\n")
-            summary += "\n".join(msg.extract_plain_text() for msg in similar_messages)
-            await matcher.finish(transport.duplicate_preview(similar_messages, summary))
-        if saved_count:
-            await matcher.finish(f"保存了 {saved_count} 张图片。")
-        await matcher.finish("保存失败，请检查指令。")
     if similar_messages:
         if len(images_bytes) > 1:
-            summary = transport.message(event,
+            summary = Message(
                 f"图库：{alias}\n保存了 {saved_count} 张图片，"
                 f"跳过 {len(similar_messages)} 张重复图片。\n"
                 "以下为重复图片（序号对应本次输入顺序）："
             )
             await bot.call_api(
                 "send_group_forward_msg",
-                group_id=transport.group_id(event),
+                group_id=event.group_id,
                 messages=[
                     MessageSegment.node_custom(
                         user_id=int(bot.self_id), nickname="存图结果", content=content
@@ -280,7 +228,7 @@ async def save_image_handler(
                 ],
             )
             await matcher.finish()
-        similar_messages[0].insert(0, transport.segments(event).at(transport.user_id(event)))
+        similar_messages[0].insert(0, MessageSegment.at(event.user_id))
         await matcher.finish(similar_messages[0])
     if saved_count == 0:
         await matcher.finish("保存失败，请检查指令。")
@@ -302,8 +250,7 @@ pick_image_matcher = on_shell_command(
 @pick_image_matcher.handle()
 @timed()
 async def pick_image_handler(
-    bot: Bot,
-    event: Event,
+    event: GroupMessageEvent,
     matcher: Matcher,
     args: ShellArgs,
 ) -> None:
@@ -312,11 +259,11 @@ async def pick_image_handler(
     if not folder:
         await matcher.finish()
 
-    images = get_visible_images(folder, transport.group_id(event))
+    images = get_visible_images(folder, event.group_id)
     if not images:
         await matcher.finish()
 
-    await _send_stored_image(pick_image_matcher, folder, random.choice(images), bot, event)
+    await _send_stored_image(pick_image_matcher, folder, random.choice(images))
 
 
 list_parser = ArgumentParser()
@@ -336,7 +283,7 @@ list_image_matcher = on_shell_command(
 @list_image_matcher.handle()
 @timed()
 async def list_image_handler(
-    event: Event,
+    event: GroupMessageEvent,
     matcher: Matcher,
     args: ShellArgs,
 ) -> None:
@@ -344,10 +291,10 @@ async def list_image_handler(
     folder = get_folder_name(alias)
     if not folder:
         await matcher.finish("图库不存在。")
-    gallery = create_image_gallery(folder, transport.group_id(event))
+    gallery = create_image_gallery(folder, event.group_id)
     if not gallery:
         await matcher.finish("这个图库里没有可见图片。")
-    await matcher.finish(transport.segments(event).image(gallery))
+    await matcher.finish(MessageSegment.image(gallery))
 
 
 delete_image_matcher = on_command(
@@ -362,17 +309,15 @@ delete_image_matcher = on_command(
 
 @delete_image_matcher.handle()
 @timed()
-async def delete_image_handler(bot: Bot, event: Event, matcher: Matcher) -> None:
-    if not transport.writes_enabled(event):
-        await matcher.finish("图库安全写入尚未启用，请管理员先完成双 Bot 升级。")
+async def delete_image_handler(event: GroupMessageEvent, matcher: Matcher) -> None:
     quote_id = _reply_message_id(event)
     if quote_id is None:
         await matcher.finish("请回复要删除的图片消息。")
-    request = _get_record(bot, event, quote_id)
+    request = send_buffer.get(quote_id)
     if not request:
         await matcher.finish("无法定位该图片的原始记录，可能已过期。")
     delete_image(*request)
-    send_buffer.remove(quote_id, scope=transport.scope(bot, event))
+    send_buffer.remove(quote_id)
     await matcher.finish("图片已删除。")
 
 
@@ -387,11 +332,11 @@ image_info_matcher = on_command(
 
 @image_info_matcher.handle()
 @timed()
-async def image_info_handler(bot: Bot, event: Event, matcher: Matcher) -> None:
+async def image_info_handler(event: GroupMessageEvent, matcher: Matcher) -> None:
     quote_id = _reply_message_id(event)
     if quote_id is None:
         await matcher.finish("请回复一张由机器人发送的图片来获取信息。")
-    request = _get_record(bot, event, quote_id)
+    request = send_buffer.get(quote_id)
     if not request:
         await matcher.finish("无法定位该图片的原始记录，可能已过期。")
     imagedata = get_imagedata(*request)
@@ -417,18 +362,15 @@ tag_matcher = on_shell_command(
 @tag_matcher.handle()
 @timed()
 async def tag_handler(
-    bot: Bot,
-    event: Event,
+    event: GroupMessageEvent,
     matcher: Matcher,
     args: ShellArgs,
 ) -> None:
-    if not transport.writes_enabled(event):
-        await matcher.finish("图库安全写入尚未启用，请管理员先完成双 Bot 升级。")
     quote_id = _reply_message_id(event)
     if quote_id is None:
         await matcher.finish("请回复一张图片进行打标。")
 
-    request = _get_record(bot, event, quote_id)
+    request = send_buffer.get(quote_id)
     if not request:
         await matcher.finish("无法获取图片上下文，请重试。")
 
@@ -455,13 +397,11 @@ untag_matcher = on_command(
 
 @untag_matcher.handle()
 @timed()
-async def untag_handler(bot: Bot, event: Event, matcher: Matcher) -> None:
-    if not transport.writes_enabled(event):
-        await matcher.finish("图库安全写入尚未启用，请管理员先完成双 Bot 升级。")
+async def untag_handler(event: GroupMessageEvent, matcher: Matcher) -> None:
     quote_id = _reply_message_id(event)
     if quote_id is None:
         await matcher.finish("请回复要清除标签的图片。")
-    request = _get_record(bot, event, quote_id)
+    request = send_buffer.get(quote_id)
     if not request:
         await matcher.finish("无法获取图片上下文，请重试。")
     image_id, folder = request
@@ -486,8 +426,7 @@ select_image_matcher = on_shell_command(
 @select_image_matcher.handle()
 @timed()
 async def select_image_handler(
-    bot: Bot,
-    event: Event,
+    event: GroupMessageEvent,
     matcher: Matcher,
     args: ShellArgs,
 ) -> None:
@@ -498,7 +437,7 @@ async def select_image_handler(
         folder = get_folder_name(alias)
         if not folder:
             await matcher.finish(f"找不到名为 {alias} 的图库。")
-        images = get_visible_images(folder, transport.group_id(event))
+        images = get_visible_images(folder, event.group_id)
         total = len(images)
         if total == 0:
             await matcher.finish("这个图库里没有图片呢。")
@@ -507,12 +446,12 @@ async def select_image_handler(
         if idx == 0 or idx > total or idx < -total:
             await matcher.finish(f"索引超出范围 (1-{total})。")
         real_idx = idx - 1 if idx > 0 else idx
-        await _send_stored_image(select_image_matcher, folder, images[real_idx], bot, event)
+        await _send_stored_image(select_image_matcher, folder, images[real_idx])
         return
 
     folder_scope = get_folder_name(alias)
     query = get_all_tags_with_imagedict(
-        group_id=transport.group_id(event),
+        group_id=event.group_id,
         folder_name=folder_scope,
         force_load=True,
     )
@@ -532,4 +471,4 @@ async def select_image_handler(
         await matcher.finish("没有找到图片哦。")
 
     image = random.choice(imagedicts)
-    await _send_stored_image(select_image_matcher, image["folder"], image, bot, event)
+    await _send_stored_image(select_image_matcher, image["folder"], image)

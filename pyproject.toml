@@ -15,7 +15,6 @@ dependencies = [
     "meme-generator>=0.2.3,<0.3",
     "nonebot2[fastapi,httpx,websockets]>=2.5.0",
     "nonebot-adapter-onebot>=2.4.6",
-    "nonebot-adapter-qq>=1.7.4,<2",
     "nonebot-plugin-apscheduler>=0.5.0",
     "numpy>=1.26,<3",
     "onnxruntime>=1.20,<2",

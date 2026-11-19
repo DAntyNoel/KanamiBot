@@ -7,7 +7,7 @@ from kanamibot.core.timing import timed
 
 __plugin_meta__ = PluginMetadata(
     name="Ping",
-    description="Connection test command for OneBot v11 and official QQ bots.",
+    description="Connection test command for NapCat / OneBot v11.",
     usage="/ping or ping",
 )
 
