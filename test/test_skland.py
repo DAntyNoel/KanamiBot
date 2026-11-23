@@ -447,7 +447,9 @@ def test_migrations_create_account_and_history_tables_in_isolated_storage(runtim
         assert connection.execute("SELECT count(*) FROM alembic_version").fetchone()[0] > 0
 
 
-@pytest.mark.parametrize("text", ["/ef", "/skland efcard", "/终末地抽卡记录"])
+@pytest.mark.parametrize(
+    "text", ["/ef", "/skland efcard", "/终末地抽卡记录", "/skland garrison", "/卫戍战绩", "/卫"]
+)
 def test_enabled_commands_keep_upstream_parsing(runtime, policy, monkeypatch, text):
     assert dispatch(runtime, monkeypatch, event(text)) == (["handler"], 0)
 
@@ -472,6 +474,9 @@ def test_enabled_commands_keep_upstream_parsing(runtime, policy, monkeypatch, te
         ("终末地签到详情", "efsign.status", None),
         ("终末地抽卡记录 -l 3", "efgacha.limit.limit", 3),
         ("战争回响 -s -1 -w 2", "efwar.season.season_id", -1),
+        ("卫戍战绩", "garrison", None),
+        ("卫 --all", "garrison.all", None),
+        ("garrison 30001", "garrison.target", 30001),
         ("森空岛解绑", "unbind", None),
         ("qrcode", "qrcode", None),
         ("efcard -r 2", "efcard.role.role_index", 2),
@@ -553,6 +558,32 @@ def test_login_runs_real_upstream_qrcode_handler(runtime, policy, head, action):
         )
     login.assert_awaited_once()
     send.assert_not_awaited()
+
+
+def test_garrison_runs_upstream_handler_with_selected_options(runtime, policy):
+    with (
+        patch(
+            "nonebot_plugin_skland.commands.garrison.garrison_handler", new=AsyncMock()
+        ) as handler,
+        patch.object(
+            runtime.bot, "get_group_info", new=AsyncMock(return_value={"group_name": "test"})
+        ),
+        patch.object(
+            runtime.bot, "get_group_member_info", new=AsyncMock(return_value={"join_time": 0})
+        ),
+    ):
+        asyncio.run(
+            check_and_run_matcher(
+                runtime.matcher, runtime.bot, event("#SK 卫 --role 2 -f --index 1 -a"), {}
+            )
+        )
+    handler.assert_awaited_once()
+    assert handler.await_args.kwargs == {
+        "role_index": 2,
+        "record_index": 1,
+        "favored": True,
+        "show_all": True,
+    }
 
 
 @pytest.mark.parametrize("head", ["#SK", "#sk", "#森空岛"])
@@ -646,27 +677,28 @@ def test_local_head_accepts_whitespace_separator(runtime, policy, monkeypatch, s
     assert dispatch(runtime, monkeypatch, event(f"#SK{space}扫码登录")) == (["handler"], 0)
 
 
-@pytest.mark.parametrize("text", ["#SKY 扫码登录", "#SK扫码登录", "聊天 #SK 扫码登录"])
+@pytest.mark.parametrize("text", ["#SKY 扫码登录", "#SK扫码登录", "聊天 #SK 扫码登录", "#卫 boss"])
 def test_command_head_requires_boundary_and_message_start(runtime, policy, monkeypatch, text):
     assert dispatch(runtime, monkeypatch, event(text)) == ([], 0)
 
 
-def test_local_command_keeps_mention_and_original_message(runtime, policy, monkeypatch):
+@pytest.mark.parametrize(("body", "path"), [("ef", "efcard"), ("卫戍战绩", "garrison")])
+def test_local_command_keeps_mention_and_original_message(runtime, policy, monkeypatch, body, path):
     from nonebot.adapters.onebot.v11 import MessageSegment
     from nonebot_plugin_alconna import At
 
-    message = event("#SK ef ")
+    message = event(f"#SK {body} ")
     message.message += MessageSegment.at(30001)
     original = message.message.copy()
     parsed = []
     assert dispatch(runtime, monkeypatch, message, parsed) == (["handler"], 0)
-    target = parsed[0].query("efcard.target")
+    target = parsed[0].query(f"{path}.target")
     assert isinstance(target, At) and target.target == "30001"
     assert message.message == original
 
 
 @pytest.mark.parametrize(
-    "text", ["/ef", "/skland --help", "/skland bad-option", "#SK 扫码登录", "#sk 帮助"]
+    "text", ["/ef", "/skland --help", "/skland bad-option", "#SK 扫码登录", "#sk 帮助", "#SK 卫"]
 )
 def test_disabled_group_sends_neither_results_nor_automatic_help(
     runtime,

@@ -1170,7 +1170,7 @@ sqlite = [
 
 [[package]]
 name = "nonebot-plugin-skland"
-version = "0.7.3"
+version = "0.7.4"
 source = { editable = "src/kanamibot/plugins/skland/_upstream" }
 dependencies = [
     { name = "arclet-alconna" },

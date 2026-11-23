@@ -36,7 +36,7 @@ if config.kanamibot_skland_enabled:
     protect_matcher(upstream.skland)
     upstream.__plugin_meta__.usage = HELP_SUMMARY
     upstream.__plugin_meta__.description = (
-        "森空岛账号绑定与终末地角色卡、签到、抽卡、战争回响查询。"
+        "森空岛账号绑定、方舟与终末地角色卡、签到、抽卡、卫戍战绩与战争回响查询。"
     )
 
     if not config.kanamibot_skland_auto_sign:

@@ -109,7 +109,7 @@ docker compose -p kanamibot-arknights -f services/amiya-mcp.compose.yml up -d
 
 指令头支持 `#SK`、`#sk`、`#森空岛`，与功能之间用空格分隔。
 发送 `#SK 扫码登录`，使用森空岛 App 扫码并回复「确认」；之后可以使用 `#SK ef`、
-`#SK 终末地签到`、`#SK 终末地抽卡记录`、`#SK 战争回响`，用 `#SK 帮助` 查看完整功能。
+`#SK 终末地签到`、`#SK 终末地抽卡记录`、`#SK 战争回响` 和 `#SK 卫戍战绩`。用 `#SK 帮助` 查看完整功能。
 群查询开关为 `/enable skland`、`/disable skland`，不会停止后台账号签到。
 
 ## 以图搜图
