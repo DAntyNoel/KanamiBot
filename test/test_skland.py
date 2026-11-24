@@ -37,7 +37,7 @@ def runtime(tmp_path_factory):
         _env_file=None,
         driver="~fastapi+~httpx",
         log_level="WARNING",
-        command_start=["/"],
+        command_start=["/", ""],
         localstore_data_dir=root / "data",
         localstore_cache_dir=root / "cache",
         localstore_config_dir=root / "config",
@@ -47,7 +47,7 @@ def runtime(tmp_path_factory):
         "localstore_data_dir": root / "data",
         "localstore_cache_dir": root / "cache",
         "localstore_config_dir": root / "config",
-        "command_start": {"/"},
+        "command_start": {"/", ""},
     }.items():
         setattr(nonebot.get_driver().config, name, value)
     nonebot.get_driver().register_adapter(Adapter)
@@ -58,14 +58,14 @@ def runtime(tmp_path_factory):
 
     from kanamibot.core.group_manager import group_config
     from kanamibot.plugins import skland as adapter
-    from kanamibot.plugins.skland.garrison import remove_garrison_shortcut
+    from kanamibot.plugins.skland.garrison import require_garrison_shortcut_prefix
 
     orm_main(args=["upgrade"], standalone_mode=False)
     orm_main(args=["check"], standalone_mode=False)
 
     async def start_shortcuts():
         await hook.startup()
-        await remove_garrison_shortcut()
+        await require_garrison_shortcut_prefix()
 
     with patch.object(hook, "update_data_resources", new=AsyncMock()):
         asyncio.run(start_shortcuts())
@@ -455,14 +455,15 @@ def test_migrations_create_account_and_history_tables_in_isolated_storage(runtim
 
 
 @pytest.mark.parametrize(
-    "text", ["/ef", "/skland efcard", "/终末地抽卡记录", "/skland garrison", "/卫戍战绩"]
+    "text",
+    ["/ef", "/skland efcard", "/终末地抽卡记录", "/skland garrison", "/卫戍战绩", "/卫", "/卫 -a"],
 )
 def test_enabled_commands_keep_upstream_parsing(runtime, policy, monkeypatch, text):
     assert dispatch(runtime, monkeypatch, event(text)) == (["handler"], 0)
 
 
-@pytest.mark.parametrize("text", ["/卫", "/卫 -a", "#SK 卫", "#sk 卫 10", "#森空岛 卫 -n 10"])
-def test_removed_garrison_alias_is_not_matched(runtime, policy, monkeypatch, text):
+@pytest.mark.parametrize("text", ["卫", "卫 10", "卫 -a", "卫 -n 10"])
+def test_garrison_short_alias_requires_prefix(runtime, policy, monkeypatch, text):
     assert dispatch(runtime, monkeypatch, event(text)) == ([], 0)
 
 
@@ -488,6 +489,11 @@ def test_removed_garrison_alias_is_not_matched(runtime, policy, monkeypatch, tex
         ("终末地抽卡记录 -l 3", "efgacha.limit.limit", 3),
         ("战争回响 -s -1 -w 2", "efwar.season.season_id", -1),
         ("卫戍战绩", "garrison", None),
+        ("卫", "garrison", None),
+        ("卫 -a", "garrison.all", None),
+        ("卫 10", "garrison.count.record_count", 10),
+        ("卫 -n 10", "garrison.count.record_count", 10),
+        ("卫 30001", "garrison.target", 30001),
         ("卫戍战绩 --all", "garrison.all", None),
         ("garrison 30001", "garrison.target", 30001),
         ("卫戍战绩 30001", "garrison.target", 30001),
@@ -641,9 +647,9 @@ def garrison_data():
 @pytest.mark.parametrize(
     ("command", "first", "last", "show_all"),
     [
-        ("卫戍战绩 -n 10", 1, 10, True),
+        ("卫 -n 10", 1, 10, True),
         ("卫戍战绩 3 -f", 5, 7, True),
-        ("卫戍战绩 -a", 1, 12, True),
+        ("卫 -a", 1, 12, True),
         ("卫戍战绩", 1, 12, False),
     ],
 )

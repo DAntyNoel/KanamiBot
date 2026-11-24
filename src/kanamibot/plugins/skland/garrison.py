@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from hashlib import sha256
 from pathlib import Path
 from time import time
@@ -83,14 +84,21 @@ async def render_limited_garrison(view: GarrisonView, *, show_all: bool = False)
     return await render_garrison_history(view, show_all=show_all)
 
 
-async def remove_garrison_shortcut() -> None:
-    # Upstream loads cached shortcuts and registers its defaults during startup.
+async def require_garrison_shortcut_prefix() -> None:
+    # The upstream shortcut includes the empty prefix when configured.
     skland_command.shortcut("卫", delete=True)
+    for prefix in skland_command.prefixes:
+        if isinstance(prefix, str) and prefix:
+            skland_command.shortcut(
+                re.escape(prefix) + "卫",
+                command=f"{prefix}skland garrison",
+                compact=False,
+            )
     skland_command.formatter.update_shortcut(skland_command)
 
 
 def install_garrison(command: Alconna) -> None:
-    get_driver().on_startup(remove_garrison_shortcut)
+    get_driver().on_startup(require_garrison_shortcut_prefix)
     garrison = next(option for option in command.options if option.dest == "garrison")
     with command_manager.update(command):
         garrison.add(Option("-n|--count", Args["record_count", int], help_text="限制返回战绩条数"))
