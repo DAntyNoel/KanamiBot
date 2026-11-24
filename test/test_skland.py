@@ -58,11 +58,17 @@ def runtime(tmp_path_factory):
 
     from kanamibot.core.group_manager import group_config
     from kanamibot.plugins import skland as adapter
+    from kanamibot.plugins.skland.garrison import remove_garrison_shortcut
 
     orm_main(args=["upgrade"], standalone_mode=False)
     orm_main(args=["check"], standalone_mode=False)
+
+    async def start_shortcuts():
+        await hook.startup()
+        await remove_garrison_shortcut()
+
     with patch.object(hook, "update_data_resources", new=AsyncMock()):
-        asyncio.run(hook.startup())
+        asyncio.run(start_shortcuts())
 
     bot = Bot(
         SimpleNamespace(
@@ -78,6 +84,7 @@ def runtime(tmp_path_factory):
         matcher=adapter.upstream.skland,
         groups=group_config,
         bot=bot,
+        start_shortcuts=start_shortcuts,
     )
 
 
@@ -306,7 +313,7 @@ def test_resource_downloads_do_not_block_shortcuts_or_startup(runtime, monkeypat
         monkeypatch.setattr(hook.config, "check_res_update", check_images)
         background.install_background_resources()
         try:
-            await asyncio.wait_for(hook.startup(), timeout=1)
+            await asyncio.wait_for(runtime.start_shortcuts(), timeout=1)
             assert manager.data_pending
             assert len(manager.tasks) == 1 + check_images
             await asyncio.sleep(0)
@@ -448,10 +455,15 @@ def test_migrations_create_account_and_history_tables_in_isolated_storage(runtim
 
 
 @pytest.mark.parametrize(
-    "text", ["/ef", "/skland efcard", "/终末地抽卡记录", "/skland garrison", "/卫戍战绩", "/卫"]
+    "text", ["/ef", "/skland efcard", "/终末地抽卡记录", "/skland garrison", "/卫戍战绩"]
 )
 def test_enabled_commands_keep_upstream_parsing(runtime, policy, monkeypatch, text):
     assert dispatch(runtime, monkeypatch, event(text)) == (["handler"], 0)
+
+
+@pytest.mark.parametrize("text", ["/卫", "/卫 -a", "#SK 卫", "#sk 卫 10", "#森空岛 卫 -n 10"])
+def test_removed_garrison_alias_is_not_matched(runtime, policy, monkeypatch, text):
+    assert dispatch(runtime, monkeypatch, event(text)) == ([], 0)
 
 
 @pytest.mark.parametrize("head", ["#SK", "#sk", "#森空岛"])
@@ -476,11 +488,11 @@ def test_enabled_commands_keep_upstream_parsing(runtime, policy, monkeypatch, te
         ("终末地抽卡记录 -l 3", "efgacha.limit.limit", 3),
         ("战争回响 -s -1 -w 2", "efwar.season.season_id", -1),
         ("卫戍战绩", "garrison", None),
-        ("卫 --all", "garrison.all", None),
+        ("卫戍战绩 --all", "garrison.all", None),
         ("garrison 30001", "garrison.target", 30001),
-        ("卫 30001", "garrison.target", 30001),
-        ("卫 10 -f", "garrison.count.record_count", 10),
-        ("卫 -n 10", "garrison.count.record_count", 10),
+        ("卫戍战绩 30001", "garrison.target", 30001),
+        ("卫戍战绩 10 -f", "garrison.count.record_count", 10),
+        ("卫戍战绩 -n 10", "garrison.count.record_count", 10),
         ("garrison 30001 --count 3", "garrison.count.record_count", 3),
         ("森空岛解绑", "unbind", None),
         ("qrcode", "qrcode", None),
@@ -579,7 +591,7 @@ def test_unbound_account_message_includes_scan_login_hint(runtime, policy):
         ),
         patch.object(runtime.bot, "send", new=AsyncMock(return_value={"message_id": 1})) as send,
     ):
-        asyncio.run(check_and_run_matcher(runtime.matcher, runtime.bot, event("#sk 卫"), {}))
+        asyncio.run(check_and_run_matcher(runtime.matcher, runtime.bot, event("#sk 卫戍战绩"), {}))
     send.assert_awaited_once()
     message = send.await_args.args[1]
     assert (
@@ -601,7 +613,7 @@ def test_garrison_runs_upstream_handler_with_selected_options(runtime, policy):
     ):
         asyncio.run(
             check_and_run_matcher(
-                runtime.matcher, runtime.bot, event("#SK 卫 --role 2 -f --index 1 -a"), {}
+                runtime.matcher, runtime.bot, event("#SK 卫戍战绩 --role 2 -f --index 1 -a"), {}
             )
         )
     handler.assert_awaited_once()
@@ -629,10 +641,10 @@ def garrison_data():
 @pytest.mark.parametrize(
     ("command", "first", "last", "show_all"),
     [
-        ("卫 -n 10", 1, 10, True),
-        ("卫 3 -f", 5, 7, True),
-        ("卫 -a", 1, 12, True),
-        ("卫", 1, 12, False),
+        ("卫戍战绩 -n 10", 1, 10, True),
+        ("卫戍战绩 3 -f", 5, 7, True),
+        ("卫戍战绩 -a", 1, 12, True),
+        ("卫戍战绩", 1, 12, False),
     ],
 )
 def test_garrison_limits_before_rendering(
@@ -672,7 +684,9 @@ def test_garrison_limits_before_rendering(
     send.assert_awaited_once()
 
 
-@pytest.mark.parametrize("body", ["卫 -n 0", "卫 -1", "卫 10 -a", "卫 -n 10 -i 1"])
+@pytest.mark.parametrize(
+    "body", ["卫戍战绩 -n 0", "卫戍战绩 -1", "卫戍战绩 10 -a", "卫戍战绩 -n 10 -i 1"]
+)
 def test_invalid_garrison_counts_are_rejected_before_dispatch(runtime, policy, monkeypatch, body):
     assert dispatch(runtime, monkeypatch, event(f"#sk {body}")) == ([], 1)
 
@@ -823,7 +837,8 @@ def test_local_command_keeps_mention_and_original_message(runtime, policy, monke
 
 
 @pytest.mark.parametrize(
-    "text", ["/ef", "/skland --help", "/skland bad-option", "#SK 扫码登录", "#sk 帮助", "#SK 卫"]
+    "text",
+    ["/ef", "/skland --help", "/skland bad-option", "#SK 扫码登录", "#sk 帮助", "#SK 卫戍战绩"],
 )
 def test_disabled_group_sends_neither_results_nor_automatic_help(
     runtime,

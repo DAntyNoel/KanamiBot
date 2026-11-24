@@ -8,11 +8,12 @@ from pathlib import Path
 from time import time
 from weakref import WeakValueDictionary
 
-from nonebot import logger
+from nonebot import get_driver, logger
 from nonebot.matcher import current_matcher
 from nonebot_plugin_alconna import ALCONNA_RESULT, Alconna, Args, Option, command_manager
 from nonebot_plugin_skland.commands import garrison as upstream
 from nonebot_plugin_skland.config import DATA_DIR
+from nonebot_plugin_skland.matcher import skland_command
 from nonebot_plugin_skland.model import SkUser
 from nonebot_plugin_skland.render import render_garrison_history
 from nonebot_plugin_skland.schemas.arknights.garrison import (
@@ -82,7 +83,14 @@ async def render_limited_garrison(view: GarrisonView, *, show_all: bool = False)
     return await render_garrison_history(view, show_all=show_all)
 
 
+async def remove_garrison_shortcut() -> None:
+    # Upstream loads cached shortcuts and registers its defaults during startup.
+    skland_command.shortcut("卫", delete=True)
+    skland_command.formatter.update_shortcut(skland_command)
+
+
 def install_garrison(command: Alconna) -> None:
+    get_driver().on_startup(remove_garrison_shortcut)
     garrison = next(option for option in command.options if option.dest == "garrison")
     with command_manager.update(command):
         garrison.add(Option("-n|--count", Args["record_count", int], help_text="限制返回战绩条数"))
