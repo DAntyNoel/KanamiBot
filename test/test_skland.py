@@ -459,6 +459,7 @@ def test_enabled_commands_keep_upstream_parsing(runtime, policy, monkeypatch, te
     ("body", "path", "value"),
     [
         ("扫码登录", "qrcode", None),
+        ("绑定", "qrcode", None),
         ("登录", "qrcode", None),
         ("登陆", "qrcode", None),
         ("扫码", "qrcode", None),
@@ -528,7 +529,9 @@ def test_full_menu_examples_reach_expected_upstream_action(
 
 
 @pytest.mark.parametrize("head", ["#SK", "#sk", "#森空岛"])
-@pytest.mark.parametrize("action", ["登录", "登陆", "扫码", "QR", "qr", "扫码登录", "扫码绑定"])
+@pytest.mark.parametrize(
+    "action", ["绑定", "登录", "登陆", "扫码", "QR", "qr", "扫码登录", "扫码绑定"]
+)
 def test_login_does_not_depend_on_startup_shortcuts(runtime, policy, monkeypatch, head, action):
     command = runtime.matcher.command()
     command.shortcut("扫码绑定", delete=True)
@@ -541,7 +544,9 @@ def test_login_does_not_depend_on_startup_shortcuts(runtime, policy, monkeypatch
 
 
 @pytest.mark.parametrize("head", ["#SK", "#sk", "#森空岛"])
-@pytest.mark.parametrize("action", ["登录", "登陆", "扫码", "QR", "qr", "扫码登录", "扫码绑定"])
+@pytest.mark.parametrize(
+    "action", ["绑定", "登录", "登陆", "扫码", "QR", "qr", "扫码登录", "扫码绑定"]
+)
 def test_login_runs_real_upstream_qrcode_handler(runtime, policy, head, action):
     with (
         patch("nonebot_plugin_skland.commands.bind.qrcode_handler", new=AsyncMock()) as login,
