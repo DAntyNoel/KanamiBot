@@ -8,7 +8,7 @@ from nonebot import logger
 from nonebot.adapters import Bot, Event
 from nonebot.typing import T_State
 from nonebot_plugin_alconna import Alconna, Arparma, Extension, Text, UniMessage
-from nonebot_plugin_alconna.extension import OutputType
+from nonebot_plugin_alconna.extension import TM, OutputType
 
 from kanamibot.core.timing import timed
 
@@ -58,6 +58,11 @@ class SklandCommandExtension(Extension):
         # this matcher's copy changes; mentions and the original event stay intact.
         prefix = next((value for value in command.prefixes if isinstance(value, str)), "")
         return UniMessage(prefix + body) + receive[1:]
+
+    async def send_wrapper(self, bot: Bot, event: Event, send: TM) -> TM:
+        if isinstance(send, UniMessage) and send.extract_plain_text() == "你还没有绑定森空岛账号":
+            return send + "\n请使用 #sk 登录 用森空岛扫码绑定。"
+        return send
 
     @timed()
     async def output_converter(self, output_type: OutputType, content: str) -> UniMessage:

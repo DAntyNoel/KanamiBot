@@ -565,6 +565,24 @@ def test_login_runs_real_upstream_qrcode_handler(runtime, policy, head, action):
     send.assert_not_awaited()
 
 
+def test_unbound_account_message_includes_scan_login_hint(runtime, policy):
+    with (
+        patch.object(
+            runtime.bot, "get_group_info", new=AsyncMock(return_value={"group_name": "test"})
+        ),
+        patch.object(
+            runtime.bot, "get_group_member_info", new=AsyncMock(return_value={"join_time": 0})
+        ),
+        patch.object(runtime.bot, "send", new=AsyncMock(return_value={"message_id": 1})) as send,
+    ):
+        asyncio.run(check_and_run_matcher(runtime.matcher, runtime.bot, event("#sk 卫"), {}))
+    send.assert_awaited_once()
+    message = send.await_args.args[1]
+    assert (
+        message.extract_plain_text() == "你还没有绑定森空岛账号\n请使用 #sk 登录 用森空岛扫码绑定。"
+    )
+
+
 def test_garrison_runs_upstream_handler_with_selected_options(runtime, policy):
     with (
         patch(
