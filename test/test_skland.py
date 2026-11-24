@@ -478,6 +478,10 @@ def test_enabled_commands_keep_upstream_parsing(runtime, policy, monkeypatch, te
         ("卫戍战绩", "garrison", None),
         ("卫 --all", "garrison.all", None),
         ("garrison 30001", "garrison.target", 30001),
+        ("卫 30001", "garrison.target", 30001),
+        ("卫 10 -f", "garrison.count.record_count", 10),
+        ("卫 -n 10", "garrison.count.record_count", 10),
+        ("garrison 30001 --count 3", "garrison.count.record_count", 3),
         ("森空岛解绑", "unbind", None),
         ("qrcode", "qrcode", None),
         ("efcard -r 2", "efcard.role.role_index", 2),
@@ -607,6 +611,104 @@ def test_garrison_runs_upstream_handler_with_selected_options(runtime, policy):
         "favored": True,
         "show_all": True,
     }
+
+
+def garrison_data():
+    from nonebot_plugin_skland.schemas.arknights.garrison import GarrisonData, GarrisonResources
+
+    records = [{"id": str(i), "activityId": "season", "versionId": "1"} for i in range(1, 13)]
+    data = GarrisonData.model_validate(
+        {"history": {"records": records, "favourRecords": records[4:]}}
+    )
+    resources = GarrisonResources.model_validate(
+        {"resources": [{"versionInfo": {"versionId": "1", "activityId": "season"}}]}
+    )
+    return data, resources, "season"
+
+
+@pytest.mark.parametrize(
+    ("command", "first", "last", "show_all"),
+    [
+        ("卫 -n 10", 1, 10, True),
+        ("卫 3 -f", 5, 7, True),
+        ("卫 -a", 1, 12, True),
+        ("卫", 1, 12, False),
+    ],
+)
+def test_garrison_limits_before_rendering(
+    runtime, policy, monkeypatch, tmp_path, command, first, last, show_all
+):
+    from nonebot_plugin_skland.commands import garrison as upstream
+
+    from kanamibot.plugins.skland import garrison
+
+    character = SimpleNamespace(uid="123", server_name="1", channel_master_id="1")
+    account = SimpleNamespace(owner_id=123, id=1, skland_user_id="456")
+    render = AsyncMock(return_value=[b"png"])
+    monkeypatch.setattr(garrison, "CACHE_DIR", tmp_path)
+    monkeypatch.setattr(garrison, "fetch_garrison", AsyncMock(return_value=garrison_data()))
+    monkeypatch.setattr(garrison, "render_garrison_history", render)
+    monkeypatch.setattr(
+        upstream, "check_user_character", AsyncMock(return_value=(account, character))
+    )
+    monkeypatch.setattr(upstream, "send_reaction", lambda *_: None)
+    with (
+        patch.object(
+            runtime.bot, "get_group_info", new=AsyncMock(return_value={"group_name": "test"})
+        ),
+        patch.object(
+            runtime.bot, "get_group_member_info", new=AsyncMock(return_value={"join_time": 0})
+        ),
+        patch.object(runtime.bot, "send", new=AsyncMock(return_value={"message_id": 1})) as send,
+    ):
+        asyncio.run(
+            check_and_run_matcher(runtime.matcher, runtime.bot, event(f"#sk {command}"), {})
+        )
+    render.assert_awaited_once()
+    view = render.await_args.args[0]
+    assert [record.record_id for record in view.records] == [str(i) for i in range(first, last + 1)]
+    assert view.recent_count == 12
+    assert render.await_args.kwargs == {"show_all": show_all}
+    send.assert_awaited_once()
+
+
+@pytest.mark.parametrize("body", ["卫 -n 0", "卫 -1", "卫 10 -a", "卫 -n 10 -i 1"])
+def test_invalid_garrison_counts_are_rejected_before_dispatch(runtime, policy, monkeypatch, body):
+    assert dispatch(runtime, monkeypatch, event(f"#sk {body}")) == ([], 1)
+
+
+def test_garrison_cache_reuses_refresh_and_isolates_users_and_roles(runtime, monkeypatch, tmp_path):
+    from kanamibot.plugins.skland import garrison
+
+    upstream = AsyncMock(return_value=garrison_data())
+    monkeypatch.setattr(garrison, "CACHE_DIR", tmp_path)
+    monkeypatch.setattr(garrison, "fetch_garrison", upstream)
+    account = SimpleNamespace(owner_id=1, id=1, skland_user_id="account")
+    other = SimpleNamespace(owner_id=2, id=2, skland_user_id="other")
+
+    async def run():
+        first, second = await asyncio.gather(
+            garrison.fetch_cached_garrison(account, "role"),
+            garrison.fetch_cached_garrison(account, "role"),
+        )
+        assert first == second == upstream.return_value
+        upstream.assert_awaited_once_with(account, "role")
+        (path,) = tmp_path.glob("*.json")
+        monkeypatch.setattr(garrison, "time", lambda: path.stat().st_mtime + garrison.CACHE_TTL)
+        await garrison.fetch_cached_garrison(account, "role")
+        upstream.assert_awaited_with(account, "role")
+        assert upstream.await_count == 2
+        # A fresh but truncated cache is treated as a miss.
+        monkeypatch.setattr(garrison, "time", lambda: path.stat().st_mtime)
+        path.write_text("{")
+        await garrison.fetch_cached_garrison(account, "role")
+        assert upstream.await_count == 3
+        await garrison.fetch_cached_garrison(account, "different-role")
+        await garrison.fetch_cached_garrison(other, "role")
+        assert upstream.await_count == 5
+        assert len(list(tmp_path.glob("*.json"))) == 3
+
+    asyncio.run(run())
 
 
 @pytest.mark.parametrize("head", ["#SK", "#sk", "#森空岛"])

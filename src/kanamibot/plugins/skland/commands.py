@@ -6,6 +6,7 @@ import re
 
 from nonebot import logger
 from nonebot.adapters import Bot, Event
+from nonebot.exception import SkippedException
 from nonebot.typing import T_State
 from nonebot_plugin_alconna import Alconna, Arparma, Extension, Text, UniMessage
 from nonebot_plugin_alconna.extension import TM, OutputType
@@ -27,6 +28,18 @@ class SklandCommandExtension(Extension):
         from nonebot_plugin_skland import skland
 
         from .background import resources
+
+        if res.matched and "garrison" in res.subcommands:
+            count = res.query("garrison.count.record_count")
+            error = None
+            if count is not None:
+                if count <= 0:
+                    error = "查询条数必须是正整数，例如 #sk 卫 -n 10。"
+                elif res.find("garrison.all") or res.find("garrison.index"):
+                    error = "-n 不能与 -a 或 -i 同时使用。"
+            if error:
+                await UniMessage(error).send(target=event, bot=bot)
+                raise SkippedException
 
         if resources.data_pending and res.matched and any(
             name in res.subcommands for name in ("gacha", "efgacha", "import", "box")
@@ -51,6 +64,9 @@ class SklandCommandExtension(Extension):
             body = "skland qrcode" + body[len(action) :]
         elif action == "方舟":
             body = "skland" + body[len(action) :]
+        elif action == "卫" and (count := re.match(r"\s+([+-]?[0-9]{1,4})(?=\s|$)", body[1:])):
+            # QQ numbers have at least five digits and still act as a target.
+            body = f"skland garrison -n {count[1]}{body[1 + count.end() :]}"
         elif any(action in option.aliases for option in command.options):
             body = "skland " + body
 
