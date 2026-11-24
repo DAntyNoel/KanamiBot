@@ -96,9 +96,11 @@ def _command(event: MessageEvent) -> str | None:
 async def _image_rule(event: MessageEvent) -> bool:
     command = _command(event)
     if _private_event(event) or _temporary_private_event(event):
-        return command is not None or _session_key(event) in _pending
+        pending = _pending.get(_session_key(event))
+        active = pending is not None and pending.expires_at > time.monotonic()
+        return active if command == _END_COMMAND else command is not None or active
     if _group_event(event):
-        return command is not None
+        return command in _COMMANDS
     return False
 
 
@@ -178,7 +180,7 @@ async def handle_image_obfuscator(bot: Bot, event: MessageEvent) -> None:
     action: str | None = None
     images: list[bytes] = []
     async with _lock:
-        pending = _pending.get(key)
+        pending = _pending.get(key) if _private_interaction(event) else None
         if pending and pending.expires_at <= time.monotonic():
             _pending.pop(key, None)
             pending = None
@@ -187,8 +189,6 @@ async def handle_image_obfuscator(bot: Bot, event: MessageEvent) -> None:
             if pending:
                 _pending.pop(key, None)
                 await bot.send(event, "本轮图片交互已结束；如需继续请重新发送混淆或解混淆命令。")
-            else:
-                await bot.send(event, "当前没有进行中的图片交互。")
             return
 
         if command:
@@ -202,9 +202,7 @@ async def handle_image_obfuscator(bot: Bot, event: MessageEvent) -> None:
             action = _COMMANDS[command]
             images = await download_all_images_from_event(event, bot)
             if not images:
-                if _group_event(event):
-                    await bot.send(event, "群聊混淆请直接附带图片，不支持后续交互式发送图片。")
-                else:
+                if _private_interaction(event):
                     await _start_pending(key, action, command, bot, event)
                 return
 

@@ -2,18 +2,23 @@ from __future__ import annotations
 
 import random
 import re
-from argparse import Namespace
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Any
 
 from nonebot import on_command, on_shell_command
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message, MessageSegment
 from nonebot.internal.matcher import Matcher
-from nonebot.params import ShellCommandArgs
 from nonebot.plugin import PluginMetadata
-from nonebot.rule import ArgumentParser
+from nonebot.rule import ArgumentParser, Rule
 
 from kanamibot.core import get_first_superuser
+from kanamibot.core.command_aliases import (
+    ALIAS_BOUNDARY,
+    BareChineseAlias,
+    CommandArgs,
+    ShellArgs,
+    finish_command_failure,
+)
 from kanamibot.core.group_manager import ADMIN_PERMISSION, ModuleRule
 from kanamibot.core.image_wrappers import (
     DATA_ROOT as IMAGE_FOLDER,
@@ -38,10 +43,16 @@ from kanamibot.core.utils.text import get_best_items_by_text_list
 from .buffer import send_buffer
 
 MODULE_NAME = "image"
-GROUP_RULE = ModuleRule(MODULE_NAME)
+GROUP_RULE = ModuleRule(MODULE_NAME) & ALIAS_BOUNDARY
 IMAGE_PREVIEW_LIMIT = 5
 _CQ_IMAGE_TAG_PATTERN = re.compile(r"^\[CQ:image(?:,|\])", re.IGNORECASE)
-ShellArgs = Annotated[Namespace, ShellCommandArgs()]
+
+
+async def _bare_reply_without_text(bare_alias: BareChineseAlias, args: CommandArgs) -> bool:
+    return not bare_alias or not (args and args.extract_plain_text().strip())
+
+
+REPLY_RULE = GROUP_RULE & Rule(_bare_reply_without_text)
 
 __plugin_meta__ = PluginMetadata(
     name="Image",
@@ -152,27 +163,32 @@ async def save_image_handler(
     event: GroupMessageEvent,
     matcher: Matcher,
     args: ShellArgs,
+    bare_alias: BareChineseAlias = False,
 ) -> None:
     alias = args.folder
+    if not alias:
+        await finish_command_failure(matcher, "找不到指定图库。", quiet=bare_alias)
     tags = _plain_tags(args.tags)
 
     first_superuser = await get_first_superuser()
     can_create_folder = first_superuser is not None and event.user_id == first_superuser
 
-    existing_folder = get_folder_name(alias, create_new=False)
-    new_folder_flag = False
-    if not existing_folder:
-        if not can_create_folder:
-            await matcher.finish("该图库不存在，只有首个超管可以创建新图库。")
-        new_folder_flag = True
-
-    folder = get_folder_name(alias, create_new=new_folder_flag)
-    if not folder:
-        await matcher.finish("找不到指定图库。")
+    folder = get_folder_name(alias)
+    unknown_folder_message = "该图库不存在，只有首个超管可以创建新图库。"
+    if not folder and not (can_create_folder or bare_alias):
+        await matcher.finish(unknown_folder_message)
 
     images_bytes = await download_all_images_from_event(event, bot)
     if not images_bytes:
-        await matcher.finish("请附带图片、回复图片或发送合并转发聊天记录进行保存。")
+        await finish_command_failure(
+            matcher, "请附带图片、回复图片或发送合并转发聊天记录进行保存。", quiet=bare_alias
+        )
+    if not folder:
+        if not can_create_folder:
+            await matcher.finish(unknown_folder_message)
+        folder = get_folder_name(alias, create_new=True)
+        if not folder:
+            await matcher.finish("找不到指定图库。")
 
     saved_count = 0
     similar_messages: list[Message] = []
@@ -286,11 +302,12 @@ async def list_image_handler(
     event: GroupMessageEvent,
     matcher: Matcher,
     args: ShellArgs,
+    bare_alias: BareChineseAlias = False,
 ) -> None:
     alias = args.folder
     folder = get_folder_name(alias)
     if not folder:
-        await matcher.finish("图库不存在。")
+        await finish_command_failure(matcher, "图库不存在。", quiet=bare_alias)
     gallery = create_image_gallery(folder, event.group_id)
     if not gallery:
         await matcher.finish("这个图库里没有可见图片。")
@@ -302,20 +319,24 @@ delete_image_matcher = on_command(
     aliases={"删除", "移除", "remove_image"},
     priority=10,
     block=True,
-    rule=GROUP_RULE,
+    rule=REPLY_RULE,
     permission=ADMIN_PERMISSION,
 )
 
 
 @delete_image_matcher.handle()
 @timed()
-async def delete_image_handler(event: GroupMessageEvent, matcher: Matcher) -> None:
+async def delete_image_handler(
+    event: GroupMessageEvent, matcher: Matcher, bare_alias: BareChineseAlias = False
+) -> None:
     quote_id = _reply_message_id(event)
     if quote_id is None:
-        await matcher.finish("请回复要删除的图片消息。")
+        await finish_command_failure(matcher, "请回复要删除的图片消息。", quiet=bare_alias)
     request = send_buffer.get(quote_id)
     if not request:
-        await matcher.finish("无法定位该图片的原始记录，可能已过期。")
+        await finish_command_failure(
+            matcher, "无法定位该图片的原始记录，可能已过期。", quiet=bare_alias
+        )
     delete_image(*request)
     send_buffer.remove(quote_id)
     await matcher.finish("图片已删除。")
@@ -326,19 +347,25 @@ image_info_matcher = on_command(
     aliases={"信息", "info"},
     priority=10,
     block=True,
-    rule=GROUP_RULE,
+    rule=REPLY_RULE,
 )
 
 
 @image_info_matcher.handle()
 @timed()
-async def image_info_handler(event: GroupMessageEvent, matcher: Matcher) -> None:
+async def image_info_handler(
+    event: GroupMessageEvent, matcher: Matcher, bare_alias: BareChineseAlias = False
+) -> None:
     quote_id = _reply_message_id(event)
     if quote_id is None:
-        await matcher.finish("请回复一张由机器人发送的图片来获取信息。")
+        await finish_command_failure(
+            matcher, "请回复一张由机器人发送的图片来获取信息。", quiet=bare_alias
+        )
     request = send_buffer.get(quote_id)
     if not request:
-        await matcher.finish("无法定位该图片的原始记录，可能已过期。")
+        await finish_command_failure(
+            matcher, "无法定位该图片的原始记录，可能已过期。", quiet=bare_alias
+        )
     imagedata = get_imagedata(*request)
     if not imagedata:
         await matcher.finish("图片信息不存在哦。")
@@ -365,14 +392,15 @@ async def tag_handler(
     event: GroupMessageEvent,
     matcher: Matcher,
     args: ShellArgs,
+    bare_alias: BareChineseAlias = False,
 ) -> None:
     quote_id = _reply_message_id(event)
     if quote_id is None:
-        await matcher.finish("请回复一张图片进行打标。")
+        await finish_command_failure(matcher, "请回复一张图片进行打标。", quiet=bare_alias)
 
     request = send_buffer.get(quote_id)
     if not request:
-        await matcher.finish("无法获取图片上下文，请重试。")
+        await finish_command_failure(matcher, "无法获取图片上下文，请重试。", quiet=bare_alias)
 
     imagedata = get_imagedata(*request)
     if not imagedata:
@@ -390,20 +418,22 @@ untag_matcher = on_command(
     aliases={"清除tag", "删除tag", "清空标签"},
     priority=10,
     block=True,
-    rule=GROUP_RULE,
+    rule=REPLY_RULE,
     permission=ADMIN_PERMISSION,
 )
 
 
 @untag_matcher.handle()
 @timed()
-async def untag_handler(event: GroupMessageEvent, matcher: Matcher) -> None:
+async def untag_handler(
+    event: GroupMessageEvent, matcher: Matcher, bare_alias: BareChineseAlias = False
+) -> None:
     quote_id = _reply_message_id(event)
     if quote_id is None:
-        await matcher.finish("请回复要清除标签的图片。")
+        await finish_command_failure(matcher, "请回复要清除标签的图片。", quiet=bare_alias)
     request = send_buffer.get(quote_id)
     if not request:
-        await matcher.finish("无法获取图片上下文，请重试。")
+        await finish_command_failure(matcher, "无法获取图片上下文，请重试。", quiet=bare_alias)
     image_id, folder = request
     update_imagedata(image_id, folder, tags=[])
     await matcher.finish("标签已全部清除。")
@@ -429,6 +459,7 @@ async def select_image_handler(
     event: GroupMessageEvent,
     matcher: Matcher,
     args: ShellArgs,
+    bare_alias: BareChineseAlias = False,
 ) -> None:
     alias = args.folder
     query_str = " ".join(str(item) for item in args.query).strip()
@@ -436,7 +467,7 @@ async def select_image_handler(
     if re.match(r"^-?\d+$", query_str):
         folder = get_folder_name(alias)
         if not folder:
-            await matcher.finish(f"找不到名为 {alias} 的图库。")
+            await finish_command_failure(matcher, f"找不到名为 {alias} 的图库。", quiet=bare_alias)
         images = get_visible_images(folder, event.group_id)
         total = len(images)
         if total == 0:
@@ -468,7 +499,7 @@ async def select_image_handler(
         imagedicts.append(image)
 
     if not imagedicts:
-        await matcher.finish("没有找到图片哦。")
+        await finish_command_failure(matcher, "没有找到图片哦。", quiet=bare_alias)
 
     image = random.choice(imagedicts)
     await _send_stored_image(select_image_matcher, image["folder"], image)

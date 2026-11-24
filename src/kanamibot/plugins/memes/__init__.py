@@ -4,25 +4,29 @@ import asyncio
 import importlib
 import json
 import os
-from argparse import Namespace
 from collections.abc import Iterable, Sequence
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Any
 
 from nonebot import on_shell_command
 from nonebot.adapters.onebot.v11 import Bot, MessageEvent, MessageSegment
 from nonebot.internal.matcher import Matcher
-from nonebot.params import ShellCommandArgs
 from nonebot.plugin import PluginMetadata
 from nonebot.rule import ArgumentParser
 
 from kanamibot.core import ModuleRule
+from kanamibot.core.command_aliases import (
+    ALIAS_BOUNDARY,
+    BareChineseAlias,
+    ShellArgs,
+    finish_command_failure,
+)
 from kanamibot.core.paths import DATA_DIR
 from kanamibot.core.timing import timed
 from kanamibot.core.utils.image import download_all_images_from_event
 
 MODULE_NAME = "memes"
-GROUP_RULE = ModuleRule(MODULE_NAME)
+GROUP_RULE = ModuleRule(MODULE_NAME) & ALIAS_BOUNDARY
 MEME_HOME_ENV = "MEME_HOME"
 DEFAULT_MEME_HOME = DATA_DIR / "memes"
 os.environ.setdefault(MEME_HOME_ENV, str(DEFAULT_MEME_HOME))
@@ -32,7 +36,6 @@ MEME_HOME = Path(os.environ[MEME_HOME_ENV])
 RESOURCE_IMAGES_DIR = MEME_HOME / "resources" / "images"
 RESOURCE_UPDATE_LOCK = asyncio.Lock()
 LIST_LIMIT = 20
-ShellArgs = Annotated[Namespace, ShellCommandArgs()]
 
 __plugin_meta__ = PluginMetadata(
     name="Memes",
@@ -426,11 +429,12 @@ async def handle_meme(
     event: MessageEvent,
     matcher: Matcher,
     args: ShellArgs,
+    bare_alias: BareChineseAlias = False,
 ) -> None:
     try:
         meme_info = await _get_meme_info(args.key)
     except MemeError as exc:
-        await matcher.finish(str(exc))
+        await finish_command_failure(matcher, str(exc), quiet=bare_alias)
 
     try:
         extra_args = _parse_extra_args(args.arg_items, args.args_json)
@@ -473,11 +477,13 @@ meme_info_matcher = on_shell_command(
 
 
 @meme_info_matcher.handle()
-async def handle_meme_info(matcher: Matcher, args: ShellArgs) -> None:
+async def handle_meme_info(
+    matcher: Matcher, args: ShellArgs, bare_alias: BareChineseAlias = False
+) -> None:
     try:
         meme_info = await _get_meme_info(args.key)
     except MemeError as exc:
-        await matcher.finish(str(exc))
+        await finish_command_failure(matcher, str(exc), quiet=bare_alias)
     await matcher.finish(_format_meme_info(meme_info))
 
 
@@ -495,7 +501,9 @@ meme_list_matcher = on_shell_command(
 
 
 @meme_list_matcher.handle()
-async def handle_meme_list(matcher: Matcher, args: ShellArgs) -> None:
+async def handle_meme_list(
+    matcher: Matcher, args: ShellArgs, bare_alias: BareChineseAlias = False
+) -> None:
     try:
         keys = await _get_meme_keys()
     except MemeError as exc:
@@ -519,7 +527,7 @@ async def handle_meme_list(matcher: Matcher, args: ShellArgs) -> None:
     )
 
     if not matched_infos:
-        await matcher.finish("没有找到匹配的表情模板。")
+        await finish_command_failure(matcher, "没有找到匹配的表情模板。", quiet=bare_alias)
 
     matched_infos = sorted(matched_infos, key=lambda item: str(_field(item, "key", "")))
     lines = [_format_meme_line(meme_info) for meme_info in matched_infos[:LIST_LIMIT]]
