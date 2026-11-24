@@ -33,7 +33,7 @@
       <h1>{{ page.title }}</h1>
       <div class="subtitle">{{ page.subtitle }}</div>
     </header>
-    <div class="heads">指令头通用 <b>#SK</b><b>#sk</b><b>#森空岛</b></div>
+    <div class="heads">指令头 <b>#sk</b></div>
     <main>
       {% for section in page.sections %}
       <section>
@@ -48,7 +48,7 @@
       {% endfor %}
     </main>
     <aside>{% for note in page.notes %}<p>{{ note }}</p>{% endfor %}</aside>
-    <footer><span>#SK 帮助</span><span>{{ index }} / {{ total }}</span></footer>
+    <footer><span>#sk 帮助</span><span>{{ index }} / {{ total }}</span></footer>
   </article>
 </body>
 </html>

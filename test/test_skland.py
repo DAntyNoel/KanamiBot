@@ -58,17 +58,12 @@ def runtime(tmp_path_factory):
 
     from kanamibot.core.group_manager import group_config
     from kanamibot.plugins import skland as adapter
-    from kanamibot.plugins.skland.garrison import require_garrison_shortcut_prefix
 
     orm_main(args=["upgrade"], standalone_mode=False)
     orm_main(args=["check"], standalone_mode=False)
 
-    async def start_shortcuts():
-        await hook.startup()
-        await require_garrison_shortcut_prefix()
-
     with patch.object(hook, "update_data_resources", new=AsyncMock()):
-        asyncio.run(start_shortcuts())
+        asyncio.run(hook.startup())
 
     bot = Bot(
         SimpleNamespace(
@@ -84,7 +79,6 @@ def runtime(tmp_path_factory):
         matcher=adapter.upstream.skland,
         groups=group_config,
         bot=bot,
-        start_shortcuts=start_shortcuts,
     )
 
 
@@ -100,7 +94,7 @@ def policy(runtime, monkeypatch):
     return runtime.groups.config["20000"]
 
 
-def event(text="/ef", *, user=30000, group=20000, private=False):
+def event(text="#sk ef", *, user=30000, group=20000, private=False):
     fields = {
         "time": 0,
         "self_id": 10000,
@@ -313,7 +307,7 @@ def test_resource_downloads_do_not_block_shortcuts_or_startup(runtime, monkeypat
         monkeypatch.setattr(hook.config, "check_res_update", check_images)
         background.install_background_resources()
         try:
-            await asyncio.wait_for(runtime.start_shortcuts(), timeout=1)
+            await asyncio.wait_for(hook.startup(), timeout=1)
             assert manager.data_pending
             assert len(manager.tasks) == 1 + check_images
             await asyncio.sleep(0)
@@ -401,7 +395,7 @@ def test_upstream_reactions_use_ok_for_acceptance_and_completion(
 
     # Other Alconna plugins retain their original reaction function.
     assert message_reaction is reactions.message_reaction
-    origin = event("#SK 登录")
+    origin = event("#sk 登录")
 
     async def run():
         tasks = []
@@ -456,18 +450,28 @@ def test_migrations_create_account_and_history_tables_in_isolated_storage(runtim
 
 @pytest.mark.parametrize(
     "text",
-    ["/ef", "/skland efcard", "/终末地抽卡记录", "/skland garrison", "/卫戍战绩", "/卫", "/卫 -a"],
+    [
+        "卫",
+        "卫 10",
+        "卫 -a",
+        "终末地签到",
+        "扫码绑定",
+        "方舟干员",
+        "ef",
+        "skland efcard",
+        "/ef",
+        "/卫 -a",
+        "/skland garrison",
+        "/skland --help",
+        "/skland bad-option",
+        "#SK 卫",
+        "#森空岛 帮助",
+    ],
 )
-def test_enabled_commands_keep_upstream_parsing(runtime, policy, monkeypatch, text):
-    assert dispatch(runtime, monkeypatch, event(text)) == (["handler"], 0)
-
-
-@pytest.mark.parametrize("text", ["卫", "卫 10", "卫 -a", "卫 -n 10"])
-def test_garrison_short_alias_requires_prefix(runtime, policy, monkeypatch, text):
+def test_skland_commands_require_lowercase_prefix(runtime, policy, monkeypatch, text):
     assert dispatch(runtime, monkeypatch, event(text)) == ([], 0)
 
 
-@pytest.mark.parametrize("head", ["#SK", "#sk", "#森空岛"])
 @pytest.mark.parametrize(
     ("body", "path", "value"),
     [
@@ -506,11 +510,9 @@ def test_garrison_short_alias_requires_prefix(runtime, policy, monkeypatch, text
         ("方舟 -r 2", "role.role_index", 2),
     ],
 )
-def test_local_heads_preserve_command_and_options(
-    runtime, policy, monkeypatch, head, body, path, value
-):
+def test_local_head_preserves_command_and_options(runtime, policy, monkeypatch, body, path, value):
     parsed = []
-    assert dispatch(runtime, monkeypatch, event(f"{head} {body}"), parsed) == (["handler"], 0)
+    assert dispatch(runtime, monkeypatch, event(f"#sk {body}"), parsed) == (["handler"], 0)
     assert parsed[0].find(path)
     if value is not None:
         assert parsed[0].query(path) == value
@@ -546,30 +548,28 @@ def test_full_menu_examples_reach_expected_upstream_action(
     runtime, policy, monkeypatch, body, path
 ):
     parsed = []
-    assert dispatch(runtime, monkeypatch, event(f"#SK {body}"), parsed) == (["handler"], 0)
+    assert dispatch(runtime, monkeypatch, event(f"#sk {body}"), parsed) == (["handler"], 0)
     assert parsed[0].find(path)
 
 
-@pytest.mark.parametrize("head", ["#SK", "#sk", "#森空岛"])
 @pytest.mark.parametrize(
     "action", ["绑定", "登录", "登陆", "扫码", "QR", "qr", "扫码登录", "扫码绑定"]
 )
-def test_login_does_not_depend_on_startup_shortcuts(runtime, policy, monkeypatch, head, action):
+def test_login_does_not_depend_on_startup_shortcuts(runtime, policy, monkeypatch, action):
     command = runtime.matcher.command()
     command.shortcut("扫码绑定", delete=True)
     try:
         parsed = []
-        assert dispatch(runtime, monkeypatch, event(f"{head} {action}"), parsed) == (["handler"], 0)
+        assert dispatch(runtime, monkeypatch, event(f"#sk {action}"), parsed) == (["handler"], 0)
         assert parsed[0].find("qrcode")
     finally:
         command.shortcut("扫码绑定", {"command": "skland qrcode", "fuzzy": False, "prefix": True})
 
 
-@pytest.mark.parametrize("head", ["#SK", "#sk", "#森空岛"])
 @pytest.mark.parametrize(
     "action", ["绑定", "登录", "登陆", "扫码", "QR", "qr", "扫码登录", "扫码绑定"]
 )
-def test_login_runs_real_upstream_qrcode_handler(runtime, policy, head, action):
+def test_login_runs_real_upstream_qrcode_handler(runtime, policy, action):
     with (
         patch("nonebot_plugin_skland.commands.bind.qrcode_handler", new=AsyncMock()) as login,
         patch.object(
@@ -580,11 +580,59 @@ def test_login_runs_real_upstream_qrcode_handler(runtime, policy, head, action):
         ),
         patch.object(runtime.bot, "send", new=AsyncMock()) as send,
     ):
-        asyncio.run(
-            check_and_run_matcher(runtime.matcher, runtime.bot, event(f"{head} {action}"), {})
-        )
+        asyncio.run(check_and_run_matcher(runtime.matcher, runtime.bot, event(f"#sk {action}"), {}))
     login.assert_awaited_once()
     send.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    ("name", "prefix", "enabled", "responds"),
+    [
+        ("background", "", True, False),
+        ("clue", "/", True, False),
+        ("background", "#SK ", True, False),
+        ("background", "#sk ", True, True),
+        ("clue", "#sk ", True, True),
+        ("clue", "#sk ", False, False),
+    ],
+)
+def test_image_reply_requires_sk_prefix_and_group_permission(
+    runtime, policy, name, prefix, enabled, responds
+):
+    from nonebot.adapters.onebot.v11.event import Reply
+    from nonebot_plugin_argot import matcher as argot
+    from nonebot_plugin_argot.typing import Argot
+
+    policy["modules"]["skland"] = enabled
+    message = event(prefix + name)
+    message.reply = Reply.model_validate(
+        {
+            "time": 0,
+            "message_type": "group",
+            "message_id": 501,
+            "real_id": 501,
+            "sender": {"user_id": 10000},
+            "message": Message("original card"),
+        }
+    )
+    record = Argot(message_id="501", name=name)
+    with (
+        patch.object(argot, "get_argot", new=AsyncMock(return_value=record)) as fetch,
+        patch.object(argot.le, "publish", new=AsyncMock()) as publish,
+        patch.object(runtime.bot, "send", new=AsyncMock()) as send,
+    ):
+        try:
+            asyncio.run(check_and_run_matcher(argot.argot_cmd, runtime.bot, message, {}))
+        except StopPropagation:
+            assert responds
+    send.assert_not_awaited()
+    if responds:
+        fetch.assert_awaited_once_with(name, "501")
+        publish.assert_awaited_once()
+        assert publish.await_args.args[0].name == name
+    else:
+        fetch.assert_not_awaited()
+        publish.assert_not_awaited()
 
 
 def test_unbound_account_message_includes_scan_login_hint(runtime, policy):
@@ -605,6 +653,16 @@ def test_unbound_account_message_includes_scan_login_hint(runtime, policy):
     )
 
 
+def test_role_selection_message_uses_sk_prefix(runtime):
+    from nonebot_plugin_alconna import UniMessage
+
+    from kanamibot.plugins.skland.commands import SklandCommandExtension
+
+    message = UniMessage("切换默认角色: sk char set ark <序号> / #sk char set ef <序号>")
+    formatted = asyncio.run(SklandCommandExtension().send_wrapper(runtime.bot, event(), message))
+    assert str(formatted) == "切换默认角色: #sk char set ark <序号> / #sk char set ef <序号>"
+
+
 def test_garrison_runs_upstream_handler_with_selected_options(runtime, policy):
     with (
         patch(
@@ -619,7 +677,7 @@ def test_garrison_runs_upstream_handler_with_selected_options(runtime, policy):
     ):
         asyncio.run(
             check_and_run_matcher(
-                runtime.matcher, runtime.bot, event("#SK 卫戍战绩 --role 2 -f --index 1 -a"), {}
+                runtime.matcher, runtime.bot, event("#sk 卫戍战绩 --role 2 -f --index 1 -a"), {}
             )
         )
     handler.assert_awaited_once()
@@ -731,21 +789,18 @@ def test_garrison_cache_reuses_refresh_and_isolates_users_and_roles(runtime, mon
     asyncio.run(run())
 
 
-@pytest.mark.parametrize("head", ["#SK", "#sk", "#森空岛"])
 @pytest.mark.parametrize("body", ["", " 帮助", " --help"])
-def test_local_help(runtime, policy, monkeypatch, head, body):
-    assert dispatch(runtime, monkeypatch, event(head + body)) == ([], 1)
+def test_local_help(runtime, policy, monkeypatch, body):
+    assert dispatch(runtime, monkeypatch, event("#sk" + body)) == ([], 1)
 
 
 @pytest.mark.parametrize(
     "text",
     [
-        "#SK 帮助",
+        "#sk 帮助",
         "#sk",
-        "#森空岛 --help",
-        "/skland --help",
-        "#SK efcard --help",
-        "/skland --shortcut list",
+        "#sk efcard --help",
+        "#sk --shortcut list",
     ],
 )
 def test_help_sends_images_without_raw_formatter_or_shortcut_mappings(
@@ -776,7 +831,7 @@ def test_parse_error_does_not_echo_internal_commands_or_credentials(runtime):
     message = asyncio.run(
         SklandCommandExtension().output_converter("error", "secret-token => skland bind")
     )
-    assert str(message) == "指令参数有误，请发送 #SK 帮助 查看命令和用法。"
+    assert str(message) == "指令参数有误，请发送 #sk 帮助 查看命令和用法。"
 
 
 def test_help_covers_all_native_function_paths_and_contains_no_mapping_table(runtime):
@@ -809,7 +864,8 @@ def test_help_covers_all_native_function_paths_and_contains_no_mapping_table(run
     )
     documents = help_documents()
     assert len(documents) == 3
-    assert all("#SK" in html and "#sk" in html and "#森空岛" in html for html in documents)
+    assert all("#sk" in html for html in documents)
+    assert all("#SK" not in html and "#森空岛" not in html for html in documents)
     assert all(
         token not in "".join(documents)
         for token in ("=&gt;", "=&gt", "At|int", "skland qrcode", "快捷命令:", "代理", "Alconna")
@@ -819,10 +875,10 @@ def test_help_covers_all_native_function_paths_and_contains_no_mapping_table(run
 
 @pytest.mark.parametrize("space", ["  ", "\t", "\u3000"])
 def test_local_head_accepts_whitespace_separator(runtime, policy, monkeypatch, space):
-    assert dispatch(runtime, monkeypatch, event(f"#SK{space}扫码登录")) == (["handler"], 0)
+    assert dispatch(runtime, monkeypatch, event(f"#sk{space}扫码登录")) == (["handler"], 0)
 
 
-@pytest.mark.parametrize("text", ["#SKY 扫码登录", "#SK扫码登录", "聊天 #SK 扫码登录", "#卫 boss"])
+@pytest.mark.parametrize("text", ["#sky 扫码登录", "#sk扫码登录", "聊天 #sk 扫码登录", "#卫 boss"])
 def test_command_head_requires_boundary_and_message_start(runtime, policy, monkeypatch, text):
     assert dispatch(runtime, monkeypatch, event(text)) == ([], 0)
 
@@ -832,7 +888,7 @@ def test_local_command_keeps_mention_and_original_message(runtime, policy, monke
     from nonebot.adapters.onebot.v11 import MessageSegment
     from nonebot_plugin_alconna import At
 
-    message = event(f"#SK {body} ")
+    message = event(f"#sk {body} ")
     message.message += MessageSegment.at(30001)
     original = message.message.copy()
     parsed = []
@@ -844,7 +900,7 @@ def test_local_command_keeps_mention_and_original_message(runtime, policy, monke
 
 @pytest.mark.parametrize(
     "text",
-    ["/ef", "/skland --help", "/skland bad-option", "#SK 扫码登录", "#sk 帮助", "#SK 卫戍战绩"],
+    ["#sk ef", "#sk --help", "#sk bad-option", "#sk 扫码登录", "#sk 帮助", "#sk 卫戍战绩"],
 )
 def test_disabled_group_sends_neither_results_nor_automatic_help(
     runtime,
@@ -857,7 +913,7 @@ def test_disabled_group_sends_neither_results_nor_automatic_help(
 
 
 def test_enabled_help_still_responds(runtime, policy, monkeypatch):
-    assert dispatch(runtime, monkeypatch, event("/skland --help")) == ([], 1)
+    assert dispatch(runtime, monkeypatch, event("#sk --help")) == ([], 1)
 
 
 def test_blacklisted_member_is_blocked(runtime, policy, monkeypatch):
@@ -895,7 +951,7 @@ def test_waiter_rechecks_group_policy_and_keeps_sender_session(runtime, policy):
     from nonebot_plugin_waiter import waiter
 
     async def run():
-        origin = event("/skland qrcode")
+        origin = event("#sk qrcode")
         matcher_token = current_matcher.set(runtime.matcher())
         event_token = current_event.set(origin)
 
@@ -939,8 +995,8 @@ def test_help_contains_one_public_skland_entry(runtime):
     features = [feature for feature in collect_features() if "skland" in feature.module_name]
     assert len(features) == 1
     assert features[0].title == "森空岛"
-    assert "#SK 帮助" in features[0].usage
-    assert "#SK、#sk、#森空岛" in features[0].usage
+    assert "#sk 帮助" in features[0].usage
+    assert "#SK" not in features[0].usage and "#森空岛" not in features[0].usage
 
 
 def test_storage_defaults_preserve_explicit_paths(runtime, monkeypatch, tmp_path):

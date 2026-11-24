@@ -22,8 +22,10 @@ if config.kanamibot_skland_enabled:
     configure_browser()
     upstream = require("nonebot_plugin_skland")
 
+    from nonebot_plugin_argot.matcher import argot_cmd
+
     from .background import install_background_resources
-    from .commands import SklandCommandExtension
+    from .commands import REPLY_SHORTCUTS, SklandCommandExtension, SklandReplyCommandExtension
     from .garrison import install_garrison
     from .help import HELP_SUMMARY
     from .permissions import protect_matcher
@@ -36,6 +38,10 @@ if config.kanamibot_skland_enabled:
     install_sign_handlers()
     upstream.skland.executor.extensions.append(SklandCommandExtension())
     protect_matcher(upstream.skland)
+    argot_cmd.executor.extensions.append(SklandReplyCommandExtension())
+    protect_matcher(argot_cmd)
+    for name in REPLY_SHORTCUTS:
+        argot_cmd.shortcut(name, {"command": f"argot {name}", "prefix": True, "fuzzy": False})
     upstream.__plugin_meta__.usage = HELP_SUMMARY
     upstream.__plugin_meta__.description = (
         "森空岛账号绑定、方舟与终末地角色卡、签到、抽卡、卫戍战绩与战争回响查询。"

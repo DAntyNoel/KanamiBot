@@ -15,16 +15,53 @@ from kanamibot.core.timing import timed
 
 from .help import render_help_images
 
-COMMAND_HEAD = re.compile(r"^#(?:SK|sk|森空岛)(?=\s|$)\s*")
+COMMAND_HEAD = re.compile(r"^#sk(?=\s|$)\s*")
+REPLY_SHORTCUTS = ("background", "clue")
+REPLY_COMMANDS = {*REPLY_SHORTCUTS, "argot"}
 
 
-class SklandCommandExtension(Extension):
-    id = "kanamibot.skland.commands"
+class SklandPrefixExtension(Extension):
     priority = 0
+    handles_image_replies = False
 
-    async def parse_wrapper(
-        self, bot: Bot, state: T_State, event: Event, res: Arparma
-    ) -> None:
+    async def message_provider(
+        self, event: Event, state: T_State, bot: Bot, use_origin: bool = False
+    ) -> UniMessage | None:
+        text = event.get_plaintext()
+        if not (head := COMMAND_HEAD.match(text)):
+            return UniMessage()
+        words = text[head.end() :].split(maxsplit=1)
+        is_reply_command = bool(words and words[0] in REPLY_COMMANDS)
+        if is_reply_command != self.handles_image_replies:
+            return UniMessage()
+        return None
+
+    @timed()
+    async def receive_wrapper(
+        self, bot: Bot, event: Event, command: Alconna, receive: UniMessage
+    ) -> UniMessage:
+        if not receive or not isinstance(receive[0], Text):
+            return UniMessage()
+        if not (head := COMMAND_HEAD.match(receive[0].text)):
+            return UniMessage()
+
+        body = self.translate_body(receive[0].text[head.end() :], command)
+        prefix = next((value for value in command.prefixes if isinstance(value, str)), "")
+        return UniMessage(prefix + body) + receive[1:]
+
+    def translate_body(self, body: str, command: Alconna) -> str:
+        return body
+
+
+class SklandReplyCommandExtension(SklandPrefixExtension):
+    id = "kanamibot.skland.image_replies"
+    handles_image_replies = True
+
+
+class SklandCommandExtension(SklandPrefixExtension):
+    id = "kanamibot.skland.commands"
+
+    async def parse_wrapper(self, bot: Bot, state: T_State, event: Event, res: Arparma) -> None:
         from nonebot_plugin_skland import skland
 
         from .background import resources
@@ -41,21 +78,14 @@ class SklandCommandExtension(Extension):
                 await UniMessage(error).send(target=event, bot=bot)
                 raise SkippedException
 
-        if resources.data_pending and res.matched and any(
-            name in res.subcommands for name in ("gacha", "efgacha", "import", "box")
+        if (
+            resources.data_pending
+            and res.matched
+            and any(name in res.subcommands for name in ("gacha", "efgacha", "import", "box"))
         ):
             await skland.finish("森空岛数据资源正在后台准备，请稍后重试。")
 
-    @timed()
-    async def receive_wrapper(
-        self, bot: Bot, event: Event, command: Alconna, receive: UniMessage
-    ) -> UniMessage:
-        if not receive or not isinstance(receive[0], Text):
-            return receive
-        if not (head := COMMAND_HEAD.match(receive[0].text)):
-            return receive
-
-        body = receive[0].text[head.end() :]
+    def translate_body(self, body: str, command: Alconna) -> str:
         action = body.split(maxsplit=1)[0] if body.strip() else ""
         if not action or action in {"帮助", "help", "--help", "-h"}:
             body = "skland --help"
@@ -73,14 +103,14 @@ class SklandCommandExtension(Extension):
         elif any(action in option.aliases for option in command.options):
             body = "skland " + body
 
-        # Reuse upstream Chinese shortcuts and their role/signing semantics. Only
-        # this matcher's copy changes; mentions and the original event stay intact.
-        prefix = next((value for value in command.prefixes if isinstance(value, str)), "")
-        return UniMessage(prefix + body) + receive[1:]
+        return body
 
     async def send_wrapper(self, bot: Bot, event: Event, send: TM) -> TM:
-        if isinstance(send, UniMessage) and send.extract_plain_text() == "你还没有绑定森空岛账号":
-            return send + "\n请使用 #sk 登录 用森空岛扫码绑定。"
+        if isinstance(send, UniMessage):
+            if send.extract_plain_text() == "你还没有绑定森空岛账号":
+                return send + "\n请使用 #sk 登录 用森空岛扫码绑定。"
+            for text in send[Text]:
+                text.text = re.sub(r"(?<!#)\bsk char\b", "#sk char", text.text)
         return send
 
     @timed()
@@ -97,4 +127,4 @@ class SklandCommandExtension(Extension):
             except Exception:
                 logger.exception("森空岛帮助图片生成失败")
                 return UniMessage("帮助图片暂时无法生成，请稍后重试。")
-        return UniMessage("指令参数有误，请发送 #SK 帮助 查看命令和用法。")
+        return UniMessage("指令参数有误，请发送 #sk 帮助 查看命令和用法。")
