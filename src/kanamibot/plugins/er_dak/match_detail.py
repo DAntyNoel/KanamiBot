@@ -14,7 +14,18 @@ from urllib.parse import quote
 
 from erbs_plugin import PlayerNotFound, RateLimited, SkiaCardRenderer, UpstreamUnavailable
 from erbs_plugin.models import CardPayload
-from erbs_plugin.rendering.dak import DARK, INK, LINE, MUTED, WHITE, Drawing, num
+from erbs_plugin.models.experiment import experiment_summary
+from erbs_plugin.rendering.dak import (
+    DARK,
+    INK,
+    LINE,
+    MUTED,
+    WHITE,
+    Drawing,
+    draw_experiment_icon,
+    experiment_time,
+    num,
+)
 
 from .group_pet import Snapshot
 
@@ -211,17 +222,29 @@ async def build_detail_card(client, data, nickname, game_id):
             "traits": [asset(traits, code, "潜能") for code in perks if code],
             "tactical": tactical or {"name": f"战术 {row.get('tacticalSkillGroup', '—')}"},
         }
+        for key, source in (
+            ("experimentReward", "crExperimentReward"),
+            ("experimentalCredit", "crExperimentalCredit"),
+        ):
+            value = row.get(source)
+            if type(value) is int and value >= 0:
+                player[key] = value
         # Missing team IDs must never collapse unrelated players into one team.
         team = row.get("teamNumber")
-        teams[str(team) if team is not None else f"未知-{len(teams) + 1}"].append(player)
-    sections = tuple(
-        {
-            "title": f"第 {rank if (rank := min(p['rank'] for p in players)) < 999 else '—'} 名"
-            f" · 队伍 {team}",
-            "items": players,
+        teams[str(team) if team is not None else f"未知-{len(teams) + 1}"].append((player, row))
+    sections = []
+    for team, members in teams.items():
+        players, records = zip(*members, strict=True)
+        rank = min(p["rank"] for p in players)
+        section = {
+            "title": f"第 {rank if rank < 999 else '—'} 名 · 队伍 {team}",
+            "items": list(players),
         }
-        for team, players in sorted(teams.items(), key=lambda t: min(p["rank"] for p in t[1]))
-    )
+        experiment = experiment_summary(records)
+        has_credits = any(p.get("experimentReward") or p.get("experimentalCredit") for p in players)
+        if experiment or has_credits:
+            section["experiment"] = experiment or {"name": "未选择工程领域"}
+        sections.append((rank, section))
     start = match_time(rows[0].get("startDtm"))
     when = (
         datetime.fromtimestamp(start, timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M")
@@ -232,13 +255,65 @@ async def build_detail_card(client, data, nickname, game_id):
         kind="match-detail",
         title=f"对局结算 · {game_id}",
         subtitle=f"{nickname} · {when} · {rows[0].get('serverName', '—')}",
-        sections=sections,
+        sections=tuple(section for _, section in sorted(sections, key=lambda entry: entry[0])),
         footer={
             "source": "DAK.GG",
             "averageRp": (data.get("matchTier") or {}).get("mmr"),
             "mode": {2: "匹配", 3: "排位", 6: "钴协议"}.get(rows[0].get("matchingMode"), "对局"),
         },
     )
+
+
+def _experiment_height(section):
+    if not section.get("experiment"):
+        return 0
+    return max(110, 55 + 18 * len(section["items"]))
+
+
+def _sum_credits(values):
+    return None if None in values else sum(values)
+
+
+def _draw_experiment(d, section, y, highlighted):
+    experiment = section["experiment"]
+    d.rect(0, y, 1100, _experiment_height(section), 0xFFFFF5DC if highlighted else 0xFFF2F5F6)
+    d.line(0, y, 1100)
+    if field := experiment.get("type"):
+        draw_experiment_icon(d, field, 90, y + 9)
+        d.text(experiment["name"], 113, y + 22, 15, bold=True)
+        d.text("初始课题", 90, y + 44, 13, bold=True)
+        d.text(experiment["startCondition"], 90, y + 63, 12, width=224)
+        d.text(experiment_time(experiment), 90, y + 82, 12, MUTED)
+        tasks = experiment["repeatTasks"]
+        total = sum(task["count"] for task in tasks)
+        d.text(f"重复课题 · 共 {total} 次", 324, y + 44, 13, bold=True)
+        for index, task in enumerate(tasks):
+            baseline = y + 63 + 17 * index
+            d.text(task["condition"], 324, baseline, 12, width=170)
+            d.center(f"{task['count']} 次", 497, baseline, 65, 12)
+    else:
+        d.text(experiment["name"], 90, y + 22, 15, bold=True)
+
+    columns = (
+        ("重复课题奖励荣誉值", 766, 126),
+        ("额外荣誉值", 892, 91),
+        ("合计", 983, 97),
+    )
+    d.text("课题荣誉值", 601, y + 22, 13, bold=True)
+    for label, x, width in columns:
+        d.center(label, x, y + 22, width, 12, MUTED)
+    credits = [(p.get("experimentReward"), p.get("experimentalCredit")) for p in section["items"]]
+    totals = tuple(_sum_credits(values) for values in zip(*credits, strict=True))
+    names = [player["nickname"] for player in section["items"]]
+    credit_rows = zip([*names, "队伍合计"], [*credits, totals], strict=True)
+    for index, (name, values) in enumerate(credit_rows):
+        baseline = y + 43 + index * 18
+        is_total = index == len(names)
+        if is_total:
+            d.line(601, baseline - 13, 479)
+        d.text(name, 601, baseline, 12, bold=is_total, width=160)
+        for value, (_, x, width) in zip((*values, _sum_credits(values)), columns, strict=True):
+            d.center(num(value, 0), x, baseline, width, 12, bold=is_total)
 
 
 class MatchDetailRenderer(SkiaCardRenderer):
@@ -248,7 +323,10 @@ class MatchDetailRenderer(SkiaCardRenderer):
         self._initialize()
         row_height, rank_width = 96, 74
         top = 162
-        height = top + sum(len(section["items"]) * row_height for section in payload.sections)
+        height = top + sum(
+            len(section["items"]) * row_height + _experiment_height(section)
+            for section in payload.sections
+        )
         d = Drawing(self, 1100, height)
         d.rect(0, 0, 1100, 48, WHITE)
         d.text(payload.subtitle, 20, 30, 16, MUTED, width=890)
@@ -338,5 +416,8 @@ class MatchDetailRenderer(SkiaCardRenderer):
                     if slot < len(p["equipment"]):
                         d.item(p["equipment"][slot], x, ey, 43, 29)
                 y += row_height
+            if section.get("experiment"):
+                _draw_experiment(d, section, y, highlighted)
+                y += _experiment_height(section)
             d.line(0, y - 1, 1100)
         return d.finish()
